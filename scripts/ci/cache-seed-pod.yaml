@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: orbis-cache-seed
+  namespace: actions-runner
+spec:
+  restartPolicy: Never
+  containers:
+    - name: seed
+      image: debian:bookworm-slim
+      command: ["sh", "-c", "sleep infinity"]
+      volumeMounts:
+        - name: cache
+          mountPath: /orbis-cache
+  volumes:
+    - name: cache
+      persistentVolumeClaim:
+        claimName: orbis-win-build-cache
