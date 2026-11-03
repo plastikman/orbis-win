@@ -13,6 +13,8 @@ if [[ ${1:-} == --check ]]; then
     fi
 else
     mkdir -p "$(dirname "$DST")"
-    cp "$SRC" "$DST" && chmod +x "$DST"
+    # Cache files may be owned by the workstation UID on the NFS PVC. Unlink
+    # before copying so this runner creates a file it owns and can chmod.
+    cp --remove-destination "$SRC" "$DST" && chmod +x "$DST"
     echo "toolchain: src/toolchain -> build/ps4-wine-sdk/bin"
 fi
