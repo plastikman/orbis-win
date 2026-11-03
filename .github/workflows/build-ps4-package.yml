@@ -96,3 +96,4 @@ jobs:
           path: ${{ runner.temp }}/orbis-win-artifacts/*
           if-no-files-found: error
           retention-days: 30
+          compression-level: 0
