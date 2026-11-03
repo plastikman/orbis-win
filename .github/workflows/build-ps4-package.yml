@@ -1,0 +1,86 @@
+name: Build PS4 package
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ps4-package-build
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: orbis-win-build
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            age build-essential clang lld llvm cmake ninja-build glslang-tools \
+            lftp git python3 curl pkg-config bison flex perl gcc-mingw-w64-x86-64 \
+            gcc-mingw-w64-i686 g++-mingw-w64-i686
+
+      - name: Attach private build cache
+        run: scripts/ci/prepare-runner.sh
+
+      - name: Check build prerequisites
+        run: scripts/prereqs.sh
+
+      - name: Build relocatable split-runtime package
+        env:
+          TITLE_ID: GLDS10044
+          TITLE: Prospero Wine PS4
+          PW_SPLIT_RUNTIME: "1"
+          PW_SHARED_LIBC: "1"
+          PS4_PKGTOOL_OPENSSL_LIB: /orbis-cache/deps/openssl11/lib
+          PKG_OUT: ${{ runner.temp }}/orbis-win-app
+          PKG_BASE_OUT: ${{ runner.temp }}/orbis-win-base
+        run: |
+          set -euo pipefail
+          scripts/sync-toolchain.sh
+          make -C prospero-win/.deps/wine-ps5/build -j4 dlls/ntdll/ntdll.so
+          scripts/prx-ps4.sh
+          scripts/radv-prx-ps4.sh
+          scripts/freetype-prx-ps4.sh
+          scripts/wineps5-prx-ps4.sh
+          scripts/build-relocatable-wine-ps4.sh
+
+      - name: Encrypt packages and record provenance
+        env:
+          PKG_AGE_RECIPIENT: ${{ vars.PKG_AGE_RECIPIENT }}
+        run: |
+          set -euo pipefail
+          test -n "$PKG_AGE_RECIPIENT" || { echo "Repository variable PKG_AGE_RECIPIENT is not set" >&2; exit 1; }
+          mkdir -p "$RUNNER_TEMP/orbis-win-artifacts"
+          app_pkg=$(find "$RUNNER_TEMP/orbis-win-app" -maxdepth 1 -type f -name '*.pkg' -print -quit)
+          base_pkg=$(find "$RUNNER_TEMP/orbis-win-base" -maxdepth 1 -type f -name '*.pkg' -print -quit)
+          test -s "$app_pkg" && test -s "$base_pkg"
+          age -r "$PKG_AGE_RECIPIENT" -o "$RUNNER_TEMP/orbis-win-artifacts/$(basename "$app_pkg").age" "$app_pkg"
+          age -r "$PKG_AGE_RECIPIENT" -o "$RUNNER_TEMP/orbis-win-artifacts/base-$(basename "$base_pkg").age" "$base_pkg"
+          {
+            echo "root_commit=$(git rev-parse HEAD)"
+            echo "root_ref=${GITHUB_REF}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "wine_commit=$(git -C prospero-win rev-parse HEAD)"
+            echo "wine_dirty_diff_sha256=$(git -C prospero-win diff --binary | sha256sum | cut -d' ' -f1)"
+            echo "mesa_commit=$(git -C mesa-build/mesa-ps4 rev-parse HEAD)"
+            echo "mesa_dirty_diff_sha256=$(git -C mesa-build/mesa-ps4 diff --binary | sha256sum | cut -d' ' -f1)"
+            echo "app_pkg_sha256=$(sha256sum "$app_pkg" | cut -d' ' -f1)"
+            echo "base_pkg_sha256=$(sha256sum "$base_pkg" | cut -d' ' -f1)"
+          } > "$RUNNER_TEMP/orbis-win-artifacts/BUILD-MANIFEST.txt"
+          cat "$RUNNER_TEMP/orbis-win-artifacts/BUILD-MANIFEST.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: orbis-win-${{ github.ref_name }}-${{ github.run_number }}
+          path: ${{ runner.temp }}/orbis-win-artifacts/*
+          if-no-files-found: error
+          retention-days: 30
