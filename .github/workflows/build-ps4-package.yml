@@ -46,6 +46,7 @@ jobs:
           TITLE: Prospero Wine PS4
           PW_SPLIT_RUNTIME: "1"
           PW_SHARED_LIBC: "1"
+          WOW64NATIVE_ABI: "3"
           PS4_PKGTOOL_OPENSSL_LIB: /orbis-cache/deps/openssl11/lib
           PKG_OUT: ${{ runner.temp }}/orbis-win-app
           PKG_BASE_OUT: ${{ runner.temp }}/orbis-win-base
@@ -54,6 +55,10 @@ jobs:
           scripts/sync-toolchain.sh
           make -C prospero-win/.deps/wine-ps5/build -j4 dlls/ntdll/ntdll.so
           scripts/prx-ps4.sh
+          cp /orbis-cache/deps/build/orbw00053-iret-selectors-wow64native/x86_64-unix/wow64native.prx \
+            prospero-win/.deps/wine-ps5/prx/sce_module/wow64native.prx
+          test "$(sha256sum prospero-win/.deps/wine-ps5/prx/sce_module/wow64native.prx | cut -d' ' -f1)" \
+            = e486fc5d126baa4d87fb3921dadf70b437952279ca66d3c1e7d8449ebaf5a506
           scripts/radv-prx-ps4.sh
           scripts/freetype-prx-ps4.sh
           scripts/wineps5-prx-ps4.sh

@@ -14,7 +14,7 @@ The runner's `orbis-win-build-cache` PVC is mounted at `/orbis-cache`. Populate
 
 ```text
 build/ps4-wine-sdk/             generated PS4 compiler support files
-build/orbw00053-iret-selectors-wow64native/  ABI-v3 WoW64 PE companion
+build/orbw00053-iret-selectors-wow64native/  validated ABI-v3 PE/PRX pair
 mesa-build/                     patched Mesa source and validated build-orbis
 openssl11/lib/{libssl,libcrypto}.so.1.1
 prospero-win/                   exact Wine source/build/PE/PRX cache
@@ -24,8 +24,10 @@ manifest.txt                    source commits and cache provenance
 ```
 
 Run `scripts/ci/sync-cache.sh` from the build workstation to copy these inputs
-and refresh their provenance manifest. This copies the files; it does not move
-or replace the local build trees, so ordinary local builds continue to work.
+and refresh their provenance manifest. The package job rebuilds the other PRXs,
+then restores this exact verified ABI-v3 PE/PRX pair because the package stage
+checks both hashes. This copies the files; it does not move or replace the local
+build trees, so ordinary local builds continue to work.
 Do not run a cache sync while a GitHub package build is active. The workflow
 refuses to run if a required cache input is absent. The PVC is private to the
 cluster; do not copy it into GitHub artifacts.
