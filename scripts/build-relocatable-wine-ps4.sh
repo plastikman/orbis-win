@@ -59,6 +59,7 @@ APP_ARGS=(--pkg --relocatable-stage)
 (( NEO )) && APP_ARGS+=(--neo)
 TITLE_ID="$TITLE_ID" TITLE="$TITLE" PKG_OUT="$BASE_OUT" \
 PW_ROOT="$PW" PW_APP_OBJ="$APP_OBJ" \
+PW_MODULE_STUBS_DIR="$MODULE_STUBS_DIR" \
 PW_WINE64_WAIT_WATCHDOG="$PW_WINE64_WAIT_WATCHDOG" \
 PW_WINE64_SERVER_DIRECT_OFF="$PW_WINE64_SERVER_DIRECT_OFF" \
 PW_WINE64_HEAP_FLEXIBLE="$PW_WINE64_HEAP_FLEXIBLE" \
@@ -191,6 +192,11 @@ if (( PW_SPLIT_RUNTIME )); then
   fi
   for module in libc.prx libSceFios2.prx relocated_wine_app.prx; do
     test -s "$OUT/pkg-stage/sce_module/$module"
+  done
+  for module in libc.prx libSceFios2.prx; do
+    cmp -s "$MODULE_STUBS_DIR/$module" "$OUT/pkg-stage/sce_module/$module" || {
+      echo "split app package staged the wrong $module" >&2; exit 1;
+    }
   done
 fi
 echo "pkg: $PKG_FILE ($(du -h "$PKG_FILE" | cut -f1))"

@@ -198,6 +198,9 @@ if (( PKG )); then
   # sce_module keeps Sony's libc.prx and libSceFios2.prx, which the loader does
   # require there.
   for m in "$PRX"/sce_module/*.prx; do
+    case "${m##*/}" in
+      libc.prx|libSceFios2.prx) continue ;;
+    esac
     EXTRA+=(--extra "$m:win/wine/lib/wine/x86_64-unix/$(basename "$m")")
     # ⚠ AND in sce_module. The title loads ntdll by explicit path, but once Wine
     # is running its own dlopen goes through wine/ps5/pw_wine_dl_libc.c, which
@@ -380,6 +383,12 @@ if (( PKG )); then
   printf '   modules: %s\n' "$(ls "$PRX"/sce_module/ | tr '\n' ' ')"
   "$BUNDLE/orbis-compat/scripts/ps4/make-pkg.sh" --eboot "$OBJ/../eboot.bin" --out-dir "$OUT" \
       --title-id "$TITLE_ID" --title "$TITLE" "${EXTRA[@]}"
+  for m in libc.prx libSceFios2.prx; do
+    if [[ ! -f "$OUT/pkg-stage/sce_module/$m" ]] || ! cmp -s "$MODULE_STUBS_DIR/$m" "$OUT/pkg-stage/sce_module/$m"; then
+      echo "   X staged $m does not match selected package stub: $MODULE_STUBS_DIR/$m" >&2
+      exit 1
+    fi
+  done
   if [[ $PW_SKIP_NATIVE != 1 ]]; then
     staged_wow64native="$OUT/pkg-stage/win/wine/lib/wine/x86_64-windows/wow64native.dll"
     if [[ ! -f "$staged_wow64native" ]] || ! cmp -s "$WOW64NATIVE_DLL" "$staged_wow64native"; then
