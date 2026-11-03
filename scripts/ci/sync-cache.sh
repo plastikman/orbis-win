@@ -29,8 +29,9 @@ copy_tree() {
 
 copy_tree prospero-win prospero-win
 copy_tree mesa-build mesa-build
-copy_tree sdk sdk
-copy_tree build build
+tar -C "$ROOT/sdk" -cf - orbis-sdk-v1 |
+  kubectl -n "$NAMESPACE" exec -i "$POD" -- tar -C "$DEST/sdk" -xf -
+copy_tree build/ps4-wine-sdk build/ps4-wine-sdk
 copy_tree sce_module sce_module
 tar -C "$HOME/.cache/orbis-ports/openssl11" -cf - lib |
   kubectl -n "$NAMESPACE" exec -i "$POD" -- tar -C "$DEST/openssl11" -xf -
