@@ -17,6 +17,13 @@ CACHE=/orbis-cache/deps
 [[ -f "$CACHE/build/orbw00053-iret-selectors-wow64native/x86_64-windows/wow64native.dll" ]] || {
   echo "missing ABI-v3 wow64native.dll build output under $CACHE/build" >&2; exit 1;
 }
+[[ -f "$CACHE/build/orbw00053-iret-selectors-wow64native/x86_64-unix/wow64native.prx" ]] || {
+  echo "missing pinned ABI-v3 wow64native.prx under $CACHE/build" >&2; exit 1;
+}
+[[ "$(sha256sum "$CACHE/build/orbw00053-iret-selectors-wow64native/x86_64-unix/wow64native.prx" | cut -d' ' -f1)" == \
+   e486fc5d126baa4d87fb3921dadf70b437952279ca66d3c1e7d8449ebaf5a506 ]] || {
+  echo "cached ABI-v3 wow64native.prx does not match the validated hash" >&2; exit 1;
+}
 [[ -f "$CACHE/sce_module/libc.prx" && -f "$CACHE/sce_module/libSceFios2.prx" ]] || {
   echo "missing private Sony firmware modules under $CACHE/sce_module" >&2; exit 1;
 }
