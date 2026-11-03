@@ -10,7 +10,7 @@ published in plaintext.
 ## One-time private cache setup
 
 The runner's `orbis-win-build-cache` PVC is mounted at `/orbis-cache`. Populate
-`/orbis-cache/deps` with these paths from the validated build workstation:
+`/orbis-cache/deps` from the validated build workstation with:
 
 ```text
 build/ps4-wine-sdk/             generated PS4 compiler support files
@@ -22,9 +22,12 @@ sdk/orbis-sdk-v1/               checksummed OpenOrbis SDK bundle
 manifest.txt                    source commits and cache provenance
 ```
 
-The workflow refuses to run if a required cache input is absent. Refresh this
-cache deliberately when the pinned Wine or Mesa base changes. The PVC is private
-to the cluster; do not copy it into GitHub artifacts.
+Run `scripts/ci/sync-cache.sh` from the build workstation to copy these inputs
+and refresh their provenance manifest. This copies the files; it does not move
+or replace the local build trees, so ordinary local builds continue to work.
+Do not run a cache sync while a GitHub package build is active. The workflow
+refuses to run if a required cache input is absent. The PVC is private to the
+cluster; do not copy it into GitHub artifacts.
 
 The package scripts and generated Wine makefiles still use the historical
 `/home/zpeirce/ps4-gladius` root. `prepare-runner.sh` creates that symlink to the
