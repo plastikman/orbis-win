@@ -5,6 +5,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 PW="${PW_ROOT:-$ROOT/prospero-win}"
+MODULE_STUBS_DIR="${PW_MODULE_STUBS_DIR:-$ROOT/sce_module}"
 BUNDLE="$ROOT/sdk/orbis-sdk-v1"
 CC="$ROOT/build/ps4-wine-sdk/bin/prospero-clang"
 OO="$BUNDLE/sdk"
@@ -49,8 +50,8 @@ esac
 export OO_PS4_TOOLCHAIN="$OO"
 
 [[ -x "$CC" ]] || { echo "missing PS4 compiler: $CC" >&2; exit 1; }
-[[ -f "$ROOT/sce_module/libc.prx" && -f "$ROOT/sce_module/libSceFios2.prx" ]] || {
-  echo "missing required Sony modules in sce_module/" >&2; exit 1;
+[[ -f "$MODULE_STUBS_DIR/libc.prx" && -f "$MODULE_STUBS_DIR/libSceFios2.prx" ]] || {
+  echo "missing required package stubs in $MODULE_STUBS_DIR" >&2; exit 1;
 }
 
 echo "== build the normal app objects and complete runtime package stage"

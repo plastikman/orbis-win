@@ -19,6 +19,7 @@ BUNDLE=$ROOT/sdk/orbis-sdk-v1
 CC=$ROOT/build/ps4-wine-sdk/bin/prospero-clang
 PRX=$PW/.deps/wine-ps5/prx
 OBJ=${PW_APP_OBJ:-$ROOT/build/wine-app/obj}
+MODULE_STUBS_DIR=${PW_MODULE_STUBS_DIR:-$ROOT/sce_module}
 # Environment overrides let a comparison build use a distinct install identity
 # and output directory without changing the default deployable Neo package.
 TITLE_ID="${TITLE_ID:-GLDS10005}"
@@ -176,8 +177,8 @@ if (( PKG )); then
   OUT="${PKG_OUT:-$ROOT/pkgout/wine-app}"; mkdir -p "$OUT"
   EXTRA=()
   for m in libc.prx libSceFios2.prx; do
-    [ -f "$ROOT/sce_module/$m" ] || { echo "missing sce_module/$m — see sce_module/README.md" >&2; exit 1; }
-    EXTRA+=(--extra "$ROOT/sce_module/$m:sce_module/$m")
+    [ -f "$MODULE_STUBS_DIR/$m" ] || { echo "missing package module $MODULE_STUBS_DIR/$m" >&2; exit 1; }
+    EXTRA+=(--extra "$MODULE_STUBS_DIR/$m:sce_module/$m")
   done
   # ⚠ dev.conf must be in the PACKAGE, at /app0/dev.conf. ps5log reads its
   # destination in main() BEFORE pw_hid_ps5_preload, which wine64_main.c marks

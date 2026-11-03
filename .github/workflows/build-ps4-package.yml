@@ -24,7 +24,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            age build-essential clang-19 lld-19 llvm-19 cmake ninja-build glslang-tools \
+            build-essential clang-19 lld-19 llvm-19 cmake ninja-build glslang-tools \
             lftp git python3 curl pkg-config bison flex perl gcc-mingw-w64-x86-64 \
             gcc-mingw-w64-i686 g++-mingw-w64-i686
           for tool in clang clang++ lld ld.lld llvm-ar llvm-ranlib llvm-nm \
@@ -47,12 +47,14 @@ jobs:
           PW_SPLIT_RUNTIME: "1"
           PW_SHARED_LIBC: "1"
           WOW64NATIVE_ABI: "3"
+          PW_MODULE_STUBS_DIR: ${{ github.workspace }}/build/openorbis-module-stubs
           PS4_PKGTOOL_OPENSSL_LIB: /orbis-cache/deps/openssl11/lib
           PKG_OUT: ${{ runner.temp }}/orbis-win-app
           PKG_BASE_OUT: ${{ runner.temp }}/orbis-win-base
         run: |
           set -euo pipefail
           scripts/sync-toolchain.sh
+          scripts/build-openorbis-module-stubs.sh
           make -C prospero-win/.deps/wine-ps5/build -j4 dlls/ntdll/ntdll.so
           scripts/prx-ps4.sh
           cp /orbis-cache/deps/build/orbw00053-iret-selectors-wow64native/x86_64-unix/wow64native.prx \
@@ -64,22 +66,24 @@ jobs:
           scripts/wineps5-prx-ps4.sh
           scripts/build-relocatable-wine-ps4.sh
 
-      - name: Encrypt packages and record provenance
+      - name: Collect packages and record provenance
         env:
-          PKG_AGE_RECIPIENT: ${{ vars.PKG_AGE_RECIPIENT }}
+          PW_MODULE_STUBS_DIR: ${{ github.workspace }}/build/openorbis-module-stubs
         run: |
           set -euo pipefail
-          test -n "$PKG_AGE_RECIPIENT" || { echo "Repository variable PKG_AGE_RECIPIENT is not set" >&2; exit 1; }
           mkdir -p "$RUNNER_TEMP/orbis-win-artifacts"
           app_pkg=$(find "$RUNNER_TEMP/orbis-win-app" -maxdepth 1 -type f -name '*.pkg' -print -quit)
           base_pkg=$(find "$RUNNER_TEMP/orbis-win-base" -maxdepth 1 -type f -name '*.pkg' -print -quit)
           test -s "$app_pkg" && test -s "$base_pkg"
-          age -r "$PKG_AGE_RECIPIENT" -o "$RUNNER_TEMP/orbis-win-artifacts/$(basename "$app_pkg").age" "$app_pkg"
-          age -r "$PKG_AGE_RECIPIENT" -o "$RUNNER_TEMP/orbis-win-artifacts/base-$(basename "$base_pkg").age" "$base_pkg"
+          cp "$app_pkg" "$RUNNER_TEMP/orbis-win-artifacts/"
+          cp "$base_pkg" "$RUNNER_TEMP/orbis-win-artifacts/"
           {
             echo "root_commit=$(git rev-parse HEAD)"
             echo "root_ref=${GITHUB_REF}"
             echo "run_id=${GITHUB_RUN_ID}"
+            echo "module_stub_source=OpenOrbis-PS4-Toolchain@0a1aaf9dd4a92695538bdeb09fb056d06dd11725 (GPL-3.0)"
+            echo "libc_stub_sha256=$(sha256sum "$PW_MODULE_STUBS_DIR/libc.prx" | cut -d' ' -f1)"
+            echo "fios2_stub_sha256=$(sha256sum "$PW_MODULE_STUBS_DIR/libSceFios2.prx" | cut -d' ' -f1)"
             echo "wine_commit=$(git -C prospero-win rev-parse HEAD)"
             echo "wine_dirty_diff_sha256=$(git -C prospero-win diff --binary | sha256sum | cut -d' ' -f1)"
             echo "mesa_commit=$(git -C mesa-build/mesa-ps4 rev-parse HEAD)"
