@@ -7,7 +7,8 @@ NAMESPACE=${ACTIONS_RUNNER_NAMESPACE:-actions-runner}
 POD=${ACTIONS_CACHE_POD:-orbis-cache-seed}
 DEST=/orbis-cache/deps
 
-for path in prospero-win mesa-build sdk/orbis-sdk-v1 build/ps4-wine-sdk sce_module; do
+for path in prospero-win mesa-build sdk/orbis-sdk-v1 build/ps4-wine-sdk \
+  build/orbw00053-iret-selectors-wow64native sce_module; do
   [[ -d "$ROOT/$path" ]] || { echo "missing local cache input: $ROOT/$path" >&2; exit 1; }
 done
 [[ -f "$HOME/.cache/orbis-ports/openssl11/lib/libssl.so.1.1" ]] || {
@@ -32,6 +33,7 @@ copy_tree mesa-build mesa-build
 tar -C "$ROOT/sdk" -cf - orbis-sdk-v1 |
   kubectl -n "$NAMESPACE" exec -i "$POD" -- tar -C "$DEST/sdk" -xf -
 copy_tree build/ps4-wine-sdk build/ps4-wine-sdk
+copy_tree build/orbw00053-iret-selectors-wow64native build/orbw00053-iret-selectors-wow64native
 copy_tree sce_module sce_module
 tar -C "$HOME/.cache/orbis-ports/openssl11" -cf - lib |
   kubectl -n "$NAMESPACE" exec -i "$POD" -- tar -C "$DEST/openssl11" -xf -

@@ -14,6 +14,7 @@ The runner's `orbis-win-build-cache` PVC is mounted at `/orbis-cache`. Populate
 
 ```text
 build/ps4-wine-sdk/             generated PS4 compiler support files
+build/orbw00053-iret-selectors-wow64native/  ABI-v3 WoW64 PE companion
 mesa-build/                     patched Mesa source and validated build-orbis
 openssl11/lib/{libssl,libcrypto}.so.1.1
 prospero-win/                   exact Wine source/build/PE/PRX cache
