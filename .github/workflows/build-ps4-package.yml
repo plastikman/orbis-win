@@ -76,7 +76,7 @@ jobs:
           base_pkg=$(find "$RUNNER_TEMP/orbis-win-base" -maxdepth 1 -type f -name '*.pkg' -print -quit)
           test -s "$app_pkg" && test -s "$base_pkg"
           cp "$app_pkg" "$RUNNER_TEMP/orbis-win-artifacts/"
-          cp "$base_pkg" "$RUNNER_TEMP/orbis-win-artifacts/"
+          cp "$base_pkg" "$RUNNER_TEMP/orbis-win-artifacts/base-$(basename "$base_pkg")"
           {
             echo "root_commit=$(git rev-parse HEAD)"
             echo "root_ref=${GITHUB_REF}"
