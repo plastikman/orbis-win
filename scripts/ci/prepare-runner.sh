@@ -14,6 +14,9 @@ CACHE=/orbis-cache/deps
 [[ -f "$CACHE/sdk/orbis-sdk-v1/sdk/bin/linux/create-fself" ]] || {
   echo "missing OpenOrbis SDK under $CACHE/sdk/orbis-sdk-v1" >&2; exit 1;
 }
+[[ -f "$CACHE/build/orbw00053-iret-selectors-wow64native/x86_64-windows/wow64native.dll" ]] || {
+  echo "missing ABI-v3 wow64native.dll build output under $CACHE/build" >&2; exit 1;
+}
 [[ -f "$CACHE/sce_module/libc.prx" && -f "$CACHE/sce_module/libSceFios2.prx" ]] || {
   echo "missing private Sony firmware modules under $CACHE/sce_module" >&2; exit 1;
 }
