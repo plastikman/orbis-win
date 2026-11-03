@@ -24,9 +24,15 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            age build-essential clang lld llvm cmake ninja-build glslang-tools \
+            age build-essential clang-19 lld-19 llvm-19 cmake ninja-build glslang-tools \
             lftp git python3 curl pkg-config bison flex perl gcc-mingw-w64-x86-64 \
             gcc-mingw-w64-i686 g++-mingw-w64-i686
+          for tool in clang clang++ lld ld.lld llvm-ar llvm-ranlib llvm-nm \
+                      llvm-objcopy llvm-readelf llvm-strip; do
+            sudo ln -sfn "/usr/bin/${tool}-19" "/usr/local/bin/$tool"
+          done
+          clang --version
+          ld.lld --version
 
       - name: Attach private build cache
         run: scripts/ci/prepare-runner.sh
