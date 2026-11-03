@@ -85,11 +85,15 @@ CFLAGS='--target=x86_64-scei-ps4 -fPIC -funwind-tables
 # needs that to keep off 0x400000, where a 32-bit Windows image with its
 # relocations stripped has to live.
 if [ "${PW_NO_PIE:-}" = 1 ]; then PIE=""; else PIE="-pie"; fi
-LDFLAGS="-nostdlib $PIE -Wl,-m,elf_x86_64
-  -Wl,--script=/home/zpeirce/ps4-gladius/mesa-build/orbis-porting-kit/cmake/orbis-tls.ld -Wl,--eh-frame-hdr -Wl,--no-rosegment
+EXE_LD_SCRIPT="${PW_EXECUTABLE_LD_SCRIPT:-/home/zpeirce/ps4-gladius/mesa-build/orbis-porting-kit/cmake/orbis-tls.ld}"
+EXE_NO_RELRO=""
+if [ "${PW_EXECUTABLE_NO_RELRO:-0}" = 1 ]; then EXE_NO_RELRO="-Wl,-z,norelro"; fi
+EXE_COMPAT="-Wl,--whole-archive /home/zpeirce/ps4-gladius/mesa-build/orbis-compat/build/liborbis-compat.a -Wl,--no-whole-archive"
+if [ "${PW_EXECUTABLE_NO_ORBIS_COMPAT:-0}" = 1 ]; then EXE_COMPAT=""; fi
+LDFLAGS="-nostdlib $PIE $EXE_NO_RELRO -Wl,-m,elf_x86_64
+  -Wl,--script=$EXE_LD_SCRIPT -Wl,--eh-frame-hdr -Wl,--no-rosegment
   -L/home/zpeirce/ps4-gladius/sdk/orbis-sdk-v1/sdk/lib"
-LDLIBS='-Wl,--whole-archive /home/zpeirce/ps4-gladius/mesa-build/orbis-compat/build/liborbis-compat.a -Wl,--no-whole-archive
-  -lc -lkernel -lc++ /home/zpeirce/ps4-gladius/sdk/orbis-sdk-v1/sdk/lib/crt1.o'
+LDLIBS="$EXE_COMPAT -lc -lkernel -lc++ /home/zpeirce/ps4-gladius/sdk/orbis-sdk-v1/sdk/lib/crt1.o"
 
 # Add the link half only when actually linking: -c/-S/-E produce no executable
 # and clang warns about unused link arguments, which configure reads as failure.

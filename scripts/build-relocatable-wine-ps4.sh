@@ -18,6 +18,7 @@ PRX="$PW/.deps/wine-ps5/prx"
 PW_WINE64_WAIT_WATCHDOG="${PW_WINE64_WAIT_WATCHDOG:-0}"
 PW_WINE64_SERVER_DIRECT_OFF="${PW_WINE64_SERVER_DIRECT_OFF:-0}"
 PW_WINE64_HEAP_FLEXIBLE="${PW_WINE64_HEAP_FLEXIBLE:-0}"
+PW_EBOOT_NO_RELRO="${PW_EBOOT_NO_RELRO:-1}"
 PS4_KERNELBASE32_DLL="${PS4_KERNELBASE32_DLL:-}"
 PS4_IPHLPAPI32_DLL="${PS4_IPHLPAPI32_DLL:-}"
 PW_SPLIT_RUNTIME="${PW_SPLIT_RUNTIME:-0}"
@@ -40,6 +41,10 @@ esac
 case "$PW_SPLIT_RUNTIME" in
   0|1) ;;
   *) echo "PW_SPLIT_RUNTIME must be 0 or 1" >&2; exit 2 ;;
+esac
+case "$PW_EBOOT_NO_RELRO" in
+  0|1) ;;
+  *) echo "PW_EBOOT_NO_RELRO must be 0 or 1" >&2; exit 2 ;;
 esac
 export OO_PS4_TOOLCHAIN="$OO"
 
@@ -104,12 +109,28 @@ echo "== build the low-address handoff eboot"
 mkdir -p "$BUILD"
 python3 "$ROOT/scripts/gen-libkernel-symbol-list.py" \
   "$OO/include/orbis/libkernel.h" "$BUILD/libkernel-symbols.inc"
-"$CC" -std=gnu11 -O2 -Wall -Wextra -Werror -fPIC \
-  -I"$PW/wine/ps5" -I"$BUILD" "$ROOT/src/reloc-wine-app/stub.c" \
-  -o "$BUILD/stub.elf" -lSceNet -lSceAudioOut -lSceSystemService \
-  -lSceSysmodule -lSceGnmDriver -lSceVideoOut -lScePad -lSceUserService
+if (( PW_EBOOT_NO_RELRO )); then
+  PW_EXECUTABLE_LD_SCRIPT="$ROOT/src/reloc-wine-app/stub-no-relro.ld" \
+  PW_EXECUTABLE_NO_RELRO=1 PW_EXECUTABLE_NO_ORBIS_COMPAT=1 \
+    "$CC" -std=gnu11 -O2 -Wall -Wextra -Werror -fPIC \
+    -I"$PW/wine/ps5" -I"$BUILD" "$ROOT/src/reloc-wine-app/stub.c" \
+    -o "$BUILD/stub-linked.elf" -lSceNet -lSceAudioOut -lSceSystemService \
+    -lSceSysmodule -lSceGnmDriver -lSceVideoOut -lScePad -lSceUserService
+  python3 "$ROOT/scripts/prepare-orbis-stub-no-relro.py" \
+    --layout 0x55c000 0x7fff0000 0x80000000 \
+    "$BUILD/stub-linked.elf" "$BUILD/stub.elf"
+else
+  "$CC" -std=gnu11 -O2 -Wall -Wextra -Werror -fPIC \
+    -I"$PW/wine/ps5" -I"$BUILD" "$ROOT/src/reloc-wine-app/stub.c" \
+    -o "$BUILD/stub.elf" -lSceNet -lSceAudioOut -lSceSystemService \
+    -lSceSysmodule -lSceGnmDriver -lSceVideoOut -lScePad -lSceUserService
+fi
 "$OO/bin/linux/create-fself" -in "$BUILD/stub.elf" \
   -out "$BUILD/stub.oelf" -eboot "$BUILD/eboot.bin" >/dev/null
+if (( PW_EBOOT_NO_RELRO )); then
+  python3 "$ROOT/scripts/prepare-orbis-stub-no-relro.py" \
+    --check-oelf --layout 0x55c000 0x7fff0000 0x80000000 "$BUILD/stub.oelf"
+fi
 
 echo "== package with a distinct title ID"
 STAGE="$BASE_OUT/pkg-stage"
@@ -152,6 +173,17 @@ echo "== verify built image types and package contents"
 llvm-readelf -h "$PRX_BUILD/app.shared.elf" | grep -F 'Type:                              DYN'
 llvm-readelf -h "$BUILD/stub.elf" | grep -F 'Type:                              DYN'
 test -s "$OUT/pkg-stage/sce_module/relocated_wine_app.prx"
+if (( PW_EBOOT_NO_RELRO )); then
+  if llvm-readelf -lW "$BUILD/stub.oelf" | grep -q '0x61000010'; then
+    echo "no-RELRO build still contains PT_SCE_RELRO" >&2; exit 1
+  fi
+  llvm-readelf -lW "$BUILD/stub.oelf" | grep -q '0x61000001' || {
+    echo "no-RELRO eboot lost PT_SCE_PROCPARAM" >&2; exit 1;
+  }
+  llvm-readelf -lW "$BUILD/stub.oelf" | grep -q '0x61000000' || {
+    echo "no-RELRO eboot lost PT_SCE_DYNLIBDATA" >&2; exit 1;
+  }
+fi
 if (( PW_SPLIT_RUNTIME )); then
   if find "$OUT/pkg-stage/win/wine" -type f -print -quit 2>/dev/null | grep -q .; then
     echo "split package unexpectedly contains Wine runtime files" >&2; exit 1;
