@@ -19,3 +19,7 @@ mode = xinput
 
 [runtime]
 cpu = native
+
+[debug]
+; WP/1029: no-exec stays on, so heap pages are not exec-migrated to flexible memory.
+env = PW_PS4_FORCE_EXEC=0
