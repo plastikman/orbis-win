@@ -91,7 +91,8 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: orbis-win-${{ github.ref_name }}-${{ github.run_number }}
+          # Branch names can contain '/', which is not valid in artifact names.
+          name: orbis-win-${{ github.run_number }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/orbis-win-artifacts/*
           if-no-files-found: error
           retention-days: 30
