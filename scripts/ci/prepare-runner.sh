@@ -49,6 +49,14 @@ link_cache "$CACHE/sce_module" "$ROOT/sce_module"
 mkdir -p "$ROOT/sdk"
 link_cache "$CACHE/sdk/orbis-sdk-v1" "$ROOT/sdk/orbis-sdk-v1"
 
+# The validated ABI-v3 hash pair was built with LLVM/Clang 19. Route the SDK's
+# cached absolute tool links to the same major version as the runner packages.
+for tool in llvm-ar llvm-ranlib llvm-nm llvm-objcopy llvm-readelf llvm-strip; do
+  [[ -x "/usr/bin/${tool}-19" ]] || { echo "missing pinned LLVM 19 tool: $tool" >&2; exit 1; }
+  ln -sfn "/usr/bin/${tool}-19" "$CACHE/build/ps4-wine-sdk/bin/$tool"
+done
+ln -sfn /usr/bin/ld.lld-19 "$CACHE/build/ps4-wine-sdk/bin/orbis-ld"
+
 # Cache was seeded by a separate Kubernetes pod and may have another UID.
 git config --global --add safe.directory "$CACHE/prospero-win"
 git config --global --add safe.directory "$CACHE/mesa-build/mesa-ps4"
