@@ -1,0 +1,83 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Subject: [PATCH] ntdll: PW_PS4_FORCE_EXEC=0 keeps no-exec on for data pages
+
+alloc_module() turns no-exec off for the whole process when one module
+lacks NX_COMPAT (FalloutNV.exe 1.4.0.525 does, as do binkw32, libvorbis,
+libvorbisfile, ssce5432 and atimgpud). mprotect_exec() then sends every
+readable range to the glue with PROT_EXEC, and on direct memory each such
+request below 16 MiB is an exec migration: copy out, unmap, map zero-filled
+read/write flexible memory, copy back (pw_wine_dmem_glue_ps4.c:1448-1540).
+Between that mmap and the end of the copy-back another thread reads zero
+without a fault and its stores are overwritten (the glue's own comment at
+:1634-1639 says so), and the migrated range stays in the flexible pool.
+1049 counted 57,052 migrations on at least six threads in one Fallout run
+(docs/HANDOFF-2026-10-26.md, "The speed question").
+
+With PW_PS4_FORCE_EXEC=0 in the environment (a profile's [debug] env line),
+virtual_set_force_exec(TRUE) leaves force_exec_prot off, so only pages
+whose Windows protection is executable ask for PROT_EXEC and migrate. Code
+that runs from memory it did not make executable then takes an instruction
+fetch fault (err 0x15). Unset, or any other value, keeps Wine's behaviour.
+One ERR line says the setting took.
+
+New code, LGPL-2.1-or-later. Applies after 1009, 1010, 1024, 1025 and 1027.
+---
+diff --git a/dlls/ntdll/unix/virtual.c b/dlls/ntdll/unix/virtual.c
+index b890af1..e4df2d8 100644
+--- a/dlls/ntdll/unix/virtual.c
++++ b/dlls/ntdll/unix/virtual.c
+@@ -5997,6 +5997,37 @@ NTSTATUS virtual_uninterrupted_write_memory( void *addr, const void *buffer, SIZ
+ }
+ 
+ 
++#ifdef __PS4__
++/* PW_PS4_FORCE_EXEC=0 (a profile's "[debug] env" line) keeps no-exec on.
++ *
++ * Wine turns no-exec off for the whole process as soon as one loaded module
++ * lacks IMAGE_DLLCHARACTERISTICS_NX_COMPAT (alloc_module() in loader.c;
++ * FalloutNV.exe is one), and mprotect_exec() then asks for PROT_EXEC on every
++ * readable page: each heap commit, decommit clear and protection change.
++ * On the PS4 an executable request on direct memory is an exec migration
++ * (protect_exec_range() in pw_wine_dmem_glue_ps4.c): the range is copied out,
++ * unmapped, mapped again as zero-filled read/write flexible memory and copied
++ * back. Until the copy-back passes a byte, another thread reads zero there
++ * without a fault, and a store it makes there is overwritten; the migrated
++ * pages then stay in the flexible pool.
++ *
++ * With PW_PS4_FORCE_EXEC=0 only pages whose Windows protection is executable
++ * ask for PROT_EXEC. A program that runs code from memory it did not make
++ * executable then faults on the instruction fetch (x86 page-fault error 0x15)
++ * instead. Read once; unset or any other value keeps Wine's behaviour. */
++static BOOL ps4_keep_no_exec(void)
++{
++    static int cached;
++
++    if (!cached)
++    {
++        const char *value = getenv( "PW_PS4_FORCE_EXEC" );
++        cached = (value && value[0] == '0' && !value[1]) ? 1 : -1;
++    }
++    return cached > 0;
++}
++#endif
++
+ /***********************************************************************
+  *           virtual_set_force_exec
+  *
+@@ -6008,6 +6039,15 @@ void virtual_set_force_exec( BOOL enable )
+     sigset_t sigset;
+ #ifdef __PS4__
+     ULONG_PTR stack_addr = (ULONG_PTR)&sigset;
++
++    if (enable && ps4_keep_no_exec())
++    {
++        static LONG logged;
++
++        if (!__atomic_exchange_n( &logged, 1, __ATOMIC_RELAXED ))
++            ERR( "PW_PS4_FORCE_EXEC=0: no-exec stays on; only executable pages ask for PROT_EXEC\n" );
++        return;
++    }
+ #endif
+ 
+     server_enter_uninterrupted_section( &virtual_mutex, &sigset );

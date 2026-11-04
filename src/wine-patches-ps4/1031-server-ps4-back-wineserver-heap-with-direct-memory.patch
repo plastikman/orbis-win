@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: orbis-win <orbis-win@invalid>
+Subject: [PATCH] server: optionally back its heap with PS4 direct memory
+
+The in-process wineserver has a private pw_wine_heap instance, separate from
+ntdll's heap. Ntdll installs a PS4 direct-memory backing for its heap, but the
+server copy has so far used anonymous mmap spans, which consume flexible memory.
+An idle Fallout 3 run exhausted flexible memory while a large RW mapping whose
+label fell within wineserver.prx was growing and Vulkan presentation stopped.
+
+This opt-in test installs the heap backing in start_inprocess_server(), the
+actual entry path for this build. It keeps 64 MiB direct-memory headroom and
+falls back through the existing anonymous mmap path when a direct allocation is
+declined. PW_WINESERVER_HEAP_TRACE=1 emits bounded heap/direct-memory counters
+at startup and every 500,000 server allocations. No extra thread is introduced.
+
+diff --git a/server/main.c b/server/main.c
+index 3f209a5e4e..03adcb0827 100644
+--- a/server/main.c
++++ b/server/main.c
+@@ -260,6 +260,8 @@ static void start_inprocess_server(void)
+     pthread_attr_t attr;
+     pthread_t thread;
+ 
++    extern void pw_wineserver_heap_init( void );
++    pw_wineserver_heap_init();
+     sock_init();
+     open_master_socket();
+     set_current_time();
+diff --git a/server/object.c b/server/object.c
+index e140de0113..1ce0de93f8 100644
+--- a/server/object.c
++++ b/server/object.c
+@@ -205,6 +205,17 @@ void mark_block_uninitialized( void *ptr, size_t size )
+  * fix: a single large block being refused is a different problem from a heap
+  * that is simply full. */
+ static unsigned long long pw_alloc_calls, pw_alloc_bytes;
++static unsigned long long pw_heap_report_at;
++extern void pw_wineserver_heap_report( void );
++
++static void pw_maybe_report_heap( void )
++{
++    if (pw_alloc_calls >= pw_heap_report_at)
++    {
++        pw_heap_report_at = pw_alloc_calls + 500000;
++        pw_wineserver_heap_report();
++    }
++}
+ 
+ static void pw_report_alloc_failure( const char *what, size_t size )
+ {
+@@ -231,6 +242,9 @@ void *mem_alloc( size_t size )
+     pw_alloc_bytes += size;
+ #endif
+     ptr = malloc( size );
++#ifdef __PROSPERO__
++    pw_maybe_report_heap();
++#endif
+     if (ptr) mark_block_uninitialized( ptr, size );
+     else
+     {
+@@ -252,6 +266,9 @@ void *memdup( const void *data, size_t len )
+     pw_alloc_bytes += len;
+ #endif
+     ptr = malloc( len );
++#ifdef __PROSPERO__
++    pw_maybe_report_heap();
++#endif
+     if (ptr) memcpy( ptr, data, len );
+     else
+     {

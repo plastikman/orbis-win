@@ -19,3 +19,9 @@ mode = xinput
 
 [runtime]
 cpu = native
+
+[debug]
+; Avoid exec migrations for readable data pages in this non-NX-compatible game.
+env = PW_PS4_FORCE_EXEC=0
+; Back wineserver's private Wine heap from direct memory rather than flexible mmap.
+env = PW_WINESERVER_HEAP_DIRECT=1
