@@ -199,7 +199,7 @@ if (( PKG )); then
   # require there.
   for m in "$PRX"/sce_module/*.prx; do
     case "${m##*/}" in
-      libc.prx|libSceFios2.prx) continue ;;
+      libc.prx|libSceFios2.prx|relocated_wine_app.prx) continue ;;
     esac
     EXTRA+=(--extra "$m:win/wine/lib/wine/x86_64-unix/$(basename "$m")")
     # ⚠ AND in sce_module. The title loads ntdll by explicit path, but once Wine

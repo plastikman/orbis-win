@@ -159,6 +159,9 @@ while IFS= read -r -d '' file; do
         case "$module" in libc.prx|libSceFios2.prx) ;; *) continue ;; esac
         ;;
     esac
+  if [[ "$rel" == sce_module/relocated_wine_app.prx ]]; then
+    continue
+  fi
   fi
   EXTRA+=(--extra "$file:$rel")
 done < <(find "$STAGE" -type f -print0)
@@ -175,6 +178,9 @@ echo "== verify built image types and package contents"
 llvm-readelf -h "$PRX_BUILD/app.shared.elf" | grep -F 'Type:                              DYN'
 llvm-readelf -h "$BUILD/stub.elf" | grep -F 'Type:                              DYN'
 test -s "$OUT/pkg-stage/sce_module/relocated_wine_app.prx"
+cmp -s "$PRX_BUILD/relocated_wine_app.prx" "$OUT/pkg-stage/sce_module/relocated_wine_app.prx" || {
+  echo "package staged a stale relocated_wine_app.prx" >&2; exit 1;
+}
 if (( PW_EBOOT_NO_RELRO )); then
   if llvm-readelf -lW "$BUILD/stub.oelf" | grep -q '0x61000010'; then
     echo "no-RELRO build still contains PT_SCE_RELRO" >&2; exit 1
