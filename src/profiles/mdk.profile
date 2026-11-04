@@ -1,4 +1,4 @@
-; MDK Direct3D version, staged from /media/D/games/MDK Final/SHINY/MDK.
+; MDK Direct3D version, staged from $GAME_SOURCE/games/MDK Final/SHINY/MDK.
 [application]
 id = mdk
 name = MDK

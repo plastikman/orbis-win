@@ -17,5 +17,8 @@ The ones that cost the most to find:
 | `module_param.o` (not `crtlib.o`) | a module needs `.data.sce_module_param` or create-fself crashes, but `crtlib.o` also defines `module_start`/`module_stop`, which the PRXDESC1 descriptor already provides |
 | `PW_PRX_LINK=1` | `libwineshim.a` is this port's stand-in for `wine/ps5/*`; linking both defines every `__wrap_*` twice |
 
-Keep this copy and the build one in step. `scripts/sync-toolchain.sh` copies
-src → build and reports any drift.
+The shim discovers the repo root from its own path and uses the paired SDK
+bundle's headers, linker script and compatibility archive by default. Set
+`MESA_BUILD` only when deliberately building against another matching
+SDK/compatibility tree. Keep this copy and the build one in step;
+`scripts/sync-toolchain.sh` copies src → build and reports any drift.

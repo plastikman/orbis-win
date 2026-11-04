@@ -9,7 +9,6 @@ owners, so on __PROSPERO__ /download0 and /data both fail that check
 before the prefix is created. Patch 0111 already skips the equivalent
 check after chdir; skip this earlier one for the same reason.
 
-Claude-Session: https://claude.ai/code/session_01W7dtszFRxZRLcH98uRsJpd
 ---
  dlls/ntdll/unix/server.c | 2 ++
  1 file changed, 2 insertions(+)

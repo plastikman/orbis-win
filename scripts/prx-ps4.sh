@@ -16,8 +16,8 @@ set -eu
 # Resolve libc from the shared module so the title and every PRX share one
 # environ and one TLS regime (docs/FINDINGS.md). Unset to go back to static.
 : "${PW_SHARED_LIBC:=1}"; export PW_SHARED_LIBC
-root=${PW_ROOT:-/home/zpeirce/ps4-gladius/prospero-win}
-gladius=/home/zpeirce/ps4-gladius
+gladius=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
+root=${PW_ROOT:-$gladius/prospero-win}
 sdk=$gladius/build/ps4-wine-sdk
 oo=$gladius/sdk/orbis-sdk-v1/sdk
 work=$root/.deps/wine-ps5

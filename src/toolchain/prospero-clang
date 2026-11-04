@@ -18,9 +18,21 @@
 # so bin/orbis-ld is a symlink to it and this prepends that directory to PATH —
 # which is how clang finds a linker. CMake sidesteps the whole question by
 # driving the linker directly instead of through the compiler driver.
-PATH="$(dirname "$0"):$PATH"; export PATH
-
-SDKLIB="/home/zpeirce/ps4-gladius/sdk/orbis-sdk-v1/sdk/lib"
+TOOL_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+PATH="$TOOL_DIR:$PATH"; export PATH
+# This shim is copied from src/toolchain/ into build/ps4-wine-sdk/bin/. Walk
+# upward until the repository root is found, so it works in either location.
+ROOT=$TOOL_DIR
+while [ "$ROOT" != / ] && [ ! -f "$ROOT/sdk/orbis-sdk-v1/BUNDLE.txt" ]; do
+  ROOT=$(dirname "$ROOT")
+done
+[ -f "$ROOT/sdk/orbis-sdk-v1/BUNDLE.txt" ] || {
+  echo "cannot locate orbis-win root; run scripts/fetch-sdk.sh first" >&2
+  exit 2
+}
+SDK="$ROOT/sdk/orbis-sdk-v1/sdk"
+SDKLIB="$SDK/lib"
+MESA_BUILD=${MESA_BUILD:-$ROOT/mesa-build}
 # ⚠ EACH PRX LINKS ITS OWN libunwind, so each must define the four symbols it
 # finds unwind tables through. The executable linker script provides them;
 # a shared link does not, and create-fself refuses the undefined
@@ -36,7 +48,7 @@ CWDWRAPS="-Wl,--wrap=access -Wl,--wrap=chdir -Wl,--wrap=chmod -Wl,--wrap=close -
 # because procParamSection is nil. crtlib.o carries that section — it is a
 # MODULE's entry point, which is why orbis-compat keeps it off the executable
 # link line and why a .so built like an executable can never convert.
-IALD="/home/zpeirce/ps4-gladius/src/freebsd-compat/prx_init_array.ld"
+IALD="$ROOT/src/freebsd-compat/prx_init_array.ld"
 # ⚠ DO NOT link libSceLibcInternal to share the environment. Tried
 # 2026-10-07: the SDK ships libc only as a static archive, so each module has a
 # private __environ and the title's setenv never reaches Wine's getenv. Putting
@@ -45,15 +57,15 @@ IALD="/home/zpeirce/ps4-gladius/src/freebsd-compat/prx_init_array.ld"
 # libc.prx. The title then died with PRX_NOT_RESOLVED_FUNCTION. The environment
 # is shared through pw_ps4_setenv instead (src/native/pw_prx_env_ps4.c), which
 # writes into the module's own environ and touches nothing else.
-MPOBJ="/home/zpeirce/ps4-gladius/build/ps4-wine-sdk/module_param.o"
-MPLD="/home/zpeirce/ps4-gladius/src/freebsd-compat/prx_module_param.ld"
-EHLD="/home/zpeirce/ps4-gladius/prospero-win/wine/ps5/prx_eh_frame.ld"
+MPOBJ="$ROOT/build/ps4-wine-sdk/module_param.o"
+MPLD="$ROOT/src/freebsd-compat/prx_module_param.ld"
+EHLD="$ROOT/prospero-win/wine/ps5/prx_eh_frame.ld"
 # ⚠ THE WINE SHIMS ONLY — not the title's platform layer. Linking the full
 # libpw_native_ps4.a dragged the presenter in and left ntdll importing
 # sceVideoOutOpen, which it has no business touching. The presenter, pad and
 # audio belong to the title; cwd, dl, dmem, heap and threads belong to Wine.
-PWSHIM="/home/zpeirce/ps4-gladius/build/ps4-wine-sdk/libwineshim.a"
-STUBS="/home/zpeirce/ps4-gladius/build/ps4-wine-sdk/libps4stubs.a"
+PWSHIM="$ROOT/build/ps4-wine-sdk/libwineshim.a"
+STUBS="$ROOT/build/ps4-wine-sdk/libps4stubs.a"
 # ⚠ orbis-compat WITHOUT orbis_wchar32.o. That object replaces the SDK's wide
 # functions with 32-bit-wchar_t versions, which is correct for the target
 # orbis-compat measured (x86_64-pc-freebsd12-elf, where clang says wchar_t is
@@ -61,11 +73,11 @@ STUBS="/home/zpeirce/ps4-gladius/build/ps4-wine-sdk/libps4stubs.a"
 # where clang says 16-bit and the headers agree -- so linking those definitions
 # gives Wine a wcslen that steps 4 bytes over 16-bit WCHAR data. Verified in the
 # binary: cmpl $0x0, 0x4(%rdi,%rax). Wine calls wcslen, wmemchr and wmemcmp.
-OCLIB="/home/zpeirce/ps4-gladius/build/ps4-wine-sdk/liborbis-compat-16bit-wchar.a"
+OCLIB="$ROOT/build/ps4-wine-sdk/liborbis-compat-16bit-wchar.a"
 
-CFLAGS='--target=x86_64-scei-ps4 -fPIC -funwind-tables
+CFLAGS="--target=x86_64-scei-ps4 -fPIC -funwind-tables
   -D__PS4__ -DPS4 -DORBIS -D__ORBIS__ -D__PROSPERO__ -D_BSD_SOURCE=1 -fno-visibility-from-dllstorageclass
-  -isysroot /home/zpeirce/ps4-gladius/sdk/orbis-sdk-v1/sdk -isystem /home/zpeirce/ps4-gladius/src/freebsd-compat -isystem /home/zpeirce/ps4-gladius/mesa-build/orbis-compat/include -isystem /home/zpeirce/ps4-gladius/sdk/orbis-sdk-v1/sdk/include'
+  -isysroot $SDK -isystem $ROOT/src/freebsd-compat -isystem $MESA_BUILD/orbis-compat/include -isystem $SDK/include"
 
 # ⚠ LINKING NEEDS THE WHOLE RULE, which is why configure's "can the compiler
 # create executables" failed with compile flags alone. From the same toolchain
@@ -85,15 +97,15 @@ CFLAGS='--target=x86_64-scei-ps4 -fPIC -funwind-tables
 # needs that to keep off 0x400000, where a 32-bit Windows image with its
 # relocations stripped has to live.
 if [ "${PW_NO_PIE:-}" = 1 ]; then PIE=""; else PIE="-pie"; fi
-EXE_LD_SCRIPT="${PW_EXECUTABLE_LD_SCRIPT:-/home/zpeirce/ps4-gladius/mesa-build/orbis-porting-kit/cmake/orbis-tls.ld}"
+EXE_LD_SCRIPT="${PW_EXECUTABLE_LD_SCRIPT:-$MESA_BUILD/orbis-porting-kit/cmake/orbis-tls.ld}"
 EXE_NO_RELRO=""
 if [ "${PW_EXECUTABLE_NO_RELRO:-0}" = 1 ]; then EXE_NO_RELRO="-Wl,-z,norelro"; fi
-EXE_COMPAT="-Wl,--whole-archive /home/zpeirce/ps4-gladius/mesa-build/orbis-compat/build/liborbis-compat.a -Wl,--no-whole-archive"
+EXE_COMPAT="-Wl,--whole-archive $MESA_BUILD/orbis-compat/build/liborbis-compat.a -Wl,--no-whole-archive"
 if [ "${PW_EXECUTABLE_NO_ORBIS_COMPAT:-0}" = 1 ]; then EXE_COMPAT=""; fi
 LDFLAGS="-nostdlib $PIE $EXE_NO_RELRO -Wl,-m,elf_x86_64
   -Wl,--script=$EXE_LD_SCRIPT -Wl,--eh-frame-hdr -Wl,--no-rosegment
-  -L/home/zpeirce/ps4-gladius/sdk/orbis-sdk-v1/sdk/lib"
-LDLIBS="$EXE_COMPAT -lc -lkernel -lc++ /home/zpeirce/ps4-gladius/sdk/orbis-sdk-v1/sdk/lib/crt1.o"
+  -L$SDKLIB"
+LDLIBS="$EXE_COMPAT -lc -lkernel -lc++ $SDK/lib/crt1.o"
 
 # Add the link half only when actually linking: -c/-S/-E produce no executable
 # and clang warns about unused link arguments, which configure reads as failure.

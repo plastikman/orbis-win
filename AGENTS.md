@@ -50,7 +50,7 @@
   active appended klog before launch (GoldHEN deletes dumps shortly after
   reporting them), then retain the retrieved `.sorbisdmp`, matching klog
   window, package hash/build marker, and exact runtime symbols together under
-  `/home/zpeirce/codex_scratch/<title>-coredumps/`. For Wine guest faults, use
+  `$SCRATCH_ROOT/<title>-coredumps/`. For Wine guest faults, use
   the first-exception register/context and bounded guest-stack/object records
   emitted by the PS4 Wine diagnostics, correlate their timestamp with klog,
   then map the guest EIP/RVA against the exact game PE and map PRX PCs against
@@ -83,7 +83,7 @@
   fixes). Before packaging, compare the candidate against the latest known-good
   baseline and account for every omitted or changed fix. Remove a fix only for
   an explicitly scoped A/B test, and restore it in the next package.
-- Do not use `/tmp` for project artifacts; use `/home/zpeirce/codex_scratch`.
+- Do not use `/tmp` for project artifacts; use `$SCRATCH_ROOT`.
 - Fallout New Vegas gameplay testing should default to the native WoW64 CPU
   backend. Do not ask the user to repeat translator runs unless a specific,
   controlled A/B is necessary to distinguish a native-only regression.

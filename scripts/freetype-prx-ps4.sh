@@ -24,7 +24,7 @@ set -eu
 # archive and the module gets its own copy of the heap and of the module
 # registry instead of ntdll's. prx-ps4.sh sets this for every module it builds.
 PW_PRX_LINK=1; export PW_PRX_LINK
-root=/home/zpeirce/ps4-gladius
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 bundle=$root/sdk/orbis-sdk-v1
 oo=$bundle/sdk
 sdk=$root/build/ps4-wine-sdk

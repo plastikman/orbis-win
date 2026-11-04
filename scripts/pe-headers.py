@@ -1,15 +1,21 @@
 from ftplib import FTP
-import struct, sys
+import argparse
+import struct
 
-path = sys.argv[1]
+parser = argparse.ArgumentParser(description="Read PE headers from a GoldHEN FTP file")
+parser.add_argument("path", help="remote file path")
+parser.add_argument("--host", required=True, help="PS4 address")
+parser.add_argument("--port", type=int, default=2121)
+args = parser.parse_args()
+
 buf = bytearray()
-f = FTP(); f.connect('10.168.2.52', 2121, timeout=30); f.login()
+f = FTP(); f.connect(args.host, args.port, timeout=30); f.login()
 def grab(b):
     buf.extend(b)
     if len(buf) > 65536:
         raise EOFError
 try:
-    f.retrbinary('RETR ' + path, grab, blocksize=8192)
+    f.retrbinary('RETR ' + args.path, grab, blocksize=8192)
 except EOFError:
     pass
 except Exception as e:
@@ -18,7 +24,7 @@ try: f.quit()
 except Exception: pass
 
 d = bytes(buf)
-print('read %d bytes of %s' % (len(d), path))
+print('read %d bytes of %s' % (len(d), args.path))
 e_lfanew = struct.unpack_from('<I', d, 0x3c)[0]
 assert d[e_lfanew:e_lfanew+4] == b'PE\0\0', 'no PE signature'
 machine, nsec = struct.unpack_from('<HH', d, e_lfanew+4)

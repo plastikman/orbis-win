@@ -15,7 +15,7 @@ import shutil
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = Path("/home/zpeirce/prospero-library/prefixes/oblivion")
+SOURCE = None
 OUTPUT = ROOT / "build/falloutnv-prefix"
 REGISTRY = ROOT / "build/falloutnv-registry"
 FONTS = ROOT / "build/falloutnv-gta-fonts"
@@ -65,7 +65,8 @@ def load_prefix_module():
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", type=Path, default=SOURCE)
+    parser.add_argument("--source", type=Path, required=True,
+                        help="local Wine prefix containing the generic base files")
     parser.add_argument("--output", type=Path, default=OUTPUT)
     args = parser.parse_args()
     source, output = args.source.resolve(), args.output.resolve()
