@@ -1,0 +1,21 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+Subject: [PATCH] wow64cpu: log reset context validity flags
+
+Include I386_CONTEXT.ContextFlags in the bounded pre-IRET diagnostic. The
+register values are only meaningful for register groups selected by these
+flags, so this distinguishes an invalid saved context from zeroed fields that
+were simply not requested.
+
+--- a/dlls/wow64cpu/cpu.c
++++ b/dlls/wow64cpu/cpu.c
+@@ -283,9 +283,9 @@ void wow64cpu_log_context( const I386_CONTEXT *context )
+ 
+     if (n > 16) return;
+-    ERR( "PW_WOW64_PRE_IRET n=%ld eip=%08lx esp=%08lx cs=%04lx ss=%04lx eflags=%08lx "
++    ERR( "PW_WOW64_PRE_IRET n=%ld ctxflags=%08lx eip=%08lx esp=%08lx cs=%04lx ss=%04lx eflags=%08lx "
+          "eax=%08lx ebx=%08lx ecx=%08lx edx=%08lx esi=%08lx edi=%08lx ebp=%08lx fs=%04lx gs=%04lx\n",
+-         n, context->Eip, context->Esp, context->SegCs, context->SegSs, context->EFlags,
++         n, context->ContextFlags, context->Eip, context->Esp, context->SegCs, context->SegSs, context->EFlags,
+          context->Eax, context->Ebx, context->Ecx, context->Edx,
+          context->Esi, context->Edi, context->Ebp, context->SegFs, context->SegGs );
+ }

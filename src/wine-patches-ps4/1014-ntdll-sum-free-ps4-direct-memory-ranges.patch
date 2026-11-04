@@ -1,0 +1,70 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps4-gladius <ps4-gladius@invalid>
+Subject: [PATCH] ntdll: sum free Prospero direct memory across ranges
+
+sceKernelAvailableDirectMemorySize returns the largest available block in
+the requested range.  Using it once under-reports free direct memory whenever
+the pool is fragmented, which can make GlobalMemoryStatusEx report less commit
+headroom than the process can allocate and trip applications' startup checks.
+
+Query disjoint 64 MiB ranges and sum the largest free block in each.  This
+keeps the value bounded by actual free blocks, avoids overlap, and costs a
+bounded number of kernel queries.  Flexible memory remains included as before.
+
+---
+diff --git a/dlls/ntdll/unix/system.c b/dlls/ntdll/unix/system.c
+index 8a9df0e54f..e5f34d9730 100644
+--- a/dlls/ntdll/unix/system.c
++++ b/dlls/ntdll/unix/system.c
+@@ -2780,23 +2780,42 @@ static void get_performance_info( SYSTEM_PERFORMANCE_INFORMATION *info )
+     /* Orbis sysctl reports no usable physical-memory or commit limit.  The
+      * 449 MiB flexible pool is only one pool: ntdll also backs anonymous
+-     * mappings from direct memory.  Report the console's physical RAM, and
+-     * the free amounts we can query. sceKernelAvailableDirectMemorySize
+-     * reports the largest free block, so this deliberately undercounts
+-     * fragmented direct memory rather than claiming more than is available. */
++     * mappings from direct memory.  Report the console's physical RAM and
++     * the free amounts we can query. sceKernelAvailableDirectMemorySize
++     * reports only the largest block in its range, so scan disjoint ranges
++     * and sum their largest blocks.  This counts fragmented free memory
++     * without counting the same physical range twice. */
+     {
+         extern int sceKernelAvailableFlexibleMemorySize( size_t *size );
+         extern int sceKernelAvailableDirectMemorySize( off_t start, off_t end, size_t alignment,
+                                                        off_t *phys_out, size_t *size_out );
+         extern size_t sceKernelGetDirectMemorySize(void);
+-        size_t flexible = 0, direct = 0;
++        const size_t alignment = 0x200000;
++        const size_t range_size = 0x04000000;
++        size_t flexible = 0, direct = 0, direct_total;
+         off_t direct_phys = 0;
++        off_t offset, limit;
+ 
+         totalram = 8ULL * 1024 * 1024 * 1024;
+         freeram = 0;
+         if (!sceKernelAvailableFlexibleMemorySize( &flexible )) freeram += flexible;
+-        if (!sceKernelAvailableDirectMemorySize( 0, sceKernelGetDirectMemorySize(), 0x200000,
+-                                                 &direct_phys, &direct )) freeram += direct;
++        direct_total = sceKernelGetDirectMemorySize();
++        limit = direct_total & ~(off_t)(alignment - 1);
++        for (offset = 0; offset < limit; )
++        {
++            off_t end = offset + range_size;
++            size_t block = 0;
++
++            if (end > limit) end = limit;
++            if (!sceKernelAvailableDirectMemorySize( offset, end, alignment,
++                                                     &direct_phys, &block ))
++            {
++                if (block > direct_total - direct) direct = direct_total;
++                else direct += block;
++            }
++            offset = end;
++        }
++        freeram += direct;
+         freeram = min( freeram, totalram );
+         totalswap = page_size;
+         freeswap = 0;
+     }
+---
+2.45.2

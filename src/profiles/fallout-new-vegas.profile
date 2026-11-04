@@ -16,3 +16,6 @@ scaling = fit
 
 [input]
 mode = xinput
+
+[runtime]
+cpu = native

@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Capture the next named PS4 coredump from an already-running klog file.
+"""Continuously capture named PS4 coredumps from an already-running klog file.
 
 Usage: scripts/watch-coredump.py HOST PORT KLOG LOCAL_DIR TITLE_ID
 
-The watcher tails only the local klog and performs RETR on the exact coredump
+The watcher tails only the local klog and performs RETR on each exact coredump
 path GoldHEN announces. It never lists or probes FTP paths. GoldHEN reports the
 path before coredump.elf finishes writing it, so retrieval retries for up to
-20 seconds to span the dump-write interval and cleanup window.
+20 seconds to span the dump-write interval and cleanup window. It stays alive
+after a capture so a rapid second crash is not missed.
 """
 
 import re
@@ -73,14 +74,20 @@ def main() -> int:
                 if result.returncode == 0:
                     print(result.stdout, end="", flush=True)
                     print(f"RETR succeeded on attempt {attempt}: {local}", flush=True)
-                    return 0
+                    break
                 time.sleep(0.2)
 
-            if result:
-                print(result.stdout, end="", flush=True)
-                print(result.stderr, end="", file=sys.stderr, flush=True)
-            print(f"RETR failed after {attempt} attempts: {local}", flush=True)
-            return result.returncode if result else 1
+            else:
+                if result:
+                    print(result.stdout, end="", flush=True)
+                    print(result.stderr, end="", file=sys.stderr, flush=True)
+                print(f"RETR failed after {attempt} attempts: {local}; continuing to watch", flush=True)
+
+            if result and result.returncode != 0:
+                # The path was announced but GoldHEN cleaned it up before RETR
+                # succeeded. Keep monitoring for the next crash rather than
+                # exiting after a missed dump.
+                continue
 
         time.sleep(0.05)
 

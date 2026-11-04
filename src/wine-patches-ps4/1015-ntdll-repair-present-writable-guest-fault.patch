@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ps4-gladius <ps4-gladius@invalid>
+Subject: [PATCH] ntdll: retry verified present writable PS4 guest faults once
+
+Pass the x86 page-fault error code to the PS4 fault hook. This lets the
+platform-specific hook distinguish a present user write protection fault from
+an unmapped-page fault before attempting its bounded per-page protection
+resynchronization.
+
+---
+diff --git a/dlls/ntdll/unix/signal_x86_64.c b/dlls/ntdll/unix/signal_x86_64.c
+index 29d7c704d2..0000000000 100644
+--- a/dlls/ntdll/unix/signal_x86_64.c
++++ b/dlls/ntdll/unix/signal_x86_64.c
+@@ -3465,10 +3465,12 @@ static void __attribute__((used)) segv_handler( int signal, siginfo_t *siginfo,
+              * page unmapped while it is replaced with flexible memory. If a
+              * guest thread faults on that exact page during the replacement,
+              * wait for the mapping operation and retry the instruction only
+              * when its requested access is valid in the settled mapping. */
+-            extern int __wine_ps5_wait_for_exec_migration( const void *, unsigned int ) __attribute__((weak));
++            extern int __wine_ps5_wait_for_exec_migration( const void *, unsigned int,
++                                                            unsigned int ) __attribute__((weak));
+             if (__wine_ps5_wait_for_exec_migration &&
+                 __wine_ps5_wait_for_exec_migration( siginfo->si_addr,
+-                                                     (unsigned int)rec.ExceptionInformation[0] ))
++                                                     (unsigned int)rec.ExceptionInformation[0],
++                                                     (unsigned int)ERROR_sig(sigcontext) ))
+             {
+                 leave_handler( data, sigcontext );
+                 return;
+-- 
+2.45.2

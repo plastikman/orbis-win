@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+Subject: [PATCH] wow64cpu: log the actual i386 reset-state context
+
+BTCpuSimulate passes cpu->Context, which is an I386_CONTEXT. Do not interpret
+that buffer as the host AMD64 CONTEXT: doing so reports fields from unrelated
+32-bit context offsets and hides the EIP/ESP that will be used by IRET.
+
+--- a/dlls/wow64cpu/cpu.c
++++ b/dlls/wow64cpu/cpu.c
+@@ -278,22 +278,13 @@
+ static LONG wow64_context_trace_count;
+ 
+-void wow64cpu_log_context( const CONTEXT *context )
++void wow64cpu_log_context( const I386_CONTEXT *context )
+ {
+     LONG n = InterlockedIncrement( &wow64_context_trace_count );
+ 
+     if (n > 16) return;
+-    ERR( "PW_WOW64_PRE_IRET n=%ld rip=%08lx%08lx rsp=%08lx%08lx cs=%04x ss=%04x eflags=%08lx "
+-         "rax=%08lx%08lx rbx=%08lx%08lx rcx=%08lx%08lx rdx=%08lx%08lx "
+-         "rsi=%08lx%08lx rdi=%08lx%08lx rbp=%08lx%08lx r8=%08lx%08lx r9=%08lx%08lx\n",
+-         n, (ULONG)(context->Rip >> 32), (ULONG)context->Rip,
+-         (ULONG)(context->Rsp >> 32), (ULONG)context->Rsp, context->SegCs, context->SegSs,
+-         context->EFlags, (ULONG)(context->Rax >> 32), (ULONG)context->Rax,
+-         (ULONG)(context->Rbx >> 32), (ULONG)context->Rbx,
+-         (ULONG)(context->Rcx >> 32), (ULONG)context->Rcx,
+-         (ULONG)(context->Rdx >> 32), (ULONG)context->Rdx,
+-         (ULONG)(context->Rsi >> 32), (ULONG)context->Rsi,
+-         (ULONG)(context->Rdi >> 32), (ULONG)context->Rdi,
+-         (ULONG)(context->Rbp >> 32), (ULONG)context->Rbp,
+-         (ULONG)(context->R8 >> 32), (ULONG)context->R8,
+-         (ULONG)(context->R9 >> 32), (ULONG)context->R9 );
++    ERR( "PW_WOW64_PRE_IRET n=%ld eip=%08lx esp=%08lx cs=%04lx ss=%04lx eflags=%08lx "
++         "eax=%08lx ebx=%08lx ecx=%08lx edx=%08lx esi=%08lx edi=%08lx ebp=%08lx fs=%04lx gs=%04lx\n",
++         n, context->Eip, context->Esp, context->SegCs, context->SegSs, context->EFlags,
++         context->Eax, context->Ebx, context->Ecx, context->Edx,
++         context->Esi, context->Edi, context->Ebp, context->SegFs, context->SegGs );
+ }

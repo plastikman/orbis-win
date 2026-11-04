@@ -73,6 +73,11 @@
 - Build relocatable packages by default and keep the relocation fix in every
   test package. Do not create or upload a nonrelocatable package unless the
   user explicitly asks for that comparison.
+- When telling the user which package to install, give the exact installer
+  filename (for example, `IV0000-GLDS10085_00-GLDS100850000000.pkg`). Keep this
+  filename consistent across builds for the same title ID; use the friendly
+  title/build marker only as extra context, never as a substitute for the
+  installer filename.
 - Keep project changes additive: preserve known-good fixes and behavior in
   each new package (including relocation, input, filesystem, and close-path
   fixes). Before packaging, compare the candidate against the latest known-good
@@ -82,3 +87,10 @@
 - Fallout New Vegas gameplay testing should default to the native WoW64 CPU
   backend. Do not ask the user to repeat translator runs unless a specific,
   controlled A/B is necessary to distinguish a native-only regression.
+- For CPU-mode A/Bs, `PW_WINE64 cpu=translator` only proves the profile request.
+  Confirm the active translator from the Wine trace: it must load
+  `wowprospero.dll` and reach the `BTCpuSimulate` / `simulate entry` marker.
+  Check the prefix's `Software\\Microsoft\\Wow64\\x86` registration as well;
+  a profile that merely omits the native override can inherit `wow64cpu.dll`
+  and never run the prospero-win translator. Keep the launcher selecting the
+  requested CPU DLL explicitly for both modes.

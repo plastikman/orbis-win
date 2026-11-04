@@ -48,11 +48,10 @@ static int platform_pad_set_vibration(int32_t h, const uint8_t motors[2])
 
 /* ⚠ THE ONE FUNCTION THAT IS NOT A FORWARD.
  *
- * Fills only what read_batch() consumes: buttons, timestamp, connected_count,
- * connected, both sticks and both triggers. The rest of PwPadPs5Data — the
- * quaternion, the touch data, the DualSense device-unique block — is zeroed
- * and stays zeroed, because the core never reads it and inventing values would
- * be inventing a DualSense this console does not have.
+ * Fills what read_batch() consumes: buttons, timestamp, connected_count,
+ * connected, both sticks, both triggers, and the touch sample used by the
+ * shared on-screen-keyboard gesture. The remaining motion and device-unique
+ * fields stay zeroed; the core does not use them.
  *
  * The button bits need no translation: the PS4 and PS5 both use Sony's layout,
  * CROSS 0x4000 through TOUCH_PAD 0x100000.
@@ -77,6 +76,13 @@ static int platform_pad_read(int32_t handle, PwPadPs5Data *out, int32_t count)
         out[i].right_stick     = (PwPadPs5Stick){ raw[i].rightStick.x, raw[i].rightStick.y };
         out[i].l2              = raw[i].analogButtons.l2;
         out[i].r2              = raw[i].analogButtons.r2;
+        out[i].touch_data.fingers = raw[i].touch.fingers;
+        out[i].touch_data.reserved1 = raw[i].touch.pad2;
+        for (int finger = 0; finger < 2; finger++) {
+            out[i].touch_data.touch[finger].x = raw[i].touch.touch[finger].x;
+            out[i].touch_data.touch[finger].y = raw[i].touch.touch[finger].y;
+            out[i].touch_data.touch[finger].finger = raw[i].touch.touch[finger].finger;
+        }
     }
     return got;
 }

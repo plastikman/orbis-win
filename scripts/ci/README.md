@@ -2,10 +2,12 @@
 
 The `orbis-win-build` ARC runner is restricted to `worker4` and `worker5`. The
 workflow is manual or tag-triggered (`v*`) and does not run for pull requests.
-It builds the relocatable split-runtime app package and its complete base
-package, then uploads only age-encrypted packages plus a plain-text provenance
-manifest. Sony firmware modules are kept in the private runner cache and never
-published in plaintext.
+It builds one complete relocatable package and uploads the unencrypted `.pkg`
+plus a plain-text provenance manifest as a GitHub Actions artifact. This
+repository is public, so anyone with repository access can download that
+package. The CI build uses tracked
+GPL-3.0 OpenOrbis source to generate the empty `libc.prx` and `libSceFios2.prx`
+package stubs; the manifest records their hashes and source revision.
 
 ## One-time private cache setup
 
@@ -18,7 +20,6 @@ build/orbw00053-iret-selectors-wow64native/  validated ABI-v3 PE/PRX pair
 mesa-build/                     patched Mesa source and validated build-orbis
 openssl11/lib/{libssl,libcrypto}.so.1.1
 prospero-win/                   exact Wine source/build/PE/PRX cache
-sce_module/{libc,libSceFios2}.prx  private firmware modules
 sdk/orbis-sdk-v1/               checksummed OpenOrbis SDK bundle
 manifest.txt                    source commits and cache provenance
 ```
@@ -37,18 +38,16 @@ The package scripts and generated Wine makefiles still use the historical
 Actions checkout and links in the private cached dependency trees. This keeps
 the tested generated build tree usable without rewriting its embedded paths.
 
-## Artifact decryption
+The package step sets `PW_MODULE_STUBS_DIR` to `build/openorbis-module-stubs/`,
+which `scripts/build-openorbis-module-stubs.sh` generates from tracked source.
+Local package builds still use `sce_module/` unless that variable is set.
 
-Packages contain Sony firmware modules, so the workflow encrypts each `.pkg`
-with age before uploading. Configure repository variable `PKG_AGE_RECIPIENT`
-with the public recipient from the private identity created for this project.
-Keep the corresponding private identity outside the repository and cluster.
-Decrypt an artifact on the build workstation with:
+## Package artifacts
 
-```sh
-age --decrypt --identity ~/.config/orbis-win/pkg-build-age.key \
-  --output package.pkg package.pkg.age
-```
+Download the complete `.pkg` directly from the workflow run's
+`orbis-win-<run>-<attempt>` artifact. Verify its hash against
+`BUILD-MANIFEST.txt` before installation. The OpenOrbis stub sources and their
+GPL-3.0 license are tracked under `src/openorbis-module-stubs/`.
 
 The artifact has a 30-day retention period. Workflow triggers are limited to
 manual runs and pushed `v*` tags; do not add public pull-request triggers to a

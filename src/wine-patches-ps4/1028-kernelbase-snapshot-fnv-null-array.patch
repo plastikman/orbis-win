@@ -1,0 +1,62 @@
+From: Codex <codex@openai.com>
+Subject: [PATCH] kernelbase: snapshot Fallout NV null array entry
+
+At the observed Fallout NV binary-search AV, capture the array owner and the
+selected array slots before generic exception logging. This is fault-only
+instrumentation and does not change guest execution.
+
+--- a/dlls/kernelbase/debug.c
++++ b/dlls/kernelbase/debug.c
+@@ -549,6 +549,9 @@
+     DWORD fallout3_manager[24] = {0}, fallout3_node[4] = {0};
+     SIZE_T fallout3_manager_size = 0, fallout3_node_size = 0;
+     BOOL fallout3_manager_read = FALSE, fallout3_node_read = FALSE;
++    DWORD fnv_array_owner[8] = {0}, fnv_array_slots[3] = {0};
++    SIZE_T fnv_array_owner_size = 0, fnv_array_slots_size = 0;
++    BOOL fnv_array_owner_read = FALSE, fnv_array_slots_read = FALSE;
+ 
+     if (!ctx) return;
+     /* For a direct null read through ESI, snapshot the pointer chain and the
+@@ -611,6 +614,27 @@
+             ReadProcessMemory( GetCurrentProcess(), (const void *)(ULONG_PTR)ctx->Edi,
+                                fallout3_node, sizeof(fallout3_node), &fallout3_node_size );
+     }
++    /* Fallout NV's binary-search helper faulted after selecting a null entry
++     * from [EDX+0x10]. Capture the owner, array base, and nearby slots before
++     * generic exception logging can observe a changed structure. This runs
++     * only for the matching read-AV PC/address and makes no execution changes. */
++    if (ctx->Eip == 0x00a5be35 && ptr->ExceptionRecord &&
++        ptr->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION &&
++        ptr->ExceptionRecord->NumberParameters > 1 &&
++        !ptr->ExceptionRecord->ExceptionInformation[0] &&
++        ptr->ExceptionRecord->ExceptionInformation[1] == 8)
++    {
++        fnv_array_owner_read = ctx->Edx &&
++            ReadProcessMemory( GetCurrentProcess(), (const void *)(ULONG_PTR)ctx->Edx,
++                               fnv_array_owner, sizeof(fnv_array_owner), &fnv_array_owner_size );
++        if (fnv_array_owner_read && fnv_array_owner_size >= 0x14 && fnv_array_owner[4])
++        {
++            ULONG_PTR slot = (ULONG_PTR)fnv_array_owner[4] + (ULONG_PTR)ctx->Edi * sizeof(DWORD);
++            fnv_array_slots_read = ReadProcessMemory( GetCurrentProcess(), (const void *)slot,
++                                                       fnv_array_slots, sizeof(fnv_array_slots),
++                                                       &fnv_array_slots_size );
++        }
++    }
+     MESSAGE( "PW_EXCEPTION32 tid=%04lx eip=%08lx esp=%08lx ebp=%08lx eax=%08lx ebx=%08lx ecx=%08lx edx=%08lx esi=%08lx edi=%08lx\n",
+              GetCurrentThreadId(), ctx->Eip, ctx->Esp, ctx->Ebp, ctx->Eax,
+              ctx->Ebx, ctx->Ecx, ctx->Edx, ctx->Esi, ctx->Edi );
+@@ -654,6 +678,14 @@
+             MESSAGE( "PW_EXCEPTION32 fallout3-list node read failed addr=%08lx bytes=%lu ok=%u\n",
+                      ctx->Edi, (ULONG)fallout3_node_size, fallout3_node_read );
+     }
++    if (ctx->Eip == 0x00a5be35)
++        MESSAGE( "PW_EXCEPTION32 fnv-null-array owner=%08lx bytes=%lu ok=%u words=%08lx,%08lx,%08lx,%08lx,%08lx,%08lx,%08lx,%08lx slots-at=%08lx bytes=%lu ok=%u index=%08lx values=%08lx,%08lx,%08lx\n",
++                 ctx->Edx, (ULONG)fnv_array_owner_size, fnv_array_owner_read,
++                 fnv_array_owner[0], fnv_array_owner[1], fnv_array_owner[2], fnv_array_owner[3],
++                 fnv_array_owner[4], fnv_array_owner[5], fnv_array_owner[6], fnv_array_owner[7],
++                 fnv_array_owner[4] + ctx->Edi * sizeof(DWORD), (ULONG)fnv_array_slots_size,
++                 fnv_array_slots_read, ctx->Edi, fnv_array_slots[0], fnv_array_slots[1],
++                 fnv_array_slots[2] );
+ 
+     if (ReadProcessMemory( GetCurrentProcess(), (const void *)(ULONG_PTR)ctx->Esp,
+                            stack, sizeof(stack), &bytes_read ))

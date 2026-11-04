@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+Subject: [PATCH] wow64cpu: log reset state and target selectors
+
+The pre-IRET diagnostic now confirms the i386 context is complete, but the
+first context does not match the ensuing fault PC. Record the WOW64 CPU flags
+(including RESET_STATE) and the PS4 code/stack selectors that BTCpuSimulate
+will load immediately after the log call.
+
+--- a/dlls/wow64cpu/cpu.c
++++ b/dlls/wow64cpu/cpu.c
+@@ -281,12 +281,16 @@ void wow64cpu_log_context( const I386_CONTEXT *context )
+ {
+     LONG n = InterlockedIncrement( &wow64_context_trace_count );
++    DWORD cpu_flags;
+ 
+     if (n > 16) return;
++    cpu_flags = *(const DWORD *)((const char *)context - sizeof(DWORD));
+-    ERR( "PW_WOW64_PRE_IRET n=%ld ctxflags=%08lx eip=%08lx esp=%08lx cs=%04lx ss=%04lx eflags=%08lx "
++    ERR( "PW_WOW64_PRE_IRET n=%ld cpuflags=%08lx ctxflags=%08lx eip=%08lx esp=%08lx cs=%04lx ss=%04lx "
++         "targetcs=%04x targetss=%04x eflags=%08lx "
+          "eax=%08lx ebx=%08lx ecx=%08lx edx=%08lx esi=%08lx edi=%08lx ebp=%08lx fs=%04lx gs=%04lx\n",
+-         n, context->ContextFlags, context->Eip, context->Esp, context->SegCs, context->SegSs, context->EFlags,
++         n, cpu_flags, context->ContextFlags, context->Eip, context->Esp, context->SegCs, context->SegSs,
++         cs32_sel, ss32_sel, context->EFlags,
+          context->Eax, context->Ebx, context->Ecx, context->Edx,
+          context->Esi, context->Edi, context->Ebp, context->SegFs, context->SegGs );
+ }

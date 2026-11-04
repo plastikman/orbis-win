@@ -1,0 +1,78 @@
+Subject: [PATCH] ntdll: report file descriptor details on mapping fallback failure
+
+Record the original mmap errno and inspect the descriptor only when the
+unaligned committed-view pread fallback fails. fstat, F_GETFL, and SEEK_CUR
+identify whether the descriptor is seekable and what kind of object it is;
+none of these calls changes mapping behavior.
+
+--- a/dlls/ntdll/unix/virtual.c
++++ b/dlls/ntdll/unix/virtual.c
+@@ -2995,6 +2995,8 @@
+     char *map_addr, *host_addr;
+     size_t map_size, host_size;
+     void *mapped;
++    int mmap_errno = 0;
++    BOOL tried_mmap = FALSE;
+     int prot = PROT_READ | PROT_WRITE;
+     unsigned int flags = MAP_FIXED;
+ 
+@@ -3034,7 +3036,9 @@
+                  view->base, (unsigned long)start, (unsigned long)size, host_addr,
+                  (unsigned long)host_size, fd, wine_dbgstr_longlong(offset), prot,
+                  flags, vprot, removable );
++        tried_mmap = TRUE;
+         mapped = mmap( host_addr, host_size, prot, flags, fd, offset );
++        if (mapped == MAP_FAILED) mmap_errno = errno;
+         if (trace_oblivion)
+             ERR( "PS4_OBLIVION map-file result view=%p map=%p map_size=%lx result=%p errno=%d\n",
+                  view->base, host_addr, (unsigned long)host_size, mapped,
+@@ -3042,7 +3046,7 @@
+         if (mapped != MAP_FAILED)
+             return STATUS_SUCCESS;
+ 
+-        switch (errno)
++        switch (mmap_errno)
+         {
+         case EINVAL:  /* file offset is not page-aligned, fall back to read() */
+             break;
+@@ -3060,7 +3064,7 @@
+             break;
+         default:
+             ERR( "mmap error %s, range %p-%p, unix_prot %#x\n",
+-                 strerror(errno), map_addr, map_addr + map_size, prot );
++                 strerror(mmap_errno), map_addr, map_addr + map_size, prot );
+             return STATUS_NO_MEMORY;
+         }
+     }
+@@ -3099,10 +3103,29 @@
+             if (count < 0 && errno == EINTR) continue;
+             if (count < 0)
+             {
++                struct stat st;
+                 int err = errno;
+-                ERR( "map-file fallback pread failed map=%p size=%lx offset=%s done=%lx errno=%d\n",
++                int stat_result, stat_errno, fd_flags, fd_flags_errno;
++                off_t fd_pos;
++                int seek_errno;
++
++                stat_result = fstat( fd, &st );
++                stat_errno = stat_result == -1 ? errno : 0;
++                fd_flags = fcntl( fd, F_GETFL );
++                fd_flags_errno = fd_flags == -1 ? errno : 0;
++                fd_pos = lseek( fd, 0, SEEK_CUR );
++                seek_errno = fd_pos == (off_t)-1 ? errno : 0;
++                ERR( "map-file fallback pread failed map=%p size=%lx offset=%s done=%lx errno=%d "
++                     "fd=%d mmap_tried=%u mmap_errno=%d flags=%#x flags_errno=%d "
++                     "fstat=%d fstat_errno=%d mode=%#o size=%s dev=%s ino=%s "
++                     "pos=%s seek_errno=%d view=%#x vprot=%#x removable=%u\n",
+                      map_addr, (unsigned long)size, wine_dbgstr_longlong(offset),
+-                     (unsigned long)done, err );
++                     (unsigned long)done, err, fd, tried_mmap, mmap_errno, fd_flags, fd_flags_errno,
++                     stat_result, stat_errno, stat_result == -1 ? 0 : st.st_mode,
++                     wine_dbgstr_longlong(stat_result == -1 ? 0 : st.st_size),
++                     wine_dbgstr_longlong(stat_result == -1 ? 0 : st.st_dev),
++                     wine_dbgstr_longlong(stat_result == -1 ? 0 : st.st_ino),
++                     wine_dbgstr_longlong(fd_pos), seek_errno, view->protect, vprot, removable );
+                 return STATUS_INVALID_PARAMETER;
+             }
+             if (!count)

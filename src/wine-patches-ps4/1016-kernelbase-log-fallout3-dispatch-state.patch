@@ -1,0 +1,59 @@
+From: Codex <codex@openai.com>
+Subject: [PATCH] kernelbase: snapshot Fallout 3 dispatch state on fault
+
+At the observed Fallout 3 GOG dispatch AV, capture the array pointer, index,
+and selected callback entry before logging can allow another thread to mutate
+it. The read is limited to that exact fault PC and only the exception path.
+
+--- a/dlls/kernelbase/debug.c
++++ b/dlls/kernelbase/debug.c
+@@ -536,6 +536,10 @@
+     SIZE_T bytes_read = 0;
+     SIZE_T early_object_size = 0;
+     BOOL early_object_read = FALSE;
++    DWORD fallout3_dispatch[4] = {0};
++    DWORD fallout3_fields[2] = {0};
++    SIZE_T fallout3_dispatch_size = 0, fallout3_array_size = 0, fallout3_index_size = 0;
++    BOOL fallout3_dispatch_read = FALSE, fallout3_array_read = FALSE, fallout3_index_read = FALSE;
+ 
+     if (!ctx) return;
+     /* Snapshot the object before logging or querying other memory. A later
+@@ -546,6 +550,25 @@
+                                                (const void *)(ULONG_PTR)ctx->Esi,
+                                                early_object, sizeof(early_object),
+                                                &early_object_size );
++    /* Fallout 3 GOG 1.7.0.3 dispatch fault observed at VA 0x0082cca7:
++     * capture the array base/index and selected callback record before any
++     * logging or queries can allow another game thread to mutate them. This
++     * branch is fault-only and reads at most 24 bytes. */
++    if (ctx->Eip == 0x0082cca7)
++    {
++        ULONG_PTR array_field = (ULONG_PTR)ctx->Esi + 0x1f0;
++        ULONG_PTR index_field = (ULONG_PTR)ctx->Esi + 0x298;
++
++        fallout3_dispatch_read = ctx->Ecx &&
++            ReadProcessMemory( GetCurrentProcess(), (const void *)(ULONG_PTR)ctx->Ecx,
++                               fallout3_dispatch, sizeof(fallout3_dispatch), &fallout3_dispatch_size );
++        fallout3_array_read = ReadProcessMemory( GetCurrentProcess(), (const void *)array_field,
++                                                 &fallout3_fields[0], sizeof(DWORD),
++                                                 &fallout3_array_size );
++        fallout3_index_read = ReadProcessMemory( GetCurrentProcess(), (const void *)index_field,
++                                                 &fallout3_fields[1], sizeof(DWORD),
++                                                 &fallout3_index_size );
++    }
+     MESSAGE( "PW_EXCEPTION32 tid=%04lx eip=%08lx esp=%08lx ebp=%08lx eax=%08lx ebx=%08lx ecx=%08lx edx=%08lx esi=%08lx edi=%08lx\n",
+              GetCurrentThreadId(), ctx->Eip, ctx->Esp, ctx->Ebp, ctx->Eax,
+              ctx->Ebx, ctx->Ecx, ctx->Edx, ctx->Esi, ctx->Edi );
+@@ -556,6 +579,12 @@
+     else if (ctx->Esi)
+         MESSAGE( "PW_EXCEPTION32 early-object read failed addr=%08lx error=%lu\n",
+                  ctx->Esi, GetLastError() );
++    if (ctx->Eip == 0x0082cca7)
++        MESSAGE( "PW_EXCEPTION32 fallout3-dispatch entry=%08lx entry-bytes=%lu entry-ok=%u words=%08lx,%08lx,%08lx,%08lx array-field=%08lx/%lu array-ok=%u array=%08lx index-field=%08lx/%lu index-ok=%u index=%08lx\n",
++                 ctx->Ecx, (ULONG)fallout3_dispatch_size, fallout3_dispatch_read,
++                 fallout3_dispatch[0], fallout3_dispatch[1], fallout3_dispatch[2], fallout3_dispatch[3],
++                 (ULONG)(ctx->Esi + 0x1f0), (ULONG)fallout3_array_size, fallout3_array_read, fallout3_fields[0],
++                 (ULONG)(ctx->Esi + 0x298), (ULONG)fallout3_index_size, fallout3_index_read, fallout3_fields[1] );
+ 
+     if (ReadProcessMemory( GetCurrentProcess(), (const void *)(ULONG_PTR)ctx->Esp,
+                            stack, sizeof(stack), &bytes_read ))

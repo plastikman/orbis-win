@@ -1,0 +1,68 @@
+From 1025 Mon Sep 17 00:00:00 2001
+Subject: [PATCH] kernelbase: snapshot guest object on null member read
+
+Fault-only diagnostics capture the null-read pointer chain and object bytes
+before generic logging. No mapping, retry, or exception behavior changes.
+
+--- a/dlls/kernelbase/debug.c
++++ b/dlls/kernelbase/debug.c
+@@ -533,9 +533,15 @@
+     const CONTEXT *ctx = ptr->ContextRecord;
+     DWORD stack[8] = {0};
+     DWORD early_object[4] = {0};
++    DWORD null_read_chain[3] = {0};
++    DWORD null_read_eax[8] = {0};
+     SIZE_T bytes_read = 0;
+     SIZE_T early_object_size = 0;
++    SIZE_T null_read_chain_size[3] = {0};
++    SIZE_T null_read_eax_size = 0;
+     BOOL early_object_read = FALSE;
++    BOOL null_read_chain_read[3] = {FALSE};
++    BOOL null_read_eax_read = FALSE;
+     DWORD fallout3_dispatch[4] = {0};
+     DWORD fallout3_fields[2] = {0};
+     SIZE_T fallout3_dispatch_size = 0, fallout3_array_size = 0, fallout3_index_size = 0;
+@@ -545,6 +551,27 @@
+     BOOL fallout3_manager_read = FALSE, fallout3_node_read = FALSE;
+ 
+     if (!ctx) return;
++    /* For a direct null read through ESI, snapshot the pointer chain and the
++     * object at EAX before any of the generic exception diagnostics run. */
++    if (ptr->ExceptionRecord &&
++        ptr->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION &&
++        ptr->ExceptionRecord->NumberParameters > 1 &&
++        !ptr->ExceptionRecord->ExceptionInformation[0] &&
++        !ptr->ExceptionRecord->ExceptionInformation[1] && !ctx->Esi && ctx->Eax)
++    {
++        null_read_chain_read[0] = ReadProcessMemory( GetCurrentProcess(),
++            (const void *)(ULONG_PTR)(ctx->Ecx + 4), &null_read_chain[0], sizeof(DWORD),
++            &null_read_chain_size[0] );
++        null_read_chain_read[1] = ReadProcessMemory( GetCurrentProcess(),
++            (const void *)(ULONG_PTR)(ctx->Edx + 0xac), &null_read_chain[1], sizeof(DWORD),
++            &null_read_chain_size[1] );
++        null_read_chain_read[2] = ReadProcessMemory( GetCurrentProcess(),
++            (const void *)(ULONG_PTR)(ctx->Eax + 0x0c), &null_read_chain[2], sizeof(DWORD),
++            &null_read_chain_size[2] );
++        null_read_eax_read = ReadProcessMemory( GetCurrentProcess(),
++            (const void *)(ULONG_PTR)ctx->Eax, null_read_eax, sizeof(null_read_eax),
++            &null_read_eax_size );
++    }
+     /* Snapshot the object before logging or querying other memory. A later
+      * diagnostic read can observe a different value if another game thread
+      * mutates or remaps this object while exception reporting is underway. */
+@@ -587,6 +614,15 @@
+     MESSAGE( "PW_EXCEPTION32 tid=%04lx eip=%08lx esp=%08lx ebp=%08lx eax=%08lx ebx=%08lx ecx=%08lx edx=%08lx esi=%08lx edi=%08lx\n",
+              GetCurrentThreadId(), ctx->Eip, ctx->Esp, ctx->Ebp, ctx->Eax,
+              ctx->Ebx, ctx->Ecx, ctx->Edx, ctx->Esi, ctx->Edi );
++    if (null_read_chain_read[0] || null_read_chain_read[1] || null_read_chain_read[2])
++        MESSAGE( "PW_EXCEPTION32 null-read-chain ecx+04=%08lx/%u edx+ac=%08lx/%u eax+0c=%08lx/%u\n",
++                 null_read_chain[0], null_read_chain_read[0], null_read_chain[1],
++                 null_read_chain_read[1], null_read_chain[2], null_read_chain_read[2] );
++    if (null_read_eax_read)
++        MESSAGE( "PW_EXCEPTION32 null-read-eax eax=%08lx bytes=%lu words=%08lx,%08lx,%08lx,%08lx,%08lx,%08lx,%08lx,%08lx\n",
++                 ctx->Eax, (ULONG)null_read_eax_size, null_read_eax[0], null_read_eax[1],
++                 null_read_eax[2], null_read_eax[3], null_read_eax[4], null_read_eax[5],
++                 null_read_eax[6], null_read_eax[7] );
+     if (early_object_read)
+         MESSAGE( "PW_EXCEPTION32 early-object addr=%08lx bytes=%lu words=%08lx,%08lx,%08lx,%08lx\n",
+                  ctx->Esi, (ULONG)early_object_size, early_object[0], early_object[1],

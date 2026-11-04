@@ -75,7 +75,7 @@ gen "$prx/obj/ntdll_desc.c" \
     pw_wine_set_pad pw_wine_rumble pw_wine_pad pw_wine_set_rumble \
     pw_wine_set_audio_sink pw_wine_audio_available pw_wine_audio_output \
     __wine_virtual_stats __wine_virtual_fault_top __wine_ps5_set_output_sink \
-    __wine_ps5_memory_stats pw_cwd_set \
+    __wine_ps5_memory_stats __wine_ps5_wait_for_exec_migration pw_cwd_set \
     __wine_ps5_set_segv_hook __wine_ps5_set_segv_unresolved_hook \
     pw_wine_set_display_release pw_wine_release_display pw_ps4_setenv pw_wine_dl_addr \
     --optional-from "$build/dlls/ntdll/ntdll.so" --nm llvm-nm \
@@ -157,6 +157,9 @@ ntdll_shims="pw_wine_prx pw_wine_dl pw_wine_dl_libc pw_wine_compat pw_wine_compa
 # This port's own: lets the title write into ntdll's environment (see the file).
 $CC -std=gnu11 -O2 -fPIC -c "$gladius/src/native/pw_prx_env_ps4.c" -o "$prx/obj/pw_prx_env_ps4.o"
 $CC -std=gnu11 -O2 -Wall -Wextra -Werror -fPIC -c "$gladius/src/native/pw_pthread_stack_ps4.c" -o "$prx/obj/pw_pthread_stack_ps4.o"
+$CC -std=gnu11 -O2 -Wall -Wextra -Werror -fPIC \
+    -DPW_WINESERVER_STACKSIZE_PASSTHROUGH=1 \
+    -c "$gladius/src/native/pw_pthread_stack_ps4.c" -o "$prx/obj/pw_wineserver_stack_ps4.o"
 srv_shims="pw_wine_compat pw_wine_compat_libc pw_wine_threads pw_wine_threads_libc \
            pw_wine_cwd pw_wine_cwd_libc"
 # A title cannot chdir: ntdll and wineserver each keep their own working
@@ -207,6 +210,10 @@ for step in "ntdll|dlls/ntdll/ntdll.so|$ntdll_shims" \
         shim_objs="$heap $dmem $prx/obj/pw_prx_env_ps4.o $prx/obj/pw_pthread_stack_ps4.o"
         thread_wraps="-Wl,--wrap=pthread_create"
     fi
+    if [ "$name" = wineserver ]; then
+        shim_objs="$prx/obj/pw_wineserver_stack_ps4.o"
+        thread_wraps="-Wl,--wrap=pthread_create"
+    fi
     # ⚠ The server needs the heap too, and upstream says so: pw_wine_heap_libc.c
     # reads "the in-process wineserver links its own copy". Only ntdll got it
     # here, so wineserver kept importing malloc from the shared libc -- the very
@@ -216,7 +223,7 @@ for step in "ntdll|dlls/ntdll/ntdll.so|$ntdll_shims" \
     # loader reports as GTA IV's 30th DLL onwards failing to load. Its own copy,
     # as upstream intends; pw_wine_heap takes its memory from anonymous mmap in
     # 1 MiB pieces, so the server draws on flexible memory instead.
-    [ "$name" = wineserver ] && shim_objs="$heap"
+    [ "$name" = wineserver ] && shim_objs="$shim_objs $heap"
     [ "$name" = ws2_32 ] && shim_objs="$shim_objs $prx/obj/pw_ws2_32_libc_ps4.o"
     [ "$name" = ws2_32 ] && extra_libs="-lSceNetCtl"
     # ⚠ And every other unixlib gets the forwarding half alone. Without it they

@@ -238,9 +238,10 @@ if (( PKG )); then
     EXTRA_FILES+=(--extra "$ROOT/prospero-win/.deps/wine-ps5/prx/sce_module/ntdll.prx:win/wine/lib/wine/x86_64-unix/ntdll.prx")
   fi
   for m in libc.prx libSceFios2.prx; do
-    [[ -f "$ROOT/sce_module/$m" ]] ||
-      die "missing sce_module/$m — see sce_module/README.md. Without it the title crashes with PRX_SCE_MODULE_LOAD_ERROR before main()."
-    EXTRA_FILES+=(--extra "$ROOT/sce_module/$m:sce_module/$m")
+    module_stubs_dir=${PW_MODULE_STUBS_DIR:-$ROOT/sce_module}
+    [[ -f "$module_stubs_dir/$m" ]] ||
+      die "missing package module $module_stubs_dir/$m. Without both modules the title crashes with PRX_SCE_MODULE_LOAD_ERROR before main()."
+    EXTRA_FILES+=(--extra "$module_stubs_dir/$m:sce_module/$m")
   done
 
   "$PS4_SCRIPTS/make-pkg.sh" --eboot "$BUILD/eboot.bin" --out-dir "$OUT" \

@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+Subject: [PATCH] wow64cpu: use PS4 selectors in WOW64 return frame
+
+The PS4 translator faults with #GP at wow64cpu's reset-state iretq
+(`trap=9`, selector error `0x20`). The native WoW64 backend hit the same
+selector fault and was fixed by using the PS4 compatibility selectors
+CS=0x33 and SS=0x3b in its IRET frame. Apply that measured fix to the
+translator's corresponding frame instead of copying guest CONTEXT selectors.
+
+diff --git a/dlls/wow64cpu/cpu.c b/dlls/wow64cpu/cpu.c
+--- a/dlls/wow64cpu/cpu.c
++++ b/dlls/wow64cpu/cpu.c
+@@ -215,7 +215,7 @@ __ASM_GLOBAL_FUNC( syscall_32to64,
+                    "movq %rsp,%r14\n\t"
+                    "movl 0xa8(%r13),%edx\n\t"   /* context->Edx */
+                    "movl 0xac(%r13),%ecx\n\t"   /* context->Ecx */
+-                   "movl 0xc8(%r13),%eax\n\t"   /* context->SegSs */
++                   "movl $0x3b,%eax\n\t"        /* PS4 compatibility stack selector */
+                    "movq %rax,0x20(%rsp)\n\t"
+                    "mov %ax,%ds\n\t"
+                    "mov %ax,%es\n\t"
+@@ -225,7 +225,7 @@ __ASM_GLOBAL_FUNC( syscall_32to64,
+                    "movq %rax,0x18(%rsp)\n\t"
+                    "movl 0xc0(%r13),%eax\n\t"   /* context->EFlags */
+                    "movq %rax,0x10(%rsp)\n\t"
+-                   "movl 0xbc(%r13),%eax\n\t"   /* context->SegCs */
++                   "movl $0x33,%eax\n\t"        /* PS4 compatibility code selector */
+                    "movq %rax,0x8(%rsp)\n\t"
+                    "movl 0xb8(%r13),%eax\n\t"   /* context->Eip */
+                    "movq %rax,(%rsp)\n\t"
+--
+2.43.0

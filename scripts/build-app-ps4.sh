@@ -19,6 +19,7 @@ BUNDLE=$ROOT/sdk/orbis-sdk-v1
 CC=$ROOT/build/ps4-wine-sdk/bin/prospero-clang
 PRX=$PW/.deps/wine-ps5/prx
 OBJ=${PW_APP_OBJ:-$ROOT/build/wine-app/obj}
+MODULE_STUBS_DIR=${PW_MODULE_STUBS_DIR:-$ROOT/sce_module}
 # Environment overrides let a comparison build use a distinct install identity
 # and output directory without changing the default deployable Neo package.
 TITLE_ID="${TITLE_ID:-GLDS10005}"
@@ -176,8 +177,8 @@ if (( PKG )); then
   OUT="${PKG_OUT:-$ROOT/pkgout/wine-app}"; mkdir -p "$OUT"
   EXTRA=()
   for m in libc.prx libSceFios2.prx; do
-    [ -f "$ROOT/sce_module/$m" ] || { echo "missing sce_module/$m — see sce_module/README.md" >&2; exit 1; }
-    EXTRA+=(--extra "$ROOT/sce_module/$m:sce_module/$m")
+    [ -f "$MODULE_STUBS_DIR/$m" ] || { echo "missing package module $MODULE_STUBS_DIR/$m" >&2; exit 1; }
+    EXTRA+=(--extra "$MODULE_STUBS_DIR/$m:sce_module/$m")
   done
   # ⚠ dev.conf must be in the PACKAGE, at /app0/dev.conf. ps5log reads its
   # destination in main() BEFORE pw_hid_ps5_preload, which wine64_main.c marks
@@ -197,6 +198,9 @@ if (( PKG )); then
   # sce_module keeps Sony's libc.prx and libSceFios2.prx, which the loader does
   # require there.
   for m in "$PRX"/sce_module/*.prx; do
+    case "${m##*/}" in
+      libc.prx|libSceFios2.prx|relocated_wine_app.prx) continue ;;
+    esac
     EXTRA+=(--extra "$m:win/wine/lib/wine/x86_64-unix/$(basename "$m")")
     # ⚠ AND in sce_module. The title loads ntdll by explicit path, but once Wine
     # is running its own dlopen goes through wine/ps5/pw_wine_dl_libc.c, which
@@ -211,17 +215,40 @@ if (( PKG )); then
   # and without it init_environment reports
   #   err:environ:read_nls_file failed to load .../locale.nls
   NLS=$PW/.deps/wine-runtime/nls
-  if [ -d "$NLS" ]; then
-    for f in "$NLS"/*.nls; do
-      EXTRA+=(--extra "$f:win/wine/share/wine/nls/$(basename "$f")")
-      # ⚠ AND beside the modules. ntdll locates the in-process server with
-      # dladdr and derives the server's NLS directory as "<that dir>/nls"
-      # (patch 0111), which is NOT where Wine itself looks. Two consumers, two
-      # paths, same files.
-      EXTRA+=(--extra "$f:win/wine/lib/wine/x86_64-unix/nls/$(basename "$f")")
-    done
-    printf '   nls: %s files\n' "$(ls "$NLS"/*.nls 2>/dev/null | wc -l)"
+  if [[ ! -f "$NLS/locale.nls" || ! -f "$NLS/l_intl.nls" ]]; then
+    echo "   X incomplete Wine NLS runtime at $NLS (requires locale.nls and l_intl.nls)" >&2
+    exit 1
   fi
+  nls_count=0
+  for f in "$NLS"/*.nls; do
+    [ -f "$f" ] || continue
+    EXTRA+=(--extra "$f:win/wine/share/wine/nls/$(basename "$f")")
+    # ⚠ AND beside the modules. ntdll locates the in-process server with
+    # dladdr and derives the server's NLS directory as "<that dir>/nls"
+    # (patch 0111), which is NOT where Wine itself looks. Two consumers, two
+    # paths, same files.
+    EXTRA+=(--extra "$f:win/wine/lib/wine/x86_64-unix/nls/$(basename "$f")")
+    nls_count=$((nls_count+1))
+  done
+  (( nls_count > 0 )) || { echo "   X no Wine NLS data files in $NLS" >&2; exit 1; }
+  printf '   nls: %s files\n' "$nls_count"
+  # Wine's builtin font fallback is shared runtime data, not title/prefix data.
+  # Keep the same six Wine TTFs that repaired the empty Fonts directories on
+  # the console, once under the app's common runtime so every profile can use
+  # them without duplicating them into each game's installer.
+  FONTDIR=$PW/.deps/wine-host/install/usr/share/wine/fonts
+  if [[ ! -f "$FONTDIR/tahoma.ttf" ]]; then
+    echo "   X Wine runtime fonts missing at $FONTDIR (requires tahoma.ttf)" >&2
+    exit 1
+  fi
+  font_count=0
+  for f in "$FONTDIR"/*.ttf; do
+    [ -f "$f" ] || continue
+    EXTRA+=(--extra "$f:win/wine/share/wine/fonts/$(basename "$f")")
+    font_count=$((font_count+1))
+  done
+  (( font_count > 0 )) || { echo "   X no Wine TTF fonts in $FONTDIR" >&2; exit 1; }
+  printf '   fonts: %s shared runtime TTFs\n' "$font_count"
   # Wine's PE side: the shared runtime, beside the Unix modules.
   #
   # The Unix side loads some of these by path, before any Windows search path
@@ -260,37 +287,47 @@ if (( PKG )); then
     echo "   X PS4_IPHLPAPI32_DLL does not exist: $PS4_IPHLPAPI32_DLL" >&2
     exit 1
   fi
-  # The PS4 Unix companion uses ABI v3. The host install tree also contains an
-  # upstream ABI-v4 wow64native.dll, which must never enter a PS4 package.
-  # Default to the known-matching PS4 PE build and fail closed if it is absent
-  # or changes unexpectedly; callers may supply another DLL only after
-  # deliberately updating this ABI pin.
-  # Pin the PS4 selector-corrected ABI-v3 build. The older ORBW00040 DLL
-  # reintroduces the 0x23 IRET selector fault and must not be packaged.
+  # Native WoW64 PE and Unix companion ABIs must match. Keep ABI v3 as the
+  # existing default; an explicit ABI v4 comparison may select the synced
+  # companion built from the same source tree as its PS4 PRX.
   PW_SKIP_NATIVE="${PW_SKIP_NATIVE:-0}"
   if [[ $PW_SKIP_NATIVE != 1 ]]; then
-    WOW64NATIVE_DLL="${WOW64NATIVE_DLL:-$ROOT/build/orbw00053-iret-selectors-wow64native/x86_64-windows/wow64native.dll}"
-    WOW64NATIVE_ABI3_SHA256="${WOW64NATIVE_ABI3_SHA256:-d7029105cae5d9ba7eecb16b33b02fff8d4c0d7dba7801ab4cd817053a88ce36}"
+    WOW64NATIVE_ABI="${WOW64NATIVE_ABI:-3}"
+    case $WOW64NATIVE_ABI in
+      3)
+        WOW64NATIVE_DLL="${WOW64NATIVE_DLL:-$ROOT/build/orbw00053-iret-selectors-wow64native/x86_64-windows/wow64native.dll}"
+        WOW64NATIVE_SHA256="${WOW64NATIVE_ABI3_SHA256:-d7029105cae5d9ba7eecb16b33b02fff8d4c0d7dba7801ab4cd817053a88ce36}"
+        WOW64NATIVE_PRX_SHA256="${WOW64NATIVE_ABI3_PRX_SHA256:-e486fc5d126baa4d87fb3921dadf70b437952279ca66d3c1e7d8449ebaf5a506}"
+        ;;
+      4)
+        WOW64NATIVE_DLL="${WOW64NATIVE_DLL:-$PW/.deps/wine-ps5/pe/x86_64-windows/wow64native.dll}"
+        WOW64NATIVE_SHA256="${WOW64NATIVE_ABI4_SHA256:-79ca58203273010701a7d6c6d74a12c08e95c2877f2a0b763287dc9f869f6502}"
+        WOW64NATIVE_PRX_SHA256="${WOW64NATIVE_ABI4_PRX_SHA256:-af747c960c6fde21b59d4e38962adb44fae162bb060b1b1601ab6cb1a1bcd97f}"
+        ;;
+      *) echo "   X unsupported WOW64NATIVE_ABI=$WOW64NATIVE_ABI (expected 3 or 4)" >&2; exit 1 ;;
+    esac
     if [[ ! -f "$WOW64NATIVE_DLL" ]]; then
-      echo "   X required PS4 ABI-v3 wow64native.dll does not exist: $WOW64NATIVE_DLL" >&2
-      echo "     set WOW64NATIVE_DLL to the deliberately built PS4 ABI-v3 PE module" >&2
+      echo "   X required PS4 ABI-v$WOW64NATIVE_ABI wow64native.dll does not exist: $WOW64NATIVE_DLL" >&2
       exit 1
     fi
     wow64native_sha256=$(sha256sum "$WOW64NATIVE_DLL" | cut -d ' ' -f 1)
-    if [[ $wow64native_sha256 != "$WOW64NATIVE_ABI3_SHA256" ]]; then
+    if [[ $wow64native_sha256 != "$WOW64NATIVE_SHA256" ]]; then
       echo "   X refusing non-matching wow64native.dll: $WOW64NATIVE_DLL" >&2
-      echo "     expected ABI-v3 SHA-256 $WOW64NATIVE_ABI3_SHA256" >&2
+      echo "     expected ABI-v$WOW64NATIVE_ABI SHA-256 $WOW64NATIVE_SHA256" >&2
       echo "     got                      $wow64native_sha256" >&2
       exit 1
     fi
-  fi
-  HOST_WOW64NATIVE_DLL="$PELIB/x86_64-windows/wow64native.dll"
-  HOST_WOW64NATIVE_ABI4_SHA256=27f74c33b5512419e19c3a1ee91254264bca6bd2f64dc8c135a9cb49ec35b904
-  if [[ -f "$HOST_WOW64NATIVE_DLL" ]]; then
-    host_wow64native_sha256=$(sha256sum "$HOST_WOW64NATIVE_DLL" | cut -d ' ' -f 1)
-    if [[ $host_wow64native_sha256 == "$HOST_WOW64NATIVE_ABI4_SHA256" ]]; then
-      rm -f -- "$HOST_WOW64NATIVE_DLL"
-      echo "   removed incompatible upstream ABI-v4 wow64native.dll from PE install tree"
+    wow64native_prx="$PRX/sce_module/wow64native.prx"
+    if [[ ! -f "$wow64native_prx" ]]; then
+      echo "   X required ABI-v$WOW64NATIVE_ABI wow64native.prx does not exist: $wow64native_prx" >&2
+      exit 1
+    fi
+    wow64native_prx_sha256=$(sha256sum "$wow64native_prx" | cut -d ' ' -f 1)
+    if [[ $wow64native_prx_sha256 != "$WOW64NATIVE_PRX_SHA256" ]]; then
+      echo "   X refusing mismatched wow64native PE/PRX pair for ABI-v$WOW64NATIVE_ABI" >&2
+      echo "     expected PRX SHA-256 $WOW64NATIVE_PRX_SHA256" >&2
+      echo "     got                 $wow64native_prx_sha256 ($wow64native_prx)" >&2
+      exit 1
     fi
   fi
   # The WoW64 CPU backend's PE side is not part of Wine: prx-ps4.sh builds only
@@ -329,8 +366,7 @@ if (( PKG )); then
         dest_basename=iphlpapi.dll
       fi
       if [[ $arch == x86_64-windows && ${f##*/} == wow64native.dll ]]; then
-        # Deliberately discard the ABI-v4 file from PELIB rather than adding it
-        # to EXTRA. Only the pinned PS4 ABI-v3 override is packaged below.
+        # Package only the explicitly selected ABI-matched PS4 override below.
         continue
       fi
       EXTRA+=(--extra "$f:win/wine/lib/wine/$arch/$dest_basename")
@@ -340,19 +376,32 @@ if (( PKG )); then
   done
   if [[ $PW_SKIP_NATIVE != 1 ]]; then
     EXTRA+=(--extra "$WOW64NATIVE_DLL:win/wine/lib/wine/x86_64-windows/wow64native.dll")
-    printf '   wow64native ABI-v3 PE: %s (%s)\n' "$WOW64NATIVE_DLL" "$wow64native_sha256"
+    printf '   wow64native ABI-v%s PE: %s (%s)\n' "$WOW64NATIVE_ABI" "$WOW64NATIVE_DLL" "$wow64native_sha256"
   else
     printf '   native WoW64 disabled: omitting wow64native.dll and PRX\n'
   fi
   printf '   modules: %s\n' "$(ls "$PRX"/sce_module/ | tr '\n' ' ')"
   "$BUNDLE/orbis-compat/scripts/ps4/make-pkg.sh" --eboot "$OBJ/../eboot.bin" --out-dir "$OUT" \
       --title-id "$TITLE_ID" --title "$TITLE" "${EXTRA[@]}"
+  for m in libc.prx libSceFios2.prx; do
+    if [[ ! -f "$OUT/pkg-stage/sce_module/$m" ]] || ! cmp -s "$MODULE_STUBS_DIR/$m" "$OUT/pkg-stage/sce_module/$m"; then
+      echo "   X staged $m does not match selected package stub: $MODULE_STUBS_DIR/$m" >&2
+      exit 1
+    fi
+  done
   if [[ $PW_SKIP_NATIVE != 1 ]]; then
     staged_wow64native="$OUT/pkg-stage/win/wine/lib/wine/x86_64-windows/wow64native.dll"
     if [[ ! -f "$staged_wow64native" ]] || ! cmp -s "$WOW64NATIVE_DLL" "$staged_wow64native"; then
-      echo "   X staged wow64native.dll does not match the selected PS4 ABI-v3 DLL" >&2
+      echo "   X staged wow64native.dll does not match the selected PS4 ABI-v$WOW64NATIVE_ABI DLL" >&2
       exit 1
     fi
+    for staged_prx in "$OUT/pkg-stage/sce_module/wow64native.prx" \
+                      "$OUT/pkg-stage/win/wine/lib/wine/x86_64-unix/wow64native.prx"; do
+      if [[ ! -f "$staged_prx" ]] || ! cmp -s "$wow64native_prx" "$staged_prx"; then
+        echo "   X staged wow64native PRX does not match the selected ABI-v$WOW64NATIVE_ABI pair: $staged_prx" >&2
+        exit 1
+      fi
+    done
   elif [[ -e "$OUT/pkg-stage/win/wine/lib/wine/x86_64-windows/wow64native.dll" || -e "$OUT/pkg-stage/sce_module/wow64native.prx" ]]; then
     echo "   X native WoW64 file leaked into translator-only package stage" >&2
     exit 1

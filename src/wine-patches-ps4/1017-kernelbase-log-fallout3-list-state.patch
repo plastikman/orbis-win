@@ -1,0 +1,63 @@
+From: Codex <codex@openai.com>
+Subject: [PATCH] kernelbase: snapshot Fallout 3 page-list state on fault
+
+At the observed Fallout 3 page-list unlink access violation, capture the list
+manager and selected node before exception logging proceeds. This is limited to
+the exact fault PC and does not change game execution.
+
+--- a/dlls/kernelbase/debug.c
++++ b/dlls/kernelbase/debug.c
+@@ -540,6 +540,9 @@
+     DWORD fallout3_fields[2] = {0};
+     SIZE_T fallout3_dispatch_size = 0, fallout3_array_size = 0, fallout3_index_size = 0;
+     BOOL fallout3_dispatch_read = FALSE, fallout3_array_read = FALSE, fallout3_index_read = FALSE;
++    DWORD fallout3_manager[24] = {0}, fallout3_node[4] = {0};
++    SIZE_T fallout3_manager_size = 0, fallout3_node_size = 0;
++    BOOL fallout3_manager_read = FALSE, fallout3_node_read = FALSE;
+ 
+     if (!ctx) return;
+     /* Snapshot the object before logging or querying other memory. A later
+@@ -569,6 +572,18 @@
+                                                  &fallout3_fields[1], sizeof(DWORD),
+                                                  &fallout3_index_size );
+     }
++    /* At this Fallout 3 PE fault PC the allocator removes a page-list node.
++     * Snapshot its manager metadata and link pair at the fault, before any
++     * logging can change the observed state. */
++    if (ctx->Eip == 0x0086d8f4)
++    {
++        fallout3_manager_read = ctx->Esi &&
++            ReadProcessMemory( GetCurrentProcess(), (const void *)(ULONG_PTR)ctx->Esi,
++                               fallout3_manager, sizeof(fallout3_manager), &fallout3_manager_size );
++        fallout3_node_read = ctx->Edi &&
++            ReadProcessMemory( GetCurrentProcess(), (const void *)(ULONG_PTR)ctx->Edi,
++                               fallout3_node, sizeof(fallout3_node), &fallout3_node_size );
++    }
+     MESSAGE( "PW_EXCEPTION32 tid=%04lx eip=%08lx esp=%08lx ebp=%08lx eax=%08lx ebx=%08lx ecx=%08lx edx=%08lx esi=%08lx edi=%08lx\n",
+              GetCurrentThreadId(), ctx->Eip, ctx->Esp, ctx->Ebp, ctx->Eax,
+              ctx->Ebx, ctx->Ecx, ctx->Edx, ctx->Esi, ctx->Edi );
+@@ -585,6 +600,24 @@
+                  fallout3_dispatch[0], fallout3_dispatch[1], fallout3_dispatch[2], fallout3_dispatch[3],
+                  (ULONG)(ctx->Esi + 0x1f0), (ULONG)fallout3_array_size, fallout3_array_read, fallout3_fields[0],
+                  (ULONG)(ctx->Esi + 0x298), (ULONG)fallout3_index_size, fallout3_index_read, fallout3_fields[1] );
++    if (ctx->Eip == 0x0086d8f4)
++    {
++        if (fallout3_manager_read && fallout3_manager_size >= 0x5c)
++            MESSAGE( "PW_EXCEPTION32 fallout3-list manager=%08lx bytes=%lu head=%08lx base=%08lx stride=%08lx limit=%08lx bitmap=%08lx pages=%08lx active=%08lx serial=%08lx\n",
++                     ctx->Esi, (ULONG)fallout3_manager_size, fallout3_manager[2], fallout3_manager[1],
++                     fallout3_manager[16], fallout3_manager[17], fallout3_manager[18], fallout3_manager[19],
++                     fallout3_manager[21], fallout3_manager[22] );
++        else
++            MESSAGE( "PW_EXCEPTION32 fallout3-list manager read failed addr=%08lx bytes=%lu ok=%u\n",
++                     ctx->Esi, (ULONG)fallout3_manager_size, fallout3_manager_read );
++        if (fallout3_node_read && fallout3_node_size >= sizeof(fallout3_node))
++            MESSAGE( "PW_EXCEPTION32 fallout3-list node=%08lx bytes=%lu flink=%08lx blink=%08lx data=%08lx,%08lx\n",
++                     ctx->Edi, (ULONG)fallout3_node_size, fallout3_node[0], fallout3_node[1],
++                     fallout3_node[2], fallout3_node[3] );
++        else
++            MESSAGE( "PW_EXCEPTION32 fallout3-list node read failed addr=%08lx bytes=%lu ok=%u\n",
++                     ctx->Edi, (ULONG)fallout3_node_size, fallout3_node_read );
++    }
+ 
+     if (ReadProcessMemory( GetCurrentProcess(), (const void *)(ULONG_PTR)ctx->Esp,
+                            stack, sizeof(stack), &bytes_read ))

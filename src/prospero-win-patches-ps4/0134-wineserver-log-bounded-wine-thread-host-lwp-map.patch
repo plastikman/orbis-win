@@ -1,0 +1,45 @@
+diff --git a/wine/ps5/pw_wine_threads.c b/wine/ps5/pw_wine_threads.c
+index 004c00c..75d9d57 100644
+--- a/wine/ps5/pw_wine_threads.c
++++ b/wine/ps5/pw_wine_threads.c
+@@ -8,9 +8,13 @@
+ 
+ typedef struct Entry { long tid; pthread_t thread; } Entry;
+ 
++/* PS4 libkernel's host LWP id for the calling pthread. */
++extern int pthread_getthreadid_np(void);
++
+ static pthread_mutex_t lock=PTHREAD_MUTEX_INITIALIZER;
+ static Entry entries[PW_WINE_THREADS_MAX];
+ static unsigned count;
++static unsigned int map_trace_count;
+ 
+ static Entry *find_locked(long tid)
+ {
+@@ -22,12 +26,26 @@ static Entry *find_locked(long tid)
+ int pw_wine_thread_register(long tid,pthread_t thread)
+ {
+     int status=0;
++    unsigned int trace_n = __atomic_add_fetch( &map_trace_count, 1, __ATOMIC_RELAXED );
++    int self_lwpid = pthread_getthreadid_np();
+     pthread_mutex_lock(&lock);
+     Entry *entry=find_locked(tid);
+     if(entry)entry->thread=thread;
+     else if(count<PW_WINE_THREADS_MAX)entries[count++]=(Entry){tid,thread};
+     else status=-1;
+     pthread_mutex_unlock(&lock);
++    /* One bounded record per registration, enough to match UMTX owner LWPIDs
++     * with Wine's in-process server registry without sampling every thread. */
++    if (trace_n <= 128)
++    {
++        extern int sceKernelDebugOutText( int channel, const char *text );
++        char line[144];
++        snprintf( line, sizeof(line),
++                  "PW_WINE_THREAD_MAP n=%u tid=%08lx self_lwpid=%08x self_match=%d status=%d\n",
++                  trace_n, (unsigned long)tid, (unsigned int)self_lwpid,
++                  pthread_equal( thread, pthread_self() ), status );
++        sceKernelDebugOutText( 0, line );
++    }
+     return status;
+ }
+ void pw_wine_thread_unregister(long tid)

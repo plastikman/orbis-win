@@ -19,4 +19,4 @@ scaling = fit
 mode = xinput
 
 [runtime]
-cpu = translator
+cpu = native

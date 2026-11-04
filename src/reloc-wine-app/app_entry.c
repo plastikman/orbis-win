@@ -1,7 +1,7 @@
 /* The title's real entry point lives in this high-address PRX. The tiny eboot
- * loads this module and transfers control here. Sony's display setup reads
- * from the eboot's low data segment, so release the image only immediately
- * before starting the selected Windows process. */
+ * loads this module and transfers control here. Keep module 0's RW data at
+ * 0x7fff0000 mapped: libkernel reads it after release. Release only the eboot
+ * segments in the low Windows image range immediately before guest startup. */
 #include <orbis/libkernel.h>
 #include <stdint.h>
 #include <stdarg.h>

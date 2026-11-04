@@ -1,0 +1,25 @@
+diff --git a/dlls/ntdll/unix/signal_x86_64.c b/dlls/ntdll/unix/signal_x86_64.c
+index ce4ed0f857..29d7c704d2 100644
+--- a/dlls/ntdll/unix/signal_x86_64.c
++++ b/dlls/ntdll/unix/signal_x86_64.c
+@@ -3460,6 +3460,19 @@ static void __attribute__((used)) segv_handler( int signal, siginfo_t *siginfo,
+             unsigned int n = __atomic_add_fetch( &trace_count, 1, __ATOMIC_RELAXED );
+             BOOL handled, invalid_gs;
+ 
++            /* A PS4 direct-memory RX migration can briefly leave a guest
++             * page unmapped while it is replaced with flexible memory. If a
++             * guest thread faults on that exact page during the replacement,
++             * wait for the mapping operation and retry the instruction only
++             * when its requested access is valid in the settled mapping. */
++            extern int __wine_ps5_wait_for_exec_migration( const void *, unsigned int ) __attribute__((weak));
++            if (__wine_ps5_wait_for_exec_migration &&
++                __wine_ps5_wait_for_exec_migration( siginfo->si_addr,
++                                                     (unsigned int)rec.ExceptionInformation[0] ))
++            {
++                leave_handler( data, sigcontext );
++                return;
++            }
++
+             if (n <= 12)
+             {
+                 extern int sceKernelDebugOutText( int channel, const char *text );

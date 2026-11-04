@@ -1,0 +1,43 @@
+diff --git a/dlls/ntdll/unix/signal_x86_64.c b/dlls/ntdll/unix/signal_x86_64.c
+index ce4ed0f857..5572bc5788 100644
+--- a/dlls/ntdll/unix/signal_x86_64.c
++++ b/dlls/ntdll/unix/signal_x86_64.c
+@@ -1812,6 +1812,8 @@ NTSTATUS WINAPI NtGetContextThread( HANDLE handle, CONTEXT *context )
+  */
+ NTSTATUS set_thread_wow64_context( HANDLE handle, const void *ctx, ULONG size )
+ {
++    static LONG wow64_context_log_count;
++    LONG log_count = 0;
+     BOOL self = (handle == GetCurrentThread());
+     struct thread_data *data = get_thread_data();
+     struct syscall_frame *frame = get_syscall_frame( data );
+@@ -1850,6 +1852,29 @@ NTSTATUS set_thread_wow64_context( HANDLE handle, const void *ctx, ULONG size )
+ 
+     if (!(wow_frame = get_cpu_area( data, IMAGE_FILE_MACHINE_I386 ))) return STATUS_INVALID_PARAMETER;
+ 
++    /* Keep a bounded record of the context handed to the CPU emulator and the
++     * previous saved state. This distinguishes a bad context producer from a
++     * later corruption of the WOW64 CPU area. */
++    if ((flags & (CONTEXT_I386_CONTROL | CONTEXT_I386_INTEGER)) &&
++        (log_count = InterlockedIncrement( &wow64_context_log_count )) <= 128)
++    {
++        WOW64_CPURESERVED *cpu = data->teb->TlsSlots[WOW64_TLS_CPURESERVED];
++        ERR( "PW_WOW64_CONTEXT_SET n=%d tid=%08x self=%u caller=%p ctxflags=%08x flags=%08x "
++             "in-eip=%08x in-esp=%08x in-eflags=%08x in-cs=%04x in-ss=%04x "
++             "in-eax=%08x in-ebx=%08x in-ecx=%08x in-edx=%08x in-esi=%08x in-edi=%08x in-ebp=%08x "
++             "old-eip=%08x old-esp=%08x old-eflags=%08x old-cs=%04x old-ss=%04x "
++             "old-eax=%08x old-ebx=%08x old-ecx=%08x old-edx=%08x old-esi=%08x old-edi=%08x old-ebp=%08x "
++             "cpuflags=%04x machine=%04x\n",
++             log_count, GetCurrentThreadId(), self, __builtin_return_address(0),
++             context->ContextFlags, flags, context->Eip, context->Esp, context->EFlags,
++             context->SegCs, context->SegSs, context->Eax, context->Ebx, context->Ecx,
++             context->Edx, context->Esi, context->Edi, context->Ebp,
++             wow_frame->Eip, wow_frame->Esp, wow_frame->EFlags, wow_frame->SegCs, wow_frame->SegSs,
++             wow_frame->Eax, wow_frame->Ebx, wow_frame->Ecx, wow_frame->Edx,
++             wow_frame->Esi, wow_frame->Edi, wow_frame->Ebp,
++             cpu ? cpu->Flags : 0xffff, cpu ? cpu->Machine : 0xffff );
++    }
++
+     if (flags & CONTEXT_I386_INTEGER)
+     {
+         wow_frame->Eax = context->Eax;

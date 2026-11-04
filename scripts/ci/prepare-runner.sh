@@ -24,9 +24,6 @@ CACHE=/orbis-cache/deps
    e486fc5d126baa4d87fb3921dadf70b437952279ca66d3c1e7d8449ebaf5a506 ]] || {
   echo "cached ABI-v3 wow64native.prx does not match the validated hash" >&2; exit 1;
 }
-[[ -f "$CACHE/sce_module/libc.prx" && -f "$CACHE/sce_module/libSceFios2.prx" ]] || {
-  echo "missing private Sony firmware modules under $CACHE/sce_module" >&2; exit 1;
-}
 [[ -f "$CACHE/openssl11/lib/libssl.so.1.1" ]] || {
   echo "missing cached OpenSSL 1.1 libraries under $CACHE/openssl11/lib" >&2; exit 1;
 }
@@ -52,7 +49,6 @@ sudo ln -sfn "$ROOT" /home/zpeirce/ps4-gladius
 link_cache "$CACHE/prospero-win" "$ROOT/prospero-win"
 link_cache "$CACHE/mesa-build" "$ROOT/mesa-build"
 link_cache "$CACHE/build" "$ROOT/build"
-link_cache "$CACHE/sce_module" "$ROOT/sce_module"
 mkdir -p "$ROOT/sdk"
 link_cache "$CACHE/sdk/orbis-sdk-v1" "$ROOT/sdk/orbis-sdk-v1"
 
