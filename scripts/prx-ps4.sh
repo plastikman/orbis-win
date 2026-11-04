@@ -41,8 +41,16 @@ PY
 echo "== 1. platform units =="
 for unit in pw_wine_prx pw_wine_dl pw_wine_dl_libc pw_wine_compat pw_wine_compat_libc \
         pw_wine_threads pw_wine_threads_libc pw_wine_sink pw_wine_cwd pw_wine_cwd_libc; do
-    $CC -DPW_WINE_PRX_BUILD -std=gnu11 -O2 -Wall -Wextra -Werror -fPIC \
-        -c "$root/wine/ps5/$unit.c" -o "$prx/obj/$unit.o"
+    if [ "$unit" = pw_wine_dl_libc ]; then
+        # The SDK dlfcn.h omits FreeBSD's RTLD_SELF constant used by this unit.
+        # Supply the PS4 port's compatibility wrapper, which include_nexts the SDK header.
+        $CC -DPW_WINE_PRX_BUILD -std=gnu11 -O2 -Wall -Wextra -Werror -fPIC \
+            -I"$gladius/src/freebsd-compat" \
+            -c "$root/wine/ps5/$unit.c" -o "$prx/obj/$unit.o"
+    else
+        $CC -DPW_WINE_PRX_BUILD -std=gnu11 -O2 -Wall -Wextra -Werror -fPIC \
+            -c "$root/wine/ps5/$unit.c" -o "$prx/obj/$unit.o"
+    fi
 done
 
 echo "== 1b. heap + direct-memory objects =="
