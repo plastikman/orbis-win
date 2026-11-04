@@ -67,6 +67,22 @@ extern int sceKernelAvailableDirectMemorySize(off_t start, off_t end, size_t ali
                                               off_t *phys_out, size_t *size_out);
 extern size_t sceKernelGetDirectMemorySize(void);
 
+/* Patch 0603 reports the title's direct-memory pool through this Wine hook.
+ * Keep the upstream ABI, but use the PS4 libkernel query and types. */
+void __wine_ps5_memory_budget(unsigned long long *total, unsigned long long *available)
+{
+    enum { GIB = 1024 * 1024 * 1024 };
+    size_t pool = sceKernelGetDirectMemorySize(), free_bytes = 0;
+    off_t physical = 0;
+    int status = pool ? sceKernelAvailableDirectMemorySize(0, (off_t)pool, 0x4000,
+                                                           &physical, &free_bytes) : -1;
+
+    (void)physical;
+    *total = pool ? pool : 4ull * GIB;
+    *available = status ? 0 : free_bytes;
+    if (*available > *total) *available = *total;
+}
+
 static void force_exec_trace(const char *format, ...)
 {
     char line[256];
