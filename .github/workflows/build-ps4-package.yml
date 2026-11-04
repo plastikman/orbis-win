@@ -40,11 +40,11 @@ jobs:
       - name: Check build prerequisites
         run: scripts/prereqs.sh
 
-      - name: Build relocatable split-runtime package
+      - name: Build complete relocatable package
         env:
           TITLE_ID: GLDS10044
           TITLE: Prospero Wine PS4
-          PW_SPLIT_RUNTIME: "1"
+          PW_SPLIT_RUNTIME: "0"
           PW_SHARED_LIBC: "1"
           WOW64NATIVE_ABI: "3"
           PW_MODULE_STUBS_DIR: ${{ github.workspace }}/build/openorbis-module-stubs
@@ -73,10 +73,8 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/orbis-win-artifacts"
           app_pkg=$(find "$RUNNER_TEMP/orbis-win-app" -maxdepth 1 -type f -name '*.pkg' -print -quit)
-          base_pkg=$(find "$RUNNER_TEMP/orbis-win-base" -maxdepth 1 -type f -name '*.pkg' -print -quit)
-          test -s "$app_pkg" && test -s "$base_pkg"
+          test -s "$app_pkg"
           cp "$app_pkg" "$RUNNER_TEMP/orbis-win-artifacts/"
-          cp "$base_pkg" "$RUNNER_TEMP/orbis-win-artifacts/base-$(basename "$base_pkg")"
           {
             echo "root_commit=$(git rev-parse HEAD)"
             echo "root_ref=${GITHUB_REF}"
@@ -89,7 +87,6 @@ jobs:
             echo "mesa_commit=$(git -C mesa-build/mesa-ps4 rev-parse HEAD)"
             echo "mesa_dirty_diff_sha256=$(git -C mesa-build/mesa-ps4 diff --binary | sha256sum | cut -d' ' -f1)"
             echo "app_pkg_sha256=$(sha256sum "$app_pkg" | cut -d' ' -f1)"
-            echo "base_pkg_sha256=$(sha256sum "$base_pkg" | cut -d' ' -f1)"
           } > "$RUNNER_TEMP/orbis-win-artifacts/BUILD-MANIFEST.txt"
           cat "$RUNNER_TEMP/orbis-win-artifacts/BUILD-MANIFEST.txt"
 

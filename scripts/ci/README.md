@@ -2,10 +2,10 @@
 
 The `orbis-win-build` ARC runner is restricted to `worker4` and `worker5`. The
 workflow is manual or tag-triggered (`v*`) and does not run for pull requests.
-It builds the relocatable split-runtime app package and its complete base
-package, then uploads the unencrypted `.pkg` files plus a plain-text provenance
-manifest as a GitHub Actions artifact. This repository is public, so anyone
-with repository access can download those packages. The CI build uses tracked
+It builds one complete relocatable package and uploads the unencrypted `.pkg`
+plus a plain-text provenance manifest as a GitHub Actions artifact. This
+repository is public, so anyone with repository access can download that
+package. The CI build uses tracked
 GPL-3.0 OpenOrbis source to generate the empty `libc.prx` and `libSceFios2.prx`
 package stubs; the manifest records their hashes and source revision.
 
@@ -44,8 +44,8 @@ Local package builds still use `sce_module/` unless that variable is set.
 
 ## Package artifacts
 
-Download the app and base `.pkg` files directly from the workflow run's
-`orbis-win-<run>-<attempt>` artifact. Verify their hashes against
+Download the complete `.pkg` directly from the workflow run's
+`orbis-win-<run>-<attempt>` artifact. Verify its hash against
 `BUILD-MANIFEST.txt` before installation. The OpenOrbis stub sources and their
 GPL-3.0 license are tracked under `src/openorbis-module-stubs/`.
 
