@@ -61,6 +61,8 @@ dmem=""
 $CC -std=c11 -O2 -Wall -Wextra -Werror -fPIC -c "$root/wine/ps5/pw_wine_dmem.c" -o "$prx/heap/pw_wine_dmem.o"
 $CC -std=c11 -O2 -fPIC -I"$root/wine/ps5" ${PW_PRX_EXTRA_CFLAGS:-} -c "$gladius/src/native/pw_wine_dmem_glue_ps4.c" -o "$prx/heap/pw_wine_dmem_glue_ps4.o"
 dmem="$prx/heap/pw_wine_dmem.o $prx/heap/pw_wine_dmem_glue_ps4.o"
+$CC -std=c11 -O2 -Wall -Wextra -Werror -fPIC -I"$root/wine/ps5" \
+    -c "$gladius/src/native/pw_wineserver_heap_ps4.c" -o "$prx/heap/pw_wineserver_heap_ps4.o"
 
 echo "== 2. descriptors (upstream's export lists) =="
 gen() { python3 "$root/tools/gen_prx_descriptor.py" "$@"; }
@@ -211,7 +213,7 @@ for step in "ntdll|dlls/ntdll/ntdll.so|$ntdll_shims" \
         thread_wraps="-Wl,--wrap=pthread_create"
     fi
     if [ "$name" = wineserver ]; then
-        shim_objs="$prx/obj/pw_wineserver_stack_ps4.o"
+        shim_objs="$prx/obj/pw_wineserver_stack_ps4.o $prx/heap/pw_wineserver_heap_ps4.o"
         thread_wraps="-Wl,--wrap=pthread_create"
     fi
     # ⚠ The server needs the heap too, and upstream says so: pw_wine_heap_libc.c

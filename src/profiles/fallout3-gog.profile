@@ -20,3 +20,8 @@ mode = xinput
 
 [runtime]
 cpu = native
+
+[debug]
+env = PW_PS4_FORCE_EXEC=0
+env = PW_WINESERVER_HEAP_DIRECT=1
+env = PW_WINESERVER_HEAP_TRACE=1
