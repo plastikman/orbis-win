@@ -1,9 +1,19 @@
 diff --git a/mesa-build/orbis-compat/include/signal.h b/mesa-build/orbis-compat/include/signal.h
 index 0000000..0000000 100644
-@@ -34,6 +34,46 @@
+@@ -34,6 +34,56 @@
  #define _ORBIS_COMPAT_SIGNAL_H
  
  #include_next <signal.h>
++
++/* The SDK exposes Linux's operation numbers, but libkernel implements the
++ * FreeBSD-derived PS4 signal ABI. Passing Linux SIG_UNBLOCK (1) to the kernel
++ * means SIG_BLOCK; this left Wine's native-frame probe pending forever. */
++#undef  SIG_BLOCK
++#define SIG_BLOCK   1
++#undef  SIG_UNBLOCK
++#define SIG_UNBLOCK 2
++#undef  SIG_SETMASK
++#define SIG_SETMASK 3
 +
 +/* The SDK's Linux signal numbers disagree with the FreeBSD-derived kernel ABI.
 + * Keep the POSIX names used by Wine aligned with the kernel numbers so a

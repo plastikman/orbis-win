@@ -1,0 +1,14 @@
+From: Zak Peirce <zak@orbis-win>
+Subject: app: log a unique runtime build marker
+
+The installed package's title ID and launcher log do not identify which
+relocated app PRX actually ran. Emit a unique marker before starting Wine so
+the app, profile, and module logs can be matched to the exact candidate.
+
+--- a/native/wine64_main.c
++++ b/native/wine64_main.c
+@@ -1238,6 +1238,7 @@ int main(int argc, char **argv)
+     (void)pw_diagnostics_open(library_root, PW_BUILD_ID,
+                               launch.app ? launch.app->id : "launcher", launch.cycle);
++    PS5LOG_LOG("PW_WINE64 build_marker=20261105-native-frame-state app_prx=resolver-diagnostic-0204");
+     PS5LOG_LOG("PW_WINE64 args argc=%d mode=%s profile=%s cycle=%u refused=%u", argc,

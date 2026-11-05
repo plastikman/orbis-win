@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Zak Peirce <zak@peirce.dev>
+Date: Tue, 3 Nov 2026 14:45:00 -0800
+Subject: [PATCH] server: report when the last PS4 guest process exits
+
+The PS4 Wine server runs inside the title process and cannot use its normal
+idle shutdown to end Wine. When its idle timer fires after all guest processes
+have exited, report that state to the title over the already-captured stderr
+descriptor. The title can then reload itself into the game launcher.
+---
+ server/request.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/server/request.c b/server/request.c
+index 44ff43012e..c12e8c98aa 100644
+--- a/server/request.c
++++ b/server/request.c
+@@ -1669,6 +1669,10 @@ static void close_socket_timeout( void *arg )
+     master_timeout = NULL;
+     flush_registry();
+ #ifdef WINE_INPROCESS_SERVER
++    /* The host title cannot end with the server thread. Tell it Wine has no
++     * guest processes left so it can return to its own launcher. */
++    write( 2, "PW_PS5_NO_USER_PROCESSES\n", sizeof("PW_PS5_NO_USER_PROCESSES\n") - 1 );
+     return;  /* exiting would end the process that hosts the server */
+ #endif
+     if (debug_level) fprintf( stderr, "wineserver: exiting (pid=%ld)\n", (long) getpid() );
+-- 
+2.43.0

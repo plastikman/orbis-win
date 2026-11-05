@@ -1,8 +1,8 @@
-; MDK Glide/3Dfx version, imported from the official MDK 1.1 patch.
+; MDK 1.1 Direct3D clean install, using the local dgVoodoo DirectDraw wrapper.
 [application]
 id = mdk-windows
 name = MDK (Windows)
-executable = C:\SHINY\MDK\MDK3DFX.exe
+executable = C:\SHINY\MDK\MDKD3D.exe
 working_directory = C:\SHINY\MDK
 dll_overrides = d3d8,d3d9,d3d10core,d3d11,dxgi=n
 prefix = mdk-windows
@@ -16,7 +16,9 @@ scaling = fit
 view = window
 
 [runtime]
-; Keep the failed-path CPU mode fixed while validating the selector correction.
+; Translator: native WoW64 still faults at GetStdHandle (FS base; HANDOFF-2026-11-03).
+; Passed on GLDS10043 01.06/01.07 (2026-11-05). The prefix's Wow64\x86 key must
+; name wowprospero.dll until the launcher selects it explicitly.
 cpu = translator
 
 [debug]
@@ -25,7 +27,7 @@ winedebug = +fps,+loaddll,+seh
 [input]
 ; MDK's documented keyboard defaults; left stick emits arrow keys for movement.
 mode = keyboard
-mouse = none
+mouse = right_stick
 keyboard_stick = left_stick
 stick_deadzone = 25
 stick_up = up

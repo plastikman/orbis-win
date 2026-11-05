@@ -1,0 +1,32 @@
+From: Zak Peirce <zak@orbis-win>
+Subject: wine64: require the eboot release in relocatable builds
+
+The relocatable PRX includes pw_relocated_wine_release_eboot(), but recent
+hardware logs show the call is skipped: Oblivion then collides with the eboot
+mapping at 0x400000. The weak symbol check can silently bypass this required
+step even though the relocatable build always links app_entry.c, which defines
+the function. Make the dependency strong and invoke it whenever a game is
+selected. A missing implementation now fails at link time instead of producing
+a package that appears relocatable but is not.
+
+diff --git a/native/wine64_main.c b/native/wine64_main.c
+--- a/native/wine64_main.c
++++ b/native/wine64_main.c
+@@ -86,7 +86,7 @@ extern int32_t sceGnmSubmitDone(void);
+  * mapped at 0x400000-0x49c000 and sceKernelReserveVirtualRange returned
+  * ENOMEM for every fixed low reservation -- measured by vmprobe/1045 as
+  * `query ... name=executable hole=0`. FalloutNV.exe then relocated to
+  * 0x530000 (it had loaded at 0x400000 on 19 consecutive pre-sync runs) and
+  * Oblivion, which cannot relocate, died at STATUS_CONFLICTING_ADDRESSES. */
+-extern int pw_relocated_wine_release_eboot(void) __attribute__((weak));
++extern int pw_relocated_wine_release_eboot(void);
+ #endif
+@@ -1563,7 +1563,7 @@ int main(int argc, char **argv)
+ #ifdef PW_RELOCATABLE_WINE
+     if (status == PW_OK) {
+-        if (game && pw_relocated_wine_release_eboot) {
++        if (game) {
+             int release_status = pw_relocated_wine_release_eboot();
+             PS5LOG_LOG("PW_WINE64 relocatable eboot release status=%d", release_status);
+             if (release_status) status = PW_ERR_STATE;
+         }
