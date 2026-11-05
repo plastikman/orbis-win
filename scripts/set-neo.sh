@@ -8,7 +8,8 @@
 set -euo pipefail
 OUT=$1
 STAGE=$OUT/pkg-stage
-PKGTOOL=/home/zpeirce/ps4-gladius/sdk/orbis-sdk-v1/sdk/bin/linux/PkgTool.Core
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+PKGTOOL="$ROOT/sdk/orbis-sdk-v1/sdk/bin/linux/PkgTool.Core"
 export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
 ossl="${XDG_CACHE_HOME:-$HOME/.cache}/orbis-ports/openssl11/lib"
 [[ -d $ossl ]] && export LD_LIBRARY_PATH="$ossl${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"

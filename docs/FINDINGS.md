@@ -3377,7 +3377,7 @@ before this failure. The user reports the application closes without a host
 crash. The D3D12 path belongs to this copy's 1911.dll startup; its relationship
 to the failure needs further investigation.
 
-Pinball at /media/D/games/pinball is the next authorized target. Its 32-bit
+Pinball at $GAME_SOURCE/games/pinball is the next authorized target. Its 32-bit
 PE is fixed at 0x1000000, clear of the runtime, and imports GDI/User32/WinMM
 and other basic Windows DLLs, with no Direct3D imports. src/profiles/pinball.profile
 selects GDI and explicitly selects cpu=translator, avoiding the PS5-native

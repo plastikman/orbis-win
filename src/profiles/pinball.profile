@@ -1,5 +1,5 @@
 ; Space Cadet Pinball: simple GDI/WinMM baseline for the PS4 Wine port.
-; Source files: /media/D/games/pinball. Keep it in a separate prefix.
+; Source files: $GAME_SOURCE/games/pinball. Keep it in a separate prefix.
 [application]
 id = pinball
 name = Space Cadet Pinball

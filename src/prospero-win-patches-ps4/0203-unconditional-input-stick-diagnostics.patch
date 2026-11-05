@@ -22,7 +22,6 @@ throughout. Fixed by giving the variant a distinct id; the left stick now
 drives WASD in Oblivion with cpu=native.
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01SLRg9a2FLR6N3VhHWuegKB
 ---
  native/pw_wine_display.c |  47 ++++++++++++++++++
  native/pw_wine_display.h |  12 +++++

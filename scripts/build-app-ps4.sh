@@ -13,7 +13,7 @@ set -euo pipefail
 # Resolve libc from the shared module so the title and every PRX share one
 # environ and one TLS regime (docs/FINDINGS.md). Unset to go back to static.
 : "${PW_SHARED_LIBC:=1}"; export PW_SHARED_LIBC
-ROOT=/home/zpeirce/ps4-gladius
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 PW=${PW_ROOT:-$ROOT/prospero-win}
 BUNDLE=$ROOT/sdk/orbis-sdk-v1
 CC=$ROOT/build/ps4-wine-sdk/bin/prospero-clang
@@ -24,6 +24,9 @@ MODULE_STUBS_DIR=${PW_MODULE_STUBS_DIR:-$ROOT/sce_module}
 # and output directory without changing the default deployable Neo package.
 TITLE_ID="${TITLE_ID:-GLDS10005}"
 TITLE="${TITLE:-Prospero Wine}"
+PW_WINE64_WAIT_WATCHDOG="${PW_WINE64_WAIT_WATCHDOG:-0}"
+PW_WINE64_SERVER_DIRECT_OFF="${PW_WINE64_SERVER_DIRECT_OFF:-0}"
+PW_WINE64_HEAP_FLEXIBLE="${PW_WINE64_HEAP_FLEXIBLE:-0}"
 export OO_PS4_TOOLCHAIN=$BUNDLE/sdk
 PKG=0; NEO=0; LOW_BASE=0; RELOC_STAGE=0
 for a in "$@"; do
@@ -68,9 +71,6 @@ INC="-I$PW -I$PW/include -I$PW/src -I$PW/native -I$ROOT/src/native"
 # Measured 2026-10-07: ps5log.o imported plain socket/connect/fcntl.
 # Force-include the sceNet adapters so the hooks resolve to sceNet* instead.
 PS5LOG_NET="-include $PW/native/ps5log/ps5log_ps5_net.h"
-PW_WINE64_WAIT_WATCHDOG="${PW_WINE64_WAIT_WATCHDOG:-0}"
-PW_WINE64_SERVER_DIRECT_OFF="${PW_WINE64_SERVER_DIRECT_OFF:-0}"
-PW_WINE64_HEAP_FLEXIBLE="${PW_WINE64_HEAP_FLEXIBLE:-0}"
 case "$PW_WINE64_WAIT_WATCHDOG" in
   0|1) ;;
   *) echo "PW_WINE64_WAIT_WATCHDOG must be 0 or 1" >&2; exit 2 ;;

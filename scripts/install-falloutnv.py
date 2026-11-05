@@ -18,17 +18,15 @@ import socket
 import sys
 import time
 
-DEFAULT_SOURCE = Path(
-    "/media/D/Installed_Games/Bethesda Softworks/"
-    "Fallout New Vegas Ultimate Edition"
-)
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_SOURCE = os.environ.get("FALLOUTNV_SOURCE")
 REMOTE_ROOT = "/data/prospero-win/prefixes/falloutnv/drive_c/Games/FalloutNV"
 REMOTE_PREFIX = "/data/prospero-win/prefixes/falloutnv"
 REMOTE_FONTS = f"{REMOTE_PREFIX}/drive_c/windows/Fonts"
-FONT_SOURCE = Path(__file__).resolve().parents[1] / "prospero-win/.deps/wine-host/install/usr/share/wine/fonts"
+FONT_SOURCE = ROOT / "prospero-win/.deps/wine-host/install/usr/share/wine/fonts"
 REMOTE_PROFILE = "/data/prospero-win/profiles/falloutnv.profile"
-PROFILE = Path(__file__).resolve().parents[1] / "src/profiles/falloutnv.profile"
-CONFIG_DIR = Path(__file__).resolve().parents[1] / "src/falloutnv-config"
+PROFILE = ROOT / "src/profiles/falloutnv.profile"
+CONFIG_DIR = ROOT / "src/falloutnv-config"
 REMOTE_DOCS = (
     f"{REMOTE_PREFIX}/drive_c/users/prospero/"
     "Documents/My Games/FalloutNV"
@@ -43,10 +41,8 @@ CONFIG_FILES = (
     (CONFIG_DIR / "plugins.txt", f"{REMOTE_LOCALAPPDATA}/plugins.txt"),
     (CONFIG_DIR / "NVTF.ini", f"{REMOTE_ROOT}/Data/NVSE/Plugins/NVTF.ini"),
 )
-DEFAULT_DXVK_D3D9 = Path(
-    "/home/zpeirce/prospero-library/prefixes/gtaiv/drive_c/Games/GTAIV/d3d9.dll"
-)
-STATE = Path("/tmp/prospero-falloutnv-dedicated-upload.json")
+DEFAULT_DXVK_D3D9 = os.environ.get("DXVK_D3D9_DLL")
+STATE = ROOT / "build-ps4-logs/falloutnv-dedicated-upload.json"
 
 
 class FTPError(RuntimeError):
@@ -134,9 +130,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", required=True, help="PS4 GoldHEN FTP address")
     parser.add_argument("--port", type=int, default=2121)
-    parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
-    parser.add_argument("--dxvk-d3d9", type=Path, default=DEFAULT_DXVK_D3D9,
-                        help="console-tested 32-bit DXVK d3d9.dll (default: GTA IV copy)")
+    parser.add_argument("--source", type=Path, default=Path(DEFAULT_SOURCE) if DEFAULT_SOURCE else None,
+                        required=not DEFAULT_SOURCE,
+                        help="local game installation (or set FALLOUTNV_SOURCE)")
+    parser.add_argument("--dxvk-d3d9", type=Path,
+                        default=Path(DEFAULT_DXVK_D3D9) if DEFAULT_DXVK_D3D9 else None,
+                        required=not DEFAULT_DXVK_D3D9,
+                        help="32-bit DXVK d3d9.dll (or set DXVK_D3D9_DLL)")
     parser.add_argument("--state", type=Path, default=STATE)
     args = parser.parse_args()
 

@@ -1,14 +1,21 @@
 #!/usr/bin/env python3
 # Pull prospero-win's ps5log session files off the console over GoldHEN FTP.
-#   python3 -I scripts/pull-ps5log.py <out-dir>
+#   python3 scripts/pull-ps5log.py <out-dir> --host <PS4-IP>
 # PW_WINE64 output goes HERE, not to klog. next.txt names the next index, so
 # the live session is (next-1) % 8; the live file returns FTP 550 while the
 # title holds it, and session-N.previous.log is the rotated copy.
 
 from ftplib import FTP
+import argparse
 import sys, os
-outdir = sys.argv[1]
-f = FTP(); f.connect('10.168.2.52', 2121, timeout=30); f.login()
+parser = argparse.ArgumentParser(description="Download Wine log files over GoldHEN FTP")
+parser.add_argument("outdir")
+parser.add_argument("--host", required=True, help="PS4 address")
+parser.add_argument("--port", type=int, default=2121)
+args = parser.parse_args()
+outdir = args.outdir
+os.makedirs(outdir, exist_ok=True)
+f = FTP(); f.connect(args.host, args.port, timeout=30); f.login()
 buf = []
 f.retrbinary('RETR /data/prospero-win/logs/next.txt', buf.append)
 print('next.txt =', b''.join(buf).decode('ascii', 'replace').strip())

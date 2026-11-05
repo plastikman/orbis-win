@@ -9,18 +9,19 @@
 #
 #   scripts/push-retry.sh <slug> [max-attempts]
 set -uo pipefail
-ROOT=/home/zpeirce/ps4-gladius
-PW=$ROOT/prospero-win
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+PW=${PW_ROOT:-$ROOT/prospero-win}
 SLUG=${1:-oblivion}
 MAX=${2:-60}
 HOST=${PS4_HOST:?export PS4_HOST with the console address}
 CPU=$PW/.deps/wine/build/dlls/wowprospero/x86_64-windows/wowprospero.dll
-LOG=/tmp/oblivion-push.log
+LOG=${PUSH_LOG:-$ROOT/build-ps4-logs/prefix-push.log}
+mkdir -p "$(dirname "$LOG")"
 
 for attempt in $(seq 1 "$MAX"); do
     echo "=== attempt $attempt/$MAX  $(date +%H:%M:%S) ==="
-    if python3 "$PW/tools/pw_prefix.py" push "$SLUG" --library ~/prospero-library \
-         --host "$HOST" --port 2121 --cpu-dll "$CPU" >> "$LOG" 2>&1; then
+    if python3 "$PW/tools/pw_prefix.py" push "$SLUG" --library "${PW_LIBRARY:-$HOME/prospero-library}" \
+         --host "$HOST" --port "${ORBIS_FTP_PORT:-2121}" --cpu-dll "$CPU" >> "$LOG" 2>&1; then
         echo "=== push COMPLETE on attempt $attempt ==="
         exit 0
     fi
