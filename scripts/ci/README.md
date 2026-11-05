@@ -2,8 +2,27 @@
 
 The `orbis-win-build` ARC runner is restricted to `worker4` and `worker5`. The
 workflow is manual or tag-triggered (`v*`) and does not run for pull requests.
-It builds one complete relocatable package and uploads the unencrypted `.pkg`
-plus a plain-text provenance manifest as a GitHub Actions artifact. This
+It builds one complete ABI-v4 relocatable package with
+`scripts/ci/build-abi4-package.sh`, the same script used on the build
+workstation. The recipe is the one validated on hardware as GLDS10043 01.06 on
+2026-11-05 (GTA IV, FNV, FO3, Oblivion native; MDK translator). The job fails
+unless `scripts/check-ps4-package-parity.py` (relocation stub, Vulkan surface,
+display, PS4 RADV, PRX exports, kernelbase diagnostics, signal-mask values)
+and `PkgTool.Core pkg_validate` both pass. It uploads the unencrypted `.pkg`,
+the two gate reports and a plain-text provenance manifest as a GitHub Actions
+artifact.
+
+Package numbering:
+- `title_id` (default GLDS10043) picks the install slot and the installer
+  filename. GLDS10043 is the test slot. GLDS10044 holds the hardware-validated
+  1090 baseline; build for it only when deliberately promoting a fully
+  validated build to replace the control.
+- `version` (APP_VER, `NN.NN`) is required on manual runs and has no default.
+  Tag runs derive it from the tag (`v1.08` or `v1.8` → `01.08`); other tag
+  shapes fail the job. Use a number never used before for that title ID, and
+  always increase it. It is how a console install is matched to a build.
+  01.01–01.07 were used by GLDS10043 on 2026-11-05, so the first CI build is
+  01.08. This
 repository is public, so anyone with repository access can download that
 package. The CI build uses tracked
 GPL-3.0 OpenOrbis source to generate the empty `libc.prx` and `libSceFios2.prx`
@@ -22,12 +41,27 @@ openssl11/lib/{libssl,libcrypto}.so.1.1
 prospero-win/                   exact Wine source/build/PE/PRX cache
 sdk/orbis-sdk-v1/               checksummed OpenOrbis SDK bundle
 manifest.txt                    source commits and cache provenance
+abi4/source/                    ABI-v4 prospero-win source + .deps/wine-host build/install
+abi4/build/wine-ps5/            ABI-v4 Unix Wine build (objects, make.log, prx/)
+abi4/native/                    ABI-v4 native WoW64 PE outputs (wow64native.dll)
+baseline-1090/pkg-stage/        hardware-validated 1090 stage the parity gate compares against
 ```
 
+`prepare-runner.sh` links `abi4/` to
+`/home/zpeirce/codex_scratch/abi4-upstream-port-20261104`, because the ABI-v4
+generated makefiles and the `.deps/wine-ps5` symlink embed that path. It links
+`baseline-1090/` to `pkgout/falloutnv-no-relro-kept-data-1090`. After any
+change to the ABI-v4 trees (a ported patch, a rebuilt object), re-run
+`scripts/ci/sync-cache.sh` so the runner builds what was validated locally.
+Running `scripts/ci/build-abi4-package.sh` locally first, with
+`OUT=<scratch dir>`, proves the cache inputs before you sync them.
+
 Run `scripts/ci/sync-cache.sh` from the build workstation to copy these inputs
-and refresh their provenance manifest. The package job rebuilds the other PRXs,
-then restores this exact verified ABI-v3 PE/PRX pair because the package stage
-checks both hashes. This copies the files; it does not move or replace the local
+and refresh their provenance manifest. The package job relinks the Wine PRXs,
+PS4 RADV, FreeType and wineps5 from the cached build trees, rebuilds the
+kernelbase diagnostics DLL, builds the no-RELRO stub and app PRX, and stages
+the matched ABI-v4 `wow64native` pair, whose hashes `build-abi4-package.sh`
+pins. The ABI-v3 inputs above remain in the cache for local ABI-v3 builds. This copies the files; it does not move or replace the local
 build trees, so ordinary local builds continue to work.
 Do not run a cache sync while a GitHub package build is active. The workflow
 refuses to run if a required cache input is absent. The PVC is private to the

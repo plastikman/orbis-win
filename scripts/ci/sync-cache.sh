@@ -37,6 +37,26 @@ copy_tree build/orbw00053-iret-selectors-wow64native build/orbw00053-iret-select
 tar -C "$HOME/.cache/orbis-ports/openssl11" -cf - lib |
   kubectl -n "$NAMESPACE" exec -i "$POD" -- tar -C "$DEST/openssl11" -xf -
 
+# ABI-v4 build inputs for scripts/ci/build-abi4-package.sh (~7.5 GB). Only the
+# trees the build reads: the synced prospero-win source with its wine-host
+# build/install, the Unix wine-ps5 build, and the native WoW64 PE outputs. The
+# sync directory's many package/stage experiments are deliberately left out.
+# prepare-runner.sh links ABI4 back to this exact path because the generated
+# makefiles and the .deps/wine-ps5 symlink embed it.
+ABI4=${PW_ABI4_ROOT:-/home/zpeirce/codex_scratch/abi4-upstream-port-20261104}
+for p in source build/wine-ps5 native; do
+  [[ -e "$ABI4/$p" ]] || { echo "missing ABI-v4 input: $ABI4/$p" >&2; exit 1; }
+done
+kubectl -n "$NAMESPACE" exec "$POD" -- mkdir -p "$DEST/abi4/build" "$DEST/baseline-1090"
+echo "sync $ABI4/{source,build/wine-ps5,native} -> $DEST/abi4"
+tar -C "$ABI4" -cf - source build/wine-ps5 native |
+  kubectl -n "$NAMESPACE" exec -i "$POD" -- tar -C "$DEST/abi4" -xf -
+# The hardware-validated baseline the parity gate compares every build against.
+BASELINE=$ROOT/pkgout/falloutnv-no-relro-kept-data-1090
+[[ -f "$BASELINE/pkg-stage/eboot.bin" ]] || { echo "missing baseline stage: $BASELINE" >&2; exit 1; }
+tar -C "$BASELINE" -cf - pkg-stage |
+  kubectl -n "$NAMESPACE" exec -i "$POD" -- tar -C "$DEST/baseline-1090" -xf -
+
 manifest=$(cat <<EOF
 seeded_at=$(date -u +%FT%TZ)
 root_commit=$(git -C "$ROOT" rev-parse HEAD)
@@ -48,6 +68,12 @@ mesa_commit=$(git -C "$ROOT/mesa-build/mesa-ps4" rev-parse HEAD)
 mesa_branch=$(git -C "$ROOT/mesa-build/mesa-ps4" branch --show-current)
 mesa_diff_sha256=$(git -C "$ROOT/mesa-build/mesa-ps4" diff --binary | sha256sum | cut -d' ' -f1)
 sdk=orbis-sdk-v1
+abi4_root=$ABI4
+abi4_commit=$(git -C "$ABI4/source" rev-parse HEAD)
+abi4_branch=$(git -C "$ABI4/source" branch --show-current)
+abi4_diff_sha256=$(git -C "$ABI4/source" diff --binary | sha256sum | cut -d' ' -f1)
+abi4_wow64native_sha256=$(sha256sum "$ABI4/native/x86_64-windows/wow64native.dll" | cut -d' ' -f1)
+baseline_1090_eboot_sha256=$(sha256sum "$BASELINE/pkg-stage/eboot.bin" | cut -d' ' -f1)
 EOF
 )
 printf '%s\n' "$manifest" | kubectl -n "$NAMESPACE" exec -i "$POD" -- sh -c "cat > '$DEST/manifest.txt'"

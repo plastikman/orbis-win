@@ -27,6 +27,18 @@ CACHE=/orbis-cache/deps
 [[ -f "$CACHE/openssl11/lib/libssl.so.1.1" ]] || {
   echo "missing cached OpenSSL 1.1 libraries under $CACHE/openssl11/lib" >&2; exit 1;
 }
+# ABI-v4 build inputs (scripts/ci/build-abi4-package.sh): the synced prospero-win
+# source with its wine-host build/install trees, the Unix wine-ps5 build, and
+# the native WoW64 PE outputs. Their generated makefiles and the .deps/wine-ps5
+# symlink embed ABI4_PATH, so that exact path is linked to the cache below.
+ABI4_PATH=/home/zpeirce/codex_scratch/abi4-upstream-port-20261104
+for p in source/.deps/wine-host/build source/.deps/wine-host/install/usr/lib/wine \
+         build/wine-ps5/build native/x86_64-windows/wow64native.dll; do
+  [[ -e "$CACHE/abi4/$p" ]] || { echo "missing cached ABI-v4 input: $CACHE/abi4/$p" >&2; exit 1; }
+done
+[[ -f "$CACHE/baseline-1090/pkg-stage/eboot.bin" ]] || {
+  echo "missing known-good 1090 baseline stage under $CACHE/baseline-1090" >&2; exit 1;
+}
 
 link_cache() {
   local source=$1 destination=$2
@@ -46,7 +58,15 @@ if [[ -e /home/zpeirce/ps4-gladius && ! -L /home/zpeirce/ps4-gladius ]]; then
 fi
 sudo ln -sfn "$ROOT" /home/zpeirce/ps4-gladius
 
+sudo mkdir -p "$(dirname "$ABI4_PATH")"
+if [[ -e $ABI4_PATH && ! -L $ABI4_PATH ]]; then
+  echo "unexpected $ABI4_PATH in runner image" >&2; exit 1
+fi
+sudo ln -sfn "$CACHE/abi4" "$ABI4_PATH"
+
 link_cache "$CACHE/prospero-win" "$ROOT/prospero-win"
+mkdir -p "$ROOT/pkgout"
+link_cache "$CACHE/baseline-1090" "$ROOT/pkgout/falloutnv-no-relro-kept-data-1090"
 link_cache "$CACHE/mesa-build" "$ROOT/mesa-build"
 link_cache "$CACHE/build" "$ROOT/build"
 mkdir -p "$ROOT/sdk"
@@ -63,6 +83,7 @@ ln -sfn /usr/bin/ld.lld-19 "$CACHE/build/ps4-wine-sdk/bin/orbis-ld"
 # Cache was seeded by a separate Kubernetes pod and may have another UID.
 git config --global --add safe.directory "$CACHE/prospero-win"
 git config --global --add safe.directory "$CACHE/mesa-build/mesa-ps4"
+git config --global --add safe.directory "$CACHE/abi4/source"
 
 echo "cache manifest:"
 cat "$CACHE/manifest.txt"
