@@ -44,12 +44,12 @@ tar -C "$HOME/.cache/orbis-ports/openssl11" -cf - lib |
 # prepare-runner.sh links ABI4 back to this exact path because the generated
 # makefiles and the .deps/wine-ps5 symlink embed it.
 ABI4=${PW_ABI4_ROOT:-/home/zpeirce/codex_scratch/abi4-upstream-port-20261104}
-for p in source build/wine-ps5 native; do
+for p in source build/wine-ps5 native mesa-zink; do
   [[ -e "$ABI4/$p" ]] || { echo "missing ABI-v4 input: $ABI4/$p" >&2; exit 1; }
 done
 kubectl -n "$NAMESPACE" exec "$POD" -- mkdir -p "$DEST/abi4/build" "$DEST/baseline-1090"
-echo "sync $ABI4/{source,build/wine-ps5,native} -> $DEST/abi4"
-tar -C "$ABI4" -cf - source build/wine-ps5 native |
+echo "sync $ABI4/{source,build/wine-ps5,native,mesa-zink} -> $DEST/abi4"
+tar -C "$ABI4" -cf - source build/wine-ps5 native mesa-zink |
   kubectl -n "$NAMESPACE" exec -i "$POD" -- tar -C "$DEST/abi4" -xf -
 # The hardware-validated baseline the parity gate compares every build against.
 BASELINE=$ROOT/pkgout/falloutnv-no-relro-kept-data-1090

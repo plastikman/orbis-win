@@ -1,0 +1,142 @@
+From: Claude <noreply@anthropic.com>
+Subject: [PATCH] wsi/orbis: hand the display to the newest swapchain instead of refusing it
+
+The PS4 has one main display, and each swapchain opened video-out for
+itself, so while an older swapchain of the process held it every newer one
+got SCE_VIDEO_OUT busy (0x80290009) and failed with
+VK_ERROR_INITIALIZATION_FAILED. Zink creates a new swapchain on resize
+and per context before destroying the old one, so OpenGL games (Half-Life)
+drew into a refused swapchain and showed black.
+
+Track one owner per process. On busy, drain and close the older owner,
+mark it detached (presents accepted and dropped, so Zink does not recreate
+it and take the display back), and open again. The flip is submitted under
+the same lock so a hand-over never closes a port mid-flip.
+---
+--- a/src/vulkan/wsi/wsi_orbis.c	2026-11-05 14:26:22.987405894 -0800
++++ b/src/vulkan/wsi/wsi_orbis.c	2026-11-05 14:28:39.672304805 -0800
+@@ -351,8 +351,25 @@
+     * directly - then there is nothing to copy and nothing here to release, because RADV owns those
+     * pages. See the note on wsi_orbis_scanout_create. */
+    bool     owns_buffers;
++   /* ⚠ HANDED OVER. A newer swapchain of this process took the display (see wsi_orbis_take_display):
++    * this one's video-out port is closed, its presents are accepted and dropped, and its destroy has
++    * nothing left to close. */
++   bool     detached;
+ };
+ 
++/* ⚠ ONE DISPLAY, ONE OWNER. Each swapchain opens video-out for itself, and the console has one main
++ * display: while an older swapchain of this process holds it, sceVideoOutOpen answers BUSY
++ * (0x80290009) for every newer one. Mesa's Zink makes a new swapchain on every resize and context
++ * before it destroys the old one (oldSwapchain 0), and GL games make several contexts, so the newest
++ * swapchain - the one the game draws into - was refused and the screen stayed black while an orphaned
++ * one held the scan-out (Half-Life, 2026-11-05). The newest swapchain wins instead: the owner is
++ * drained, its port closed, and it is marked detached. Guarded by a lock because Zink creates
++ * swapchains on two threads, and the flip itself takes the lock so a hand-over never closes a port
++ * underneath a flip being submitted. */
++#define WSI_ORBIS_VIDEO_OUT_BUSY ((int32_t)0x80290009)
++static pthread_mutex_t wsi_orbis_owner_lock = PTHREAD_MUTEX_INITIALIZER;
++static struct wsi_orbis_scanout *wsi_orbis_owner;
++
+ static void
+ wsi_orbis_release(struct wsi_orbis_scanout *so)
+ {
+@@ -366,6 +383,25 @@
+    so->video = -1;
+ }
+ 
++/* The same two-second bound WSI_ORBIS_THROTTLE_NS gives the flip-slot wait and teardown. */
++#define WSI_ORBIS_HANDOVER_DRAIN_NS (2ull * 1000 * 1000 * 1000)
++
++/* Called with wsi_orbis_owner_lock held. Same bounded drain as destroy: with the swapchain's own images
++ * registered, a flip the display has taken but not shown is memory the old swapchain still owns. */
++static void
++wsi_orbis_detach_locked(struct wsi_orbis_scanout *so)
++{
++   if (!so->owns_buffers && so->video >= 0) {
++      const uint64_t deadline = os_time_get_nano() + WSI_ORBIS_HANDOVER_DRAIN_NS;
++      while (wsi_orbis_flips_pending(so) > 0 && os_time_get_nano() < deadline)
++         sceKernelUsleep(500);
++   }
++   if (so->video >= 0)
++      sceVideoOutClose(so->video);
++   so->video = -1;
++   so->detached = true;
++}
++
+ /* ⚠ THE COPY IS THE LAST THING BETWEEN THE FRAME AND THE TELEVISION, and it costs 2.3 ms of a
+  * 21.9 ms frame - over a tenth of the frame to move 8100 KiB that the GPU has already written.
+  *
+@@ -403,11 +439,23 @@
+     * _present must produce exactly that regardless of what pitch the image has. */
+    so->bytes = ((uint64_t)width * height * 4 + WSI_ORBIS_DIRECT_ALIGN - 1) & ~(WSI_ORBIS_DIRECT_ALIGN - 1);
+ 
++   pthread_mutex_lock(&wsi_orbis_owner_lock);
+    so->video = sceVideoOutOpen(ORBIS_VIDEO_USER_MAIN, ORBIS_VIDEO_OUT_BUS_MAIN, 0, NULL);
++   if (so->video == WSI_ORBIS_VIDEO_OUT_BUSY && wsi_orbis_owner != NULL) {
++      struct wsi_orbis_scanout *old = wsi_orbis_owner;
++      mesa_logi("wsi/orbis: display busy with an older swapchain (%ux%u, %llu flip(s)) - handing it over to "
++                "the new %ux%u one", old->width, old->height, (unsigned long long)old->flips, width, height);
++      wsi_orbis_detach_locked(old);
++      wsi_orbis_owner = NULL;
++      so->video = sceVideoOutOpen(ORBIS_VIDEO_USER_MAIN, ORBIS_VIDEO_OUT_BUS_MAIN, 0, NULL);
++   }
+    if (so->video < 0) {
++      pthread_mutex_unlock(&wsi_orbis_owner_lock);
+       mesa_loge("wsi/orbis: sceVideoOutOpen -> %d", (int)so->video);
+       goto fail;
+    }
++   wsi_orbis_owner = so;
++   pthread_mutex_unlock(&wsi_orbis_owner_lock);
+ 
+    /* ⚠ GARLIC, AND NOT THE DRIVER'S ARENA. The arena is one WB_ONION carve-out, and no oracle in this project
+     * says video-out accepts ONION; the fork allocates its scan-out buffers from Garlic and reaches a display.
+@@ -560,6 +608,8 @@
+     *
+     * With the copy there is no such arithmetic: the copy is a snapshot, a flipped buffer is free the
+     * moment it returns, and count-1 only keeps the display from being overtaken. */
++   if (so->video < 0)
++      ORBIS_BOOK_RETURN(ORBIS_ID_WSI_FLIP_WAIT, orbis_fs_t0, true);   /* detached: a newer swapchain owns the display */
+    const int32_t  reserve = so->owns_buffers ? 0 : (int32_t)so->reserve;
+    const int32_t  limit = MAX2((int32_t)so->count - 1 - reserve, 1);
+    const uint64_t deadline = os_time_get_nano() + WSI_ORBIS_THROTTLE_NS;
+@@ -714,6 +764,10 @@
+    const uint64_t orbis_pr_t0 = os_time_get_nano();
+    if (so == NULL || index >= so->count || src == NULL)
+       ORBIS_BOOK_RETURN(ORBIS_ID_WSI_PRESENT, orbis_pr_t0, false);
++   /* ⚠ ACCEPTED, NOT FAILED, once handed over: a failed present makes Zink recreate the swapchain, which
++    * would take the display back from the newer one and the two would trade it every frame. */
++   if (__atomic_load_n(&so->detached, __ATOMIC_ACQUIRE))
++      ORBIS_BOOK_RETURN(ORBIS_ID_WSI_PRESENT, orbis_pr_t0, true);
+ 
+    /* ⚠ THE GPU FIRST. This copy reads pixels the GPU is writing, and until this line it did not ask whether the
+     * writing had finished - which is what put a staircase of tiles over half the menu on every screen change. See
+@@ -1013,8 +1067,14 @@
+       mesa_logi("wsi/orbis: present copied %u KiB, flipping index %u",
+                 (unsigned)((uint64_t)dst_pitch * so->height / 1024), index);
+ 
++   pthread_mutex_lock(&wsi_orbis_owner_lock);
++   if (so->detached) {
++      pthread_mutex_unlock(&wsi_orbis_owner_lock);
++      ORBIS_BOOK_RETURN(ORBIS_ID_WSI_PRESENT, orbis_pr_t0, true);
++   }
+    int32_t err = sceVideoOutSubmitFlip(so->video, (int32_t)index, ORBIS_VIDEO_OUT_FLIP_VSYNC,
+                                        (int64_t)++so->flips);
++   pthread_mutex_unlock(&wsi_orbis_owner_lock);
+    /* After the call, not instead of it: the flip really is submitted and the display really does take
+     * it, so the state this leaves behind is the state a genuine late failure leaves behind. Only the
+     * answer handed back to the WSI is forced. */
+@@ -1067,7 +1127,12 @@
+       }
+    }
+ 
+-   mesa_logi("wsi/orbis: scan-out down after %llu flip(s)", (unsigned long long)so->flips);
++   pthread_mutex_lock(&wsi_orbis_owner_lock);
++   if (wsi_orbis_owner == so)
++      wsi_orbis_owner = NULL;
++   mesa_logi("wsi/orbis: scan-out down after %llu flip(s)%s", (unsigned long long)so->flips,
++             so->detached ? " (had been handed over)" : "");
+    wsi_orbis_release(so);
++   pthread_mutex_unlock(&wsi_orbis_owner_lock);
+    free(so);
+ }

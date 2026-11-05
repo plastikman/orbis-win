@@ -7,7 +7,8 @@ It builds one complete ABI-v4 relocatable package with
 workstation. The recipe is the one validated on hardware as GLDS10043 01.06 on
 2026-11-05 (GTA IV, FNV, FO3, Oblivion native; MDK translator). The job fails
 unless `scripts/check-ps4-package-parity.py` (relocation stub, Vulkan surface,
-display, PS4 RADV, PRX exports, kernelbase diagnostics, signal-mask values)
+display, swapchain sizing, quit to launcher, PS4 RADV, PRX exports,
+kernelbase diagnostics, signal-mask values)
 and `PkgTool.Core pkg_validate` both pass. It uploads the unencrypted `.pkg`,
 the two gate reports and a plain-text provenance manifest as a GitHub Actions
 artifact.
@@ -21,9 +22,10 @@ Package numbering:
   Tag runs derive it from the tag (`v1.08` or `v1.8` → `01.08`); other tag
   shapes fail the job. Use a number never used before for that title ID, and
   always increase it. It is how a console install is matched to a build.
-  01.01–01.07 were used by GLDS10043 on 2026-11-05, so the first CI build is
-  01.08. This
-repository is public, so anyone with repository access can download that
+  01.01–01.14 were used by local GLDS10043 builds on 2026-11-05, so the first
+  CI build is 01.15. Local and CI builds share one sequence per title ID.
+
+This repository is public, so anyone with repository access can download that
 package. The CI build uses tracked
 GPL-3.0 OpenOrbis source to generate the empty `libc.prx` and `libSceFios2.prx`
 package stubs; the manifest records their hashes and source revision.

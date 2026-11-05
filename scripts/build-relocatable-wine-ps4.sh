@@ -11,6 +11,17 @@ CC="$ROOT/build/ps4-wine-sdk/bin/prospero-clang"
 OO="$BUNDLE/sdk"
 TITLE_ID="${TITLE_ID:-GLDS10044}"
 TITLE="${TITLE:-Prospero Wine Low-Base Test}"
+# Package identity the launcher logs as `PW_WINE64 build_marker=...`, so every
+# console run is attributable to its package from the log alone.
+if [[ -z ${PW_BUILD_ID:-} ]]; then
+  pw_rev=$(git -C "$PW" rev-parse --short=10 HEAD 2>/dev/null || echo unknown)
+  [[ -z $(git -C "$PW" status --porcelain 2>/dev/null) ]] || pw_rev+="+dirty"
+  PW_BUILD_ID="${TITLE_ID}-${PKG_VERSION:-dev}-pw${pw_rev}"
+fi
+[[ $PW_BUILD_ID =~ ^[A-Za-z0-9._+-]+$ ]] || {
+  echo "PW_BUILD_ID may only contain [A-Za-z0-9._+-]: $PW_BUILD_ID" >&2; exit 2;
+}
+export PW_BUILD_ID
 OUT="${PKG_OUT:-$ROOT/pkgout/wine-app-relocatable}"
 BASE_OUT="${PKG_BASE_OUT:-$ROOT/pkgout/wine-app-relocatable-base}"
 BUILD="${PW_BUILD_ROOT:-$ROOT/build/wine-app-relocatable}"
@@ -71,7 +82,7 @@ PS4_NTDLL32_DLL="${PS4_NTDLL32_DLL:-}" \
 echo "== build the high-address Wine PRX"
 PRX_BUILD="$BUILD/prx"
 mkdir -p "$PRX_BUILD"
-"$CC" -std=gnu11 -O2 -fPIC -DPW_RELOCATABLE_WINE \
+"$CC" -std=gnu11 -O2 -fPIC -DPW_RELOCATABLE_WINE -DPW_BUILD_ID="\"$PW_BUILD_ID\"" \
   -DPW_WINE64_WAIT_WATCHDOG="$PW_WINE64_WAIT_WATCHDOG" \
   -DPW_WINE64_SERVER_DIRECT_OFF="$PW_WINE64_SERVER_DIRECT_OFF" \
   -DPW_WINE64_HEAP_FLEXIBLE="$PW_WINE64_HEAP_FLEXIBLE" \

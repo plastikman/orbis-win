@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Subject: [PATCH] wsi: Trace only the first acquires unless asked.
+
+The 0032 acquire trace logged every acquire after the 1024th, about 8 lines
+per frame for the rest of a session (19,592 lines in WON Half-Life on 01.12,
+which was choppy). Keep the first eight; ORBIS_WSI_TRACE_LATE_ACQUIRE=1
+restores the late trace.
+---
+--- a/src/vulkan/wsi/wsi_common.c
++++ b/src/vulkan/wsi/wsi_common.c
+@@ -2297,7 +2297,15 @@
+ 
+ #ifdef HAVE_ORBIS_PLATFORM
+    const int32_t trace = p_atomic_inc_return(&orbis_acquire_stage_count);
+-   const bool trace_this = trace <= 8 || trace >= 1024;
++   /* ⚠ THE FIRST EIGHT ONLY, unless asked. Tracing every acquire after the 1024th wrote ~8 log lines per
++    * frame for the rest of a session (19,592 lines in a few minutes of WON Half-Life, 01.12) - a stall
++    * hunt's instrument left running in every title. ORBIS_WSI_TRACE_LATE_ACQUIRE=1 brings it back. */
++   static int trace_late = -1;
++   if (trace_late < 0) {
++      const char *late = getenv("ORBIS_WSI_TRACE_LATE_ACQUIRE");
++      trace_late = late != NULL && late[0] != '\0' && late[0] != '0';
++   }
++   const bool trace_this = trace <= 8 || (trace_late && trace >= 1024);
+    if (trace_this)
+       mesa_logi("wsi/orbis: 0032 acquire #%d common entry timeout=%llu sem=%u fence=%u",
+                 trace, (unsigned long long)pAcquireInfo->timeout,

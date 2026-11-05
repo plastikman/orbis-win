@@ -33,7 +33,8 @@ CACHE=/orbis-cache/deps
 # symlink embed ABI4_PATH, so that exact path is linked to the cache below.
 ABI4_PATH=/home/zpeirce/codex_scratch/abi4-upstream-port-20261104
 for p in source/.deps/wine-host/build source/.deps/wine-host/install/usr/lib/wine \
-         build/wine-ps5/build native/x86_64-windows/wow64native.dll; do
+         build/wine-ps5/build native/x86_64-windows/wow64native.dll \
+         mesa-zink/i386-windows/opengl32.dll mesa-zink/x86_64-windows/opengl32.dll; do
   [[ -e "$CACHE/abi4/$p" ]] || { echo "missing cached ABI-v4 input: $CACHE/abi4/$p" >&2; exit 1; }
 done
 [[ -f "$CACHE/baseline-1090/pkg-stage/eboot.bin" ]] || {

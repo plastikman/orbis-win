@@ -1,0 +1,336 @@
+From: Claude <noreply@anthropic.com>
+Subject: [PATCH] wsi/orbis: show the title's own frames while no swapchain presents
+
+Once a game has a Vulkan surface the title closes its video-out and the
+display is this WSI's. The title then shows GDI frames, movies and its
+loading spinner through pw_videoout_idle/pw_videoout_show_tiled (exported
+by src/native/pw_vulkan_radv_ps4.c), as upstream's PS5 VideoOut WSI does;
+the PS4 driver had neither, so those frames were dropped (WON Half-Life
+menu stayed black).
+
+- Two linear A8R8G8B8 buffers of our own for the title's frames, attached
+  when no swapchain has flipped for 250 ms.
+- A handed-over swapchain that presents again takes the display back, so a
+  game can move between GDI (menu) and GL/Vulkan (play).
+- Lock-free quiesce of pending flips at exit.
+---
+--- a/src/vulkan/wsi/wsi_orbis.h	2026-11-05 14:46:50.858779438 -0800
++++ b/src/vulkan/wsi/wsi_orbis.h	2026-11-05 14:46:50.858779438 -0800
+@@ -61,6 +61,13 @@
+  * buffers and the one on screen are all still the display's and must not be handed back. */
+ uint32_t wsi_orbis_flips_pending(struct wsi_orbis_scanout *so);
+ 
++/* The title's own frames while no swapchain presents (wsi_orbis.c, "The title's own frames"); exported to the
++ * title as pw_videoout_idle / pw_videoout_show_tiled / pw_videoout_quiesce by src/native/pw_vulkan_radv_ps4.c. */
++bool wsi_orbis_idle(void);
++void *wsi_orbis_title_frame_begin(int *status);
++int wsi_orbis_title_frame_flip(void);
++int wsi_orbis_quiesce(unsigned timeout_ms, unsigned *waited_ms, int *pending_last);
++
+ void wsi_orbis_scanout_destroy(struct wsi_orbis_scanout *so);
+ 
+ /* Copies a Wine Vulkan cursor image for composition into the next scan-out frame.
+--- a/src/vulkan/wsi/wsi_orbis.c	2026-11-05 14:46:50.854779421 -0800
++++ b/src/vulkan/wsi/wsi_orbis.c	2026-11-05 14:46:50.858779438 -0800
+@@ -355,6 +355,11 @@
+     * this one's video-out port is closed, its presents are accepted and dropped, and its destroy has
+     * nothing left to close. */
+    bool     detached;
++   /* What a re-attach registers again: the buffers' pixel format and row pitch. */
++   uint32_t pixel_format;
++   uint32_t pitch_px;
++   /* When this scan-out last flipped (os_time_get_nano), for wsi_orbis_idle. */
++   uint64_t last_flip_ns;
+ };
+ 
+ /* ⚠ ONE DISPLAY, ONE OWNER. Each swapchain opens video-out for itself, and the console has one main
+@@ -369,6 +374,9 @@
+ #define WSI_ORBIS_VIDEO_OUT_BUSY ((int32_t)0x80290009)
+ static pthread_mutex_t wsi_orbis_owner_lock = PTHREAD_MUTEX_INITIALIZER;
+ static struct wsi_orbis_scanout *wsi_orbis_owner;
++/* The owner's video-out handle, readable without the lock: wsi_orbis_quiesce runs at exit, when a thread Wine
++ * ended may still hold wsi_orbis_owner_lock. -1 with no output open. */
++static int32_t wsi_orbis_video_handle = -1;
+ 
+ static void
+ wsi_orbis_release(struct wsi_orbis_scanout *so)
+@@ -402,6 +410,49 @@
+    so->detached = true;
+ }
+ 
++/* Called with wsi_orbis_owner_lock held. Takes the display for `so`: the current owner, if another, is drained,
++ * closed and detached; video-out is opened again and so's buffers registered as they were. */
++static bool
++wsi_orbis_attach_locked(struct wsi_orbis_scanout *so)
++{
++   if (wsi_orbis_owner == so && !so->detached && so->video >= 0)
++      return true;
++   if (wsi_orbis_owner != NULL && wsi_orbis_owner != so) {
++      mesa_logi("wsi/orbis: display taken from the %ux%u scan-out (%llu flip(s)) for a %ux%u one",
++                wsi_orbis_owner->width, wsi_orbis_owner->height, (unsigned long long)wsi_orbis_owner->flips,
++                so->width, so->height);
++      wsi_orbis_detach_locked(wsi_orbis_owner);
++   }
++   wsi_orbis_owner = NULL;
++   __atomic_store_n(&wsi_orbis_video_handle, -1, __ATOMIC_RELEASE);
++
++   so->video = sceVideoOutOpen(ORBIS_VIDEO_USER_MAIN, ORBIS_VIDEO_OUT_BUS_MAIN, 0, NULL);
++   if (so->video < 0) {
++      mesa_loge("wsi/orbis: re-attach sceVideoOutOpen -> %d", (int)so->video);
++      so->video = -1;
++      so->detached = true;
++      return false;
++   }
++   OrbisVideoOutBufferAttribute attr;
++   memset(&attr, 0, sizeof(attr));
++   sceVideoOutSetBufferAttribute(&attr, so->pixel_format, ORBIS_VIDEO_OUT_TILING_MODE_LINEAR,
++                                 ORBIS_VIDEO_OUT_ASPECT_RATIO_16_9, so->width, so->height, so->pitch_px);
++   int32_t err = sceVideoOutRegisterBuffers(so->video, 0, so->map, so->count, &attr);
++   if (err < 0) {
++      mesa_loge("wsi/orbis: re-attach sceVideoOutRegisterBuffers(%u) -> 0x%08x", so->count, (unsigned)err);
++      sceVideoOutClose(so->video);
++      so->video = -1;
++      so->detached = true;
++      return false;
++   }
++   (void)sceVideoOutSetFlipRate(so->video, ORBIS_VIDEO_OUT_FLIP_60HZ);
++   so->detached = false;
++   so->last_flip_ns = os_time_get_nano();   /* attaching counts as activity, so the title does not take it straight back */
++   wsi_orbis_owner = so;
++   __atomic_store_n(&wsi_orbis_video_handle, so->video, __ATOMIC_RELEASE);
++   return true;
++}
++
+ /* ⚠ THE COPY IS THE LAST THING BETWEEN THE FRAME AND THE TELEVISION, and it costs 2.3 ms of a
+  * 21.9 ms frame - over a tenth of the frame to move 8100 KiB that the GPU has already written.
+  *
+@@ -435,6 +486,8 @@
+    so->width = width;
+    so->height = height;
+    so->count = count;
++   so->pixel_format = ORBIS_VIDEO_OUT_PIXEL_FORMAT_A8B8G8R8_SRGB;
++   so->pitch_px = pitch_px != 0 ? pitch_px : width;
+    /* The registered buffer's pitch is the width: that is what the attribute below states, so the copy in
+     * _present must produce exactly that regardless of what pitch the image has. */
+    so->bytes = ((uint64_t)width * height * 4 + WSI_ORBIS_DIRECT_ALIGN - 1) & ~(WSI_ORBIS_DIRECT_ALIGN - 1);
+@@ -447,6 +500,7 @@
+                 "the new %ux%u one", old->width, old->height, (unsigned long long)old->flips, width, height);
+       wsi_orbis_detach_locked(old);
+       wsi_orbis_owner = NULL;
++      __atomic_store_n(&wsi_orbis_video_handle, -1, __ATOMIC_RELEASE);
+       so->video = sceVideoOutOpen(ORBIS_VIDEO_USER_MAIN, ORBIS_VIDEO_OUT_BUS_MAIN, 0, NULL);
+    }
+    if (so->video < 0) {
+@@ -455,6 +509,7 @@
+       goto fail;
+    }
+    wsi_orbis_owner = so;
++   __atomic_store_n(&wsi_orbis_video_handle, so->video, __ATOMIC_RELEASE);
+    pthread_mutex_unlock(&wsi_orbis_owner_lock);
+ 
+    /* ⚠ GARLIC, AND NOT THE DRIVER'S ARENA. The arena is one WB_ONION carve-out, and no oracle in this project
+@@ -764,10 +819,18 @@
+    const uint64_t orbis_pr_t0 = os_time_get_nano();
+    if (so == NULL || index >= so->count || src == NULL)
+       ORBIS_BOOK_RETURN(ORBIS_ID_WSI_PRESENT, orbis_pr_t0, false);
+-   /* ⚠ ACCEPTED, NOT FAILED, once handed over: a failed present makes Zink recreate the swapchain, which
+-    * would take the display back from the newer one and the two would trade it every frame. */
+-   if (__atomic_load_n(&so->detached, __ATOMIC_ACQUIRE))
+-      ORBIS_BOOK_RETURN(ORBIS_ID_WSI_PRESENT, orbis_pr_t0, true);
++   /* ⚠ PRESENTING TAKES THE DISPLAY BACK. A swapchain handed over to a newer one, or to the title's own frames
++    * while it was idle (wsi_orbis_title_frame_begin), attaches again when it presents: a game that draws its menu
++    * through GDI and its play through GL/Vulkan moves between the two. If it cannot, the frame is accepted and
++    * dropped, never failed: a failed present makes Zink recreate the swapchain. Orphaned swapchains never
++    * present, so they never take the display. */
++   if (__atomic_load_n(&so->detached, __ATOMIC_ACQUIRE)) {
++      pthread_mutex_lock(&wsi_orbis_owner_lock);
++      const bool attached = !so->detached || wsi_orbis_attach_locked(so);
++      pthread_mutex_unlock(&wsi_orbis_owner_lock);
++      if (!attached)
++         ORBIS_BOOK_RETURN(ORBIS_ID_WSI_PRESENT, orbis_pr_t0, true);
++   }
+ 
+    /* ⚠ THE GPU FIRST. This copy reads pixels the GPU is writing, and until this line it did not ask whether the
+     * writing had finished - which is what put a staircase of tiles over half the menu on every screen change. See
+@@ -1074,6 +1137,8 @@
+    }
+    int32_t err = sceVideoOutSubmitFlip(so->video, (int32_t)index, ORBIS_VIDEO_OUT_FLIP_VSYNC,
+                                        (int64_t)++so->flips);
++   if (err == 0)
++      so->last_flip_ns = os_time_get_nano();
+    pthread_mutex_unlock(&wsi_orbis_owner_lock);
+    /* After the call, not instead of it: the flip really is submitted and the display really does take
+     * it, so the state this leaves behind is the state a genuine late failure leaves behind. Only the
+@@ -1128,11 +1193,171 @@
+    }
+ 
+    pthread_mutex_lock(&wsi_orbis_owner_lock);
+-   if (wsi_orbis_owner == so)
++   if (wsi_orbis_owner == so) {
+       wsi_orbis_owner = NULL;
++      __atomic_store_n(&wsi_orbis_video_handle, -1, __ATOMIC_RELEASE);
++   }
+    mesa_logi("wsi/orbis: scan-out down after %llu flip(s)%s", (unsigned long long)so->flips,
+              so->detached ? " (had been handed over)" : "");
+    wsi_orbis_release(so);
+    pthread_mutex_unlock(&wsi_orbis_owner_lock);
+    free(so);
+ }
++
++/* --- The title's own frames ------------------------------------------------
++ *
++ * ⚠ WHAT THE TITLE SHOWS WHILE NO SWAPCHAIN PRESENTS. Once a game creates a Vulkan surface the title closes its own
++ * video-out and the display is this WSI's (win32u ps5drv releases it at surface creation). Frames the game draws
++ * outside Vulkan - a GDI menu, a DirectShow or AVI movie, the title's loading spinner - then have nowhere to go
++ * unless this driver shows them: the title asks pw_videoout_idle() and hands them to pw_videoout_show_tiled()
++ * (src/native/pw_vulkan_radv_ps4.c), as upstream's PS5 VideoOut WSI does. Without it a WON Half-Life menu (640x480
++ * GDI, its GL starts only in game) stayed black behind three idle Zink swapchains (2026-11-05).
++ *
++ * Two buffers of our own, A8R8G8B8 (byte 0 is blue, the title's BGRX order - the format the title's own display
++ * uses, measured 2026-10-07), registered on video-out when the title takes the display. A swapchain that presents
++ * again takes it back (wsi_orbis_scanout_present). */
++#define WSI_ORBIS_PIXEL_A8R8G8B8_SRGB 0x80000000u
++/* A swapchain silent this long is idle: long enough that a game presenting at a few frames a second keeps the
++ * display, short enough that a menu shows at once. */
++#define WSI_ORBIS_IDLE_NS (250ull * 1000 * 1000)
++#define WSI_ORBIS_TITLE_WIDTH  1920
++#define WSI_ORBIS_TITLE_HEIGHT 1080
++
++static struct wsi_orbis_scanout wsi_orbis_title = { .video = -1 };
++static uint32_t wsi_orbis_title_next;
++
++static bool
++wsi_orbis_owner_idle_locked(uint64_t now)
++{
++   const struct wsi_orbis_scanout *o = wsi_orbis_owner;
++   return o == NULL || o == &wsi_orbis_title || o->detached || now - o->last_flip_ns > WSI_ORBIS_IDLE_NS;
++}
++
++bool
++wsi_orbis_idle(void)
++{
++   pthread_mutex_lock(&wsi_orbis_owner_lock);
++   const bool idle = wsi_orbis_owner_idle_locked(os_time_get_nano());
++   pthread_mutex_unlock(&wsi_orbis_owner_lock);
++   return idle;
++}
++
++static bool
++wsi_orbis_title_alloc_locked(void)
++{
++   struct wsi_orbis_scanout *so = &wsi_orbis_title;
++   if (so->map[0] != NULL)
++      return true;
++   so->width = WSI_ORBIS_TITLE_WIDTH;
++   so->height = WSI_ORBIS_TITLE_HEIGHT;
++   so->count = 2;
++   so->owns_buffers = true;
++   so->pixel_format = WSI_ORBIS_PIXEL_A8R8G8B8_SRGB;
++   so->pitch_px = WSI_ORBIS_TITLE_WIDTH;
++   so->bytes = ((uint64_t)so->width * so->height * 4 + WSI_ORBIS_DIRECT_ALIGN - 1) & ~(WSI_ORBIS_DIRECT_ALIGN - 1);
++   so->detached = true;
++   for (uint32_t i = 0; i < so->count; i++) {
++      int32_t err = sceKernelAllocateDirectMemory(0, sceKernelGetDirectMemorySize(), so->bytes, WSI_ORBIS_DIRECT_ALIGN,
++                                                  ORBIS_KERNEL_WC_GARLIC, &so->phys[i]);
++      if (err == 0)
++         err = sceKernelMapDirectMemory(&so->map[i], so->bytes, WSI_ORBIS_PROT, 0, so->phys[i], WSI_ORBIS_DIRECT_ALIGN);
++      if (err != 0) {
++         mesa_loge("wsi/orbis: title frame buffer %u: direct memory -> 0x%08x", i, (unsigned)err);
++         for (uint32_t j = 0; j <= i; j++) {
++            if (so->map[j] != NULL)
++               sceKernelReleaseDirectMemory(so->phys[j], so->bytes);
++            so->map[j] = NULL;
++         }
++         return false;
++      }
++      memset(so->map[i], 0, (size_t)so->bytes);
++   }
++   return true;
++}
++
++/* The buffer to draw the next title frame into (1920x1080, pitch 1920 pixels, BGRX), with the display taken for
++ * the title; NULL with *status 1 while a swapchain presents, or <0 on failure. */
++void *
++wsi_orbis_title_frame_begin(int *status)
++{
++   pthread_mutex_lock(&wsi_orbis_owner_lock);
++   if (!wsi_orbis_owner_idle_locked(os_time_get_nano())) {
++      pthread_mutex_unlock(&wsi_orbis_owner_lock);
++      *status = 1;
++      return NULL;
++   }
++   if (!wsi_orbis_title_alloc_locked() || !wsi_orbis_attach_locked(&wsi_orbis_title)) {
++      pthread_mutex_unlock(&wsi_orbis_owner_lock);
++      *status = -2;
++      return NULL;
++   }
++   const uint32_t index = wsi_orbis_title_next;
++   pthread_mutex_unlock(&wsi_orbis_owner_lock);
++
++   /* The other buffer is on screen; this one is free once no flip is pending. Bounded like every wait here. */
++   const uint64_t deadline = os_time_get_nano() + 100ull * 1000 * 1000;
++   while (wsi_orbis_flips_pending(&wsi_orbis_title) > 0 && os_time_get_nano() < deadline)
++      sceKernelUsleep(500);
++   *status = 0;
++   return wsi_orbis_title.map[index];
++}
++
++/* Flips the buffer wsi_orbis_title_frame_begin returned: 0 shown, 1 a swapchain took the display meanwhile,
++ * <0 failed. */
++int
++wsi_orbis_title_frame_flip(void)
++{
++   pthread_mutex_lock(&wsi_orbis_owner_lock);
++   if (wsi_orbis_owner != &wsi_orbis_title || wsi_orbis_title.detached) {
++      pthread_mutex_unlock(&wsi_orbis_owner_lock);
++      return 1;
++   }
++   const int32_t err = sceVideoOutSubmitFlip(wsi_orbis_title.video, (int32_t)wsi_orbis_title_next,
++                                             ORBIS_VIDEO_OUT_FLIP_VSYNC, (int64_t)++wsi_orbis_title.flips);
++   if (err == 0)
++      wsi_orbis_title_next ^= 1u;
++   pthread_mutex_unlock(&wsi_orbis_owner_lock);
++   if (err != 0) {
++      static unsigned said;
++      if (said++ < 4)
++         mesa_loge("wsi/orbis: title frame flip -> 0x%08x", (unsigned)err);
++      return -3;
++   }
++   return 0;
++}
++
++/* Lock-free drain at exit (pw_videoout_quiesce): 1 with no output open, 0 once no flip has been pending for five
++ * polls, -1 when timeout_ms passed first. Never takes wsi_orbis_owner_lock - a thread Wine ended may hold it. */
++int
++wsi_orbis_quiesce(unsigned timeout_ms, unsigned *waited_ms, int *pending_last)
++{
++   const int32_t handle = __atomic_load_n(&wsi_orbis_video_handle, __ATOMIC_ACQUIRE);
++   const uint64_t started = os_time_get_nano(), deadline = started + (uint64_t)timeout_ms * 1000000ull;
++   unsigned settled = 0;
++   int pending = 0, status = -1;
++
++   if (waited_ms)
++      *waited_ms = 0;
++   if (pending_last)
++      *pending_last = 0;
++   if (handle < 0)
++      return 1;
++   for (;;) {
++      OrbisVideoOutFlipStatus st;
++      memset(&st, 0, sizeof(st));
++      pending = sceVideoOutGetFlipStatus(handle, &st) == 0 ? (int)st.numFlipPending : 0;
++      settled = pending <= 0 ? settled + 1 : 0;
++      if (settled >= 5) {
++         status = 0;
++         break;
++      }
++      if (os_time_get_nano() >= deadline)
++         break;
++      sceKernelUsleep(4000);
++   }
++   if (waited_ms)
++      *waited_ms = (unsigned)((os_time_get_nano() - started) / 1000000ull);
++   if (pending_last)
++      *pending_last = pending;
++   return status;
++}

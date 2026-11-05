@@ -32,6 +32,51 @@ int pw_videoout_cursor(const uint32_t *argb, uint32_t width, uint32_t height,
     return wsi_orbis_cursor_update(argb, width, height, x, y, screen_width, screen_height);
 }
 
+/* ⚠ THE TITLE'S FRAMES WHILE NO SWAPCHAIN PRESENTS, with upstream's signatures (wine/ps5/pw_vulkan_radv.c). Once a
+ * game has a Vulkan surface the display is RADV's; the title then shows its GDI frames, movies and loading spinner
+ * through these, and without them it found none ("vulkan frames idle=0 show=0") and those frames were dropped:
+ * a WON Half-Life menu stayed black (2026-11-05). wsi_orbis keeps two linear A8R8G8B8 buffers of its own for them
+ * (Mesa patch 0038). */
+extern _Bool wsi_orbis_idle(void);
+extern void *wsi_orbis_title_frame_begin(int *status);
+extern int wsi_orbis_title_frame_flip(void);
+extern int wsi_orbis_quiesce(unsigned timeout_ms, unsigned *waited_ms, int *pending_last);
+
+/* 1 when a frame given to pw_videoout_show_tiled would show: no swapchain is presenting. */
+__attribute__((visibility("default")))
+int pw_videoout_idle(void)
+{
+    return wsi_orbis_idle() ? 1 : 0;
+}
+
+/* ⚠ "TILED" IN NAME ONLY ON PS4. Upstream's title draws the PS5's VideoOut tiling here, but on this console its
+ * pw_videoout_ps5_draw_scaled is src/native/pw_platform_bind_ps4.c's, which draws the frame LINEAR in B8G8R8A8
+ * order at a 1920 x 4 byte stride, because this scan-out is linear. Untiling it scrambled the WON Half-Life menu
+ * into tiles (2026-11-05); the frame is copied as it is. 0 shown, 1 a swapchain is presenting, <0 failed. */
+enum { PW_TITLE_WIDTH = 1920, PW_TITLE_HEIGHT = 1080 };
+
+__attribute__((visibility("default")))
+int pw_videoout_show_tiled(const void *tiled, uint64_t bytes, uint32_t width, uint32_t height)
+{
+    int status = -1;
+
+    if (tiled == NULL || width != PW_TITLE_WIDTH || height != PW_TITLE_HEIGHT ||
+        bytes < (uint64_t)width * height * 4u)
+        return -1;
+    uint32_t *out = wsi_orbis_title_frame_begin(&status);
+    if (out == NULL)
+        return status;
+    memcpy(out, tiled, (size_t)width * height * 4u);
+    return wsi_orbis_title_frame_flip();
+}
+
+/* Lock-free drain of RADV's pending flips at exit: 1 no output open, 0 drained, -1 timed out. */
+__attribute__((visibility("default")))
+int pw_videoout_quiesce(unsigned timeout_ms, unsigned *waited_ms, int *pending_last)
+{
+    return wsi_orbis_quiesce(timeout_ms, waited_ms, pending_last);
+}
+
 PFN_vkVoidFunction VKAPI_CALL vk_icdGetInstanceProcAddr(VkInstance instance, const char *name);
 PFN_vkVoidFunction VKAPI_CALL vk_common_GetDeviceProcAddr(VkDevice device, const char *name);
 

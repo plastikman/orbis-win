@@ -34,8 +34,11 @@ WOW64NATIVE_DLL=$ABI4/native/x86_64-windows/wow64native.dll
 WOW64NATIVE_ABI4_SHA256=e531a51bb19ae4f92e65556f0f6d4f89e930b9c7490d8a02988feb1d5ee9c044
 WOW64NATIVE_ABI4_PRX_SHA256=1e93fca76dc2649b43ec404b72db31095cf3ac77a05be550db7bfded75bc5683
 
+# mesa-zink/ holds the artifacts of prospero-win tools/build_mesa_zink.sh (pinned
+# Mesa + llvm-mingw): the WGL/Zink OpenGL provider for graphics = opengl games.
 for p in "$PW/.deps/wine-host/build" "$PW/.deps/wine-host/install/usr/lib/wine" \
-         "$PW/.deps/wine-ps5/build" "$WOW64NATIVE_DLL" "$BASELINE/eboot.bin"; do
+         "$PW/.deps/wine-ps5/build" "$WOW64NATIVE_DLL" "$BASELINE/eboot.bin" \
+         "$ABI4/mesa-zink/i386-windows/opengl32.dll" "$ABI4/mesa-zink/x86_64-windows/opengl32.dll"; do
   [[ -e $p ]] || { echo "missing ABI-v4 build input: $p" >&2; exit 1; }
 done
 mkdir -p "$OUT"
@@ -67,6 +70,7 @@ env -u PW_SHARED_LIBC \
   WOW64NATIVE_ABI4_SHA256=$WOW64NATIVE_ABI4_SHA256 \
   WOW64NATIVE_ABI4_PRX_SHA256=$WOW64NATIVE_ABI4_PRX_SHA256 \
   PS4_KERNELBASE32_DLL="$OUT/pe/kernelbase.dll" \
+  PW_MESA_ZINK_DIR="$ABI4/mesa-zink" \
   PKG_OUT="$OUT/app" PKG_BASE_OUT="$OUT/base" \
   PW_BUILD_ROOT="$OUT/build" PW_APP_OBJ="$OUT/app-obj" \
   bash "$ROOT/scripts/build-relocatable-wine-ps4.sh"

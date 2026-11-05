@@ -101,11 +101,39 @@ def main():
            'win32u has the headless scanout extent (0861/0862)' if 'WINE_PS5_SCANOUT' in w else
            'win32u lacks WINE_PS5_SCANOUT: frames render but never reach the display (0861/0862)')
 
+    # 3b. OpenGL provider: graphics = opengl games are refused without it.
+    missing_zink = [f"{a}/{d}" for a in ('i386-windows', 'x86_64-windows')
+                    for d in ('opengl32.dll', 'libgallium_wgl.dll')
+                    if not os.path.isfile(os.path.join(cand, 'win/mesa-zink', a, d))]
+    report('FAIL' if missing_zink else 'PASS',
+           f"Mesa Zink OpenGL provider missing ({', '.join(missing_zink)}): every graphics = opengl "
+           "title is refused at startup (pass PW_MESA_ZINK_DIR)" if missing_zink else
+           'win/mesa-zink carries the WGL/Zink OpenGL provider for both architectures')
+
     # 4. PS4 RADV, not the upstream bundle's driver.
     v = strings(module(cand, 'libvulkan'))
     ps4_radv = [x for x in v if x.startswith(('PW_ORBIS_VA_FAIL', 'wsi/orbis: 0031', 'RADV_ALLOC_CMD_BUFFER'))]
     report('PASS' if ps4_radv else 'FAIL', 'libvulkan.prx is the PS4 RADV (mesa-ps4 + src/mesa-patches-ps4)'
            if ps4_radv else 'libvulkan.prx lacks the PS4 Mesa markers: rebuild it with scripts/radv-prx-ps4.sh')
+
+    # 4b. The title shows its GDI frames / movies / spinner through the driver once a game has a Vulkan
+    # surface; without these exports they are dropped (WON Half-Life menu black, 2026-11-05; Mesa 0038).
+    missing_vo = [n for n in ('pw_videoout_idle', 'pw_videoout_show_tiled', 'pw_videoout_quiesce') if n not in v]
+    report('FAIL' if missing_vo else 'PASS',
+           f"libvulkan.prx lacks {missing_vo}: the title's non-Vulkan frames vanish once a game has a Vulkan "
+           "surface (src/native/pw_vulkan_radv_ps4.c, scripts/radv-prx-ps4.sh)" if missing_vo else
+           'libvulkan.prx exports pw_videoout_idle/show_tiled/quiesce for the title\'s own frames')
+
+    # 4c. Window-sized swapchains are fitted to the screen (Mesa 0039) and win32u reports the window's size
+    # (series 1054). Either half alone is wrong: 1054 without 0039 shows a small swapchain in a corner of the
+    # display, and 0039 without 1054 leaves GL titles drawing into a corner of a 1920x1080 swapchain
+    # (WON Half-Life, 2026-11-05).
+    fit = any('swapchain scaled to' in x for x in v)
+    client = 'WINE_PS5_SURFACE_EXTENT' in w
+    report('PASS' if fit and client else 'FAIL',
+           'wsi_orbis fits any swapchain size (0039) and win32u reports the window size (1054)' if fit and client
+           else f"swapchain sizing half-applied: wsi_orbis fit (Mesa 0039) {'present' if fit else 'MISSING'}, "
+                f"win32u client extent (series 1054) {'present' if client else 'MISSING'}")
 
     # 5. Descriptor exports. The app and the Unix libraries find ntdll/wineserver
     # calls by name (pw_prx_lookup/dlsym), so a stale export list in
@@ -147,6 +175,15 @@ def main():
     xi = module(cand, 'xinput1_3')
     if os.path.isfile(xi):
         checks.append(('ntdll', {x for x in strings(xi, 4) if re.fullmatch(r'pw_wine_[a-z_]+', x)}))
+    # Quit-to-launcher (series 1053): the app polls the in-process server's flag by name. Without the
+    # poll, or without the export it resolves, a game's own Quit leaves Wine's empty desktop on screen
+    # until the player closes the app from the PS button.
+    app_strings = strings(app, 4) if os.path.isfile(app) else []
+    quit_poll = any('guest processes ended' in x for x in app_strings)
+    report('PASS' if quit_poll else 'FAIL', 'relocated_wine_app returns to the launcher on guest exit (1053)'
+           if quit_poll else 'relocated_wine_app lacks the guest-exit poll: a game\'s own Quit strands the '
+           'player on an empty desktop (series 1053 + native/wine64_main.c)')
+    checks.append(('wineserver', {x for x in app_strings if re.fullmatch(r'pw_wineserver_[a-z_]+', x)}))
     for prov, names in checks:
         have = exported(prov)
         if have is None:
@@ -163,6 +200,22 @@ def main():
     kb = os.path.join(cand, I386, 'kernelbase.dll')
     n = sum(1 for x in strings(kb) if 'PW_EXCEPTION32' in x) if os.path.isfile(kb) else 0
     report('PASS' if n else 'FAIL', f"i386 kernelbase.dll PW_EXCEPTION32 strings: {n}")
+    # ⚠ Present is not reached. A title always takes UnhandledExceptionFilter's
+    # no_debugger branch, which returns before start_debugger(); unless that
+    # branch calls the logger (archive 1012, series 1049), the strings above
+    # are dead code and a guest fault leaves no PW_EXCEPTION32 record.
+    if args.upstream_root:
+        dbg = os.path.join(args.upstream_root, '.deps/wine-host/source/dlls/kernelbase/debug.c')
+        if os.path.isfile(dbg):
+            src = open(dbg, errors='replace').read()
+            m = re.search(r'if \(no_debugger\)\s*\{(.*?)\n        \}', src, re.S)
+            ok = bool(m and 'log_exception_context32' in m.group(1))
+            report('PASS' if ok else 'FAIL',
+                   'kernelbase no_debugger path calls log_exception_context32' if ok else
+                   'kernelbase no_debugger path never calls log_exception_context32: PW_EXCEPTION32 '
+                   'is compiled in but unreachable in a title (port archive 1012)')
+        else:
+            report('WARN', f"{dbg} missing; PW_EXCEPTION32 reachability not checked")
 
     # 7. Signal-mask operations must use FreeBSD values (SIG_BLOCK=1, UNBLOCK=2, SETMASK=3).
     if args.elf_dir:

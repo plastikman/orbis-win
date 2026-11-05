@@ -104,10 +104,17 @@ if [ "${PW_PRE_V020:-0}" = 1 ]; then
         pw_wineserver_connect pw_wine_thread_register pw_wine_thread_unregister \
         pw_wineserver_call_direct pw_wineserver_try_fast_mutex pw_cwd_share_changes
 else
+    # The title polls this to return to its launcher after a game's own Quit
+    # (wine series 1053); exported only when the server defines it.
+    server_exports=""
+    grep -q "pw_wineserver_guest_exit_pending" "$work/source/server/request.c" &&
+        server_exports="pw_wineserver_guest_exit_pending"
+    echo "   wineserver extra exports: ${server_exports:-none}"
     gen "$prx/obj/wineserver_desc.c" \
         pw_wineserver_connect pw_wine_thread_register pw_wine_thread_unregister \
         pw_wineserver_call_direct pw_wineserver_try_fast_mutex \
-        pw_wineserver_mutex_backend pw_wineserver_sync_backend pw_cwd_share_changes
+        pw_wineserver_mutex_backend pw_wineserver_sync_backend pw_cwd_share_changes \
+        $server_exports
 fi
 gen "$prx/obj/wowprospero_desc.c" __wine_unix_call_funcs
 gen "$prx/obj/wow64native_desc.c" __wine_unix_call_funcs
@@ -278,27 +285,72 @@ for step in "ntdll|dlls/ntdll/ntdll.so|$ntdll_shims" \
     # stubs go through the shim so they land after orbis-compat and -lc
     export PW_PRX_STUBS="-L$stubs -Wl,--as-needed $(ls "$stubs"/*.so 2>/dev/null | tr '\n' ' ')"
     log=$prx/$name.link.log
+    tail_pad=""
     # shellcheck disable=SC2086
+    while :; do
     if (cd "$build" && $CC -shared -Wl,-Bsymbolic -Wl,--eh-frame-hdr \
             -Wl,-soname,"$name.prx" -Wl,--warn-unresolved-symbols $cwd_wraps $thread_wraps \
             -o "$prx/$name.shared.elf" $objs $shim_objs "$prx/obj/${name}_desc.o" \
-            $extra_libs \
-            ) > "$log" 2>&1
-    then
-        if "$oo/bin/linux/create-fself" -in "$prx/$name.shared.elf" \
+            $extra_libs $tail_pad \
+            ) > "$log" 2>&1 &&
+       "$oo/bin/linux/create-fself" -in "$prx/$name.shared.elf" \
                -out "$prx/$name.oelf" -lib "$prx/sce_module/$name.prx" \
                -libname "$name.prx" -ptype fake -library-path "$stubs:$oo/lib" >> "$log" 2>&1
-        then
+    then
+        # ⚠ create-fself SIZES THE WRITABLE SEGMENT AS align16(.data) + .bss,
+        # leaving out .got.plt, which sits between them, so its end falls short
+        # of the real end of .bss by about .got.plt's size (0x610 in wineserver).
+        # The tail is mapped only if the 16 KiB page rounding happens to cover
+        # it. 01.13 (2026-11-05) added 16 bytes to wineserver and pushed
+        # __cxa_new_handler past the page: rtld refused the module
+        # (reloc_non_plt ... ref=wineserver.prx) and every title died at
+        # server_init_process. Growing .bss moves both ends together, so the
+        # fix is to pad .bss by just enough that the converted end lands early
+        # in a page, letting the rounding cover the shortfall. A separate
+        # section does not count: create-fself only adds .bss. Modules that
+        # are fine are linked once and stay byte-identical.
+        pad=$(python3 - "$prx/$name.shared.elf" "$prx/$name.oelf" <<'PY'
+import struct, sys
+def loads(path):
+    d = open(path, 'rb').read()
+    phoff, = struct.unpack_from('<Q', d, 0x20); phentsize, phnum = struct.unpack_from('<HH', d, 0x36)
+    out = []
+    for i in range(phnum):
+        t, f, off, va, pa, fs, ms, al = struct.unpack_from('<IIQQQQQQ', d, phoff + i * phentsize)
+        if t == 1 and f & 2: out.append((va, ms))
+    return out
+elf, oelf = loads(sys.argv[1]), loads(sys.argv[2])
+va, ms = max(elf, key=lambda s: s[0] + s[1])
+end = max((ov + om for ov, om in oelf if ov == va), default=0)
+if ((end + 0x3fff) & ~0x3fff) >= va + ms:
+    print(0)
+else:   # move the converted end to 0x100 into the next page
+    print((0x4100 - (end & 0x3fff)) & 0x3fff or 0x100)
+PY
+)
+        if [ "$pad" != 0 ] && [ -z "$tail_pad" ]; then
+            printf '__attribute__((used, aligned(16))) char pw_%s_bss_pad[%s];\n' "$name" "$pad" \
+                > "$prx/obj/${name}_bss_pad.c"
+            $CC -std=gnu11 -O2 -fPIC -fno-common -c "$prx/obj/${name}_bss_pad.c" -o "$prx/obj/${name}_bss_pad.o"
+            echo "  ! $name: create-fself would leave the end of .bss unmapped; relinking with a $pad-byte .bss pad"
+            tail_pad="$prx/obj/${name}_bss_pad.o"
+            continue
+        fi
+        if [ "$pad" != 0 ]; then
+            echo "  ✗ $name: end of .bss still unmapped after the .bss pad"; status=1; break
+        fi
             # Later modules import from this one. The linker needs lib<name>.so
             # to resolve -l style, and create-fself opens the DT_NEEDED name
             # verbatim -- which is the soname, "<name>.prx" -- so provide both.
             cp "$prx/$name.shared.elf" "$stubs/$name.so"
             cp "$prx/$name.shared.elf" "$stubs/$name.prx"
             echo "  ✓ $name  $(du -h "$prx/sce_module/$name.prx" | cut -f1)"
-        else echo "  ✗ $name: create-fself"; tail -3 "$log" | sed 's/^/      /'; status=1; fi
     else
-        echo "  ✗ $name: link"; grep -E "error|undefined" "$log" | head -4 | sed 's/^/      /'; status=1
+        echo "  ✗ $name: link/create-fself"; grep -E "error|undefined" "$log" | head -4 | sed 's/^/      /'
+        tail -3 "$log" | sed 's/^/      /'; status=1
     fi
+    break
+    done
 done
 echo "== 5. wowprospero (the i386 DBT as Wine's WoW64 CPU backend) =="
 # Built last because it links against ntdll, which the loop above produces.

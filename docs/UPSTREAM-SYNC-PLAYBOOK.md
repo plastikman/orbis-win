@@ -262,6 +262,8 @@ env $ENV sdk/orbis-sdk-v1/sdk/bin/linux/PkgTool.Core pkg_extract \
 | Relocation | eboot is the stub; app PRX has the start/release contract and markers |
 | Vulkan surface | win32u has the PS4 headless-surface arm (0878) |
 | Display | win32u has `WINE_PS5_SCANOUT` (0861/0862) |
+| Swapchain sizing | wsi_orbis fits any size (Mesa 0039) and win32u reports the window size (1054); both or neither |
+| Quit to launcher | the app polls `pw_wineserver_guest_exit_pending` and wineserver exports it (1053) |
 | GPU driver | `libvulkan.prx` is our PS4 RADV |
 | Exports | ntdll/wineserver export upstream's lists and everything xinput looks up (read from the generated descriptor) |
 | Diagnostics | i386 `kernelbase.dll` has `PW_EXCEPTION32` |

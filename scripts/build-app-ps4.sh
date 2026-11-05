@@ -83,7 +83,7 @@ case "$PW_WINE64_HEAP_FLEXIBLE" in
   0|1) ;;
   *) echo "PW_WINE64_HEAP_FLEXIBLE must be 0 or 1" >&2; exit 2 ;;
 esac
-CFL="-std=gnu11 -O2 -fPIC -DPW_WINE64_WAIT_WATCHDOG=$PW_WINE64_WAIT_WATCHDOG -DPW_WINE64_SERVER_DIRECT_OFF=$PW_WINE64_SERVER_DIRECT_OFF -DPW_WINE64_HEAP_FLEXIBLE=$PW_WINE64_HEAP_FLEXIBLE $INC $PS5LOG_NET"
+CFL="-std=gnu11 -O2 -fPIC -DPW_BUILD_ID=\"${PW_BUILD_ID:-unknown-local}\" -DPW_WINE64_WAIT_WATCHDOG=$PW_WINE64_WAIT_WATCHDOG -DPW_WINE64_SERVER_DIRECT_OFF=$PW_WINE64_SERVER_DIRECT_OFF -DPW_WINE64_HEAP_FLEXIBLE=$PW_WINE64_HEAP_FLEXIBLE $INC $PS5LOG_NET"
 
 say "compile: portable core (DBT + launcher) and the portable half of native/"
 for f in "$PW"/src/*.c "$PW"/native/wine64_main.c "$PW"/native/pw_data_mount.c \
@@ -374,6 +374,28 @@ if (( PKG )); then
     done
     printf '   pe %s: %s modules\n' "$arch" "$n"
   done
+  # OpenGL (graphics = opengl): the launcher copies Mesa's WGL/Zink provider
+  # from win/mesa-zink/<arch>/ into the game's prefix and refuses the game when
+  # it is absent (Half-Life, 2026-11-05: no PS4 package had ever carried it).
+  # PW_MESA_ZINK_DIR is the artifacts directory of prospero-win's
+  # tools/build_mesa_zink.sh: <arch>/{opengl32,libgallium_wgl,...}.dll + LICENSES.
+  PW_MESA_ZINK_DIR="${PW_MESA_ZINK_DIR:-}"
+  if [[ -n $PW_MESA_ZINK_DIR ]]; then
+    for arch in i386-windows x86_64-windows; do
+      for core in opengl32.dll libgallium_wgl.dll; do
+        [[ -f $PW_MESA_ZINK_DIR/$arch/$core ]] || {
+          echo "   X PW_MESA_ZINK_DIR lacks $arch/$core: $PW_MESA_ZINK_DIR" >&2; exit 1;
+        }
+      done
+      for f in "$PW_MESA_ZINK_DIR/$arch"/*.dll; do
+        EXTRA+=(--extra "$f:win/mesa-zink/$arch/$(basename "$f")")
+      done
+    done
+    while IFS= read -r -d '' f; do
+      EXTRA+=(--extra "$f:win/mesa-zink/${f#"$PW_MESA_ZINK_DIR"/}")
+    done < <(find "$PW_MESA_ZINK_DIR/LICENSES" -type f -print0 2>/dev/null)
+    printf '   Mesa Zink OpenGL provider: %s\n' "$PW_MESA_ZINK_DIR"
+  fi
   if [[ $PW_SKIP_NATIVE != 1 ]]; then
     EXTRA+=(--extra "$WOW64NATIVE_DLL:win/wine/lib/wine/x86_64-windows/wow64native.dll")
     printf '   wow64native ABI-v%s PE: %s (%s)\n' "$WOW64NATIVE_ABI" "$WOW64NATIVE_DLL" "$wow64native_sha256"

@@ -52,7 +52,8 @@ mkdir -p "$work/obj" "$prx/sce_module"
 log=$prx/libvulkan.link.log
 
 echo "== 1. entry points =="
-$CC -std=c11 -O2 -Wall -Wextra -Werror -fPIC -I"$mesa_src/include" \
+# (-I native/ is harmless; the PS4 shim no longer needs pw_videoout_tile.h: the title draws linear here.)
+$CC -std=c11 -O2 -Wall -Wextra -Werror -fPIC -I"$mesa_src/include" -I"$pw/native" \
     -c "$root/src/native/pw_vulkan_radv_ps4.c" -o "$work/obj/pw_vulkan_radv_ps4.o"
 
 # ⚠ The module's own environment, so RADV's ORBIS_* switches can be read at
@@ -64,7 +65,8 @@ $CC -std=c11 -O2 -Wall -Wextra -Werror -fPIC \
 
 echo "== 2. descriptor =="
 python3 "$pw/tools/gen_prx_descriptor.py" "$work/obj/libvulkan_desc.c" \
-    vkGetInstanceProcAddr vkGetDeviceProcAddr pw_videoout_cursor
+    vkGetInstanceProcAddr vkGetDeviceProcAddr pw_videoout_cursor \
+    pw_videoout_idle pw_videoout_show_tiled pw_videoout_quiesce
 $CC -std=c11 -O2 -Wall -Wextra -Werror -fPIC -I"$pw/wine/ps5" \
     -c "$work/obj/libvulkan_desc.c" -o "$work/obj/libvulkan_desc.o"
 

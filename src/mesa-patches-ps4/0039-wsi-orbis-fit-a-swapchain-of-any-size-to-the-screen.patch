@@ -1,0 +1,147 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Subject: [PATCH] wsi/orbis: Fit a swapchain of any size to the screen.
+
+The scan-out registers 1920x1080 buffers, and win32u (1045) forced every
+surface to that size so that no swapchain was refused. A GL title that draws
+at its window's size (WON Half-Life under Zink, 640x480) then rendered into
+one corner of the image.
+
+A swapchain of any other size now gets scan-out-sized GARLIC buffers of its
+own; each present fits the image into them (aspect kept, centred,
+nearest-neighbour, black border cleared once at allocation). Zero copy stays
+for the scan-out's own size only. Pairs with wine series 1054, which reports
+the window's client size again.
+---
+--- a/src/vulkan/wsi/wsi_orbis.c
++++ b/src/vulkan/wsi/wsi_orbis.c
+@@ -360,6 +360,12 @@
+    uint32_t pitch_px;
+    /* When this scan-out last flipped (os_time_get_nano), for wsi_orbis_idle. */
+    uint64_t last_flip_ns;
++   /* ⚠ THE SWAPCHAIN'S OWN SIZE when it is not the scan-out's: the image is scaled to fit (aspect kept, centred,
++    * black around it) in the per-frame copy. width/height above are then the scan-out's. scale_x maps each
++    * destination column of the fitted rectangle to its source column. */
++   uint32_t src_width, src_height;
++   uint32_t fit_x, fit_y, fit_w, fit_h;
++   uint32_t *scale_x;
+ };
+ 
+ /* ⚠ ONE DISPLAY, ONE OWNER. Each swapchain opens video-out for itself, and the console has one main
+@@ -389,6 +395,8 @@
+    if (so->video >= 0)
+       sceVideoOutClose(so->video);
+    so->video = -1;
++   free(so->scale_x);
++   so->scale_x = NULL;
+ }
+ 
+ /* The same two-second bound WSI_ORBIS_THROTTLE_NS gives the flip-slot wait and teardown. */
+@@ -483,6 +491,35 @@
+    if (so == NULL)
+       return NULL;
+    so->video = -1;
++   so->src_width = width;
++   so->src_height = height;
++   /* ⚠ SCALED, NOT CORNERED. Upstream win32u sizes a swapchain to its window and asks for STRETCH scaling; a
++    * window smaller than the screen (WON Half-Life's 640x480 GL) drew into one corner of a 1920x1080 image
++    * while this WSI showed the whole image (2026-11-05). Any other size now gets scan-out-sized buffers of
++    * our own and is fitted into them per frame. Zero copy is for the scan-out's own size only. */
++   if (addrs == NULL && (width != WSI_ORBIS_SCANOUT_WIDTH || height != WSI_ORBIS_SCANOUT_HEIGHT)) {
++      if ((uint64_t)WSI_ORBIS_SCANOUT_HEIGHT * width >= (uint64_t)WSI_ORBIS_SCANOUT_WIDTH * height) {
++         so->fit_w = WSI_ORBIS_SCANOUT_WIDTH;     /* wider than 16:9: full width, bars above and below */
++         so->fit_h = (uint32_t)((uint64_t)height * WSI_ORBIS_SCANOUT_WIDTH / width);
++      } else {
++         so->fit_w = (uint32_t)((uint64_t)width * WSI_ORBIS_SCANOUT_HEIGHT / height);   /* 4:3 and the like */
++         so->fit_h = WSI_ORBIS_SCANOUT_HEIGHT;
++      }
++      so->fit_x = (WSI_ORBIS_SCANOUT_WIDTH - so->fit_w) / 2;
++      so->fit_y = (WSI_ORBIS_SCANOUT_HEIGHT - so->fit_h) / 2;
++      so->scale_x = so->fit_w != 0 && so->fit_h != 0 ? malloc(sizeof(*so->scale_x) * so->fit_w) : NULL;
++      if (so->scale_x == NULL) {
++         free(so);
++         return NULL;
++      }
++      for (uint32_t x = 0; x < so->fit_w; x++)
++         so->scale_x[x] = (uint32_t)((uint64_t)x * width / so->fit_w);
++      mesa_logi("wsi/orbis: %ux%u swapchain scaled to %ux%u at %u,%u on the %ux%u scan-out", width, height,
++                so->fit_w, so->fit_h, so->fit_x, so->fit_y, WSI_ORBIS_SCANOUT_WIDTH, WSI_ORBIS_SCANOUT_HEIGHT);
++      width = WSI_ORBIS_SCANOUT_WIDTH;
++      height = WSI_ORBIS_SCANOUT_HEIGHT;
++      pitch_px = 0;
++   }
+    so->width = width;
+    so->height = height;
+    so->count = count;
+@@ -960,6 +997,15 @@
+                    "whatever was there before; only the timings mean anything in this run.");
+          said = true;
+       }
++   } else if (so->scale_x != NULL) {
++      /* Nearest-neighbour fit; the border was cleared when the buffers were made and is never written. */
++      for (uint32_t y = 0; y < so->fit_h; y++) {
++         const uint32_t *const in = (const uint32_t *)((const uint8_t *)src +
++                                                       (size_t)((uint64_t)y * so->src_height / so->fit_h) * src_pitch);
++         uint32_t *const out = (uint32_t *)(dst + (size_t)(so->fit_y + y) * dst_pitch) + so->fit_x;
++         for (uint32_t x = 0; x < so->fit_w; x++)
++            out[x] = in[so->scale_x[x]];
++      }
+    } else if (src_pitch == dst_pitch) {
+       memcpy(dst, src, (size_t)dst_pitch * so->height);
+    } else {
+@@ -1056,7 +1102,7 @@
+     * ORBIS_WSI_POISON=1. */
+    if (getenv("ORBIS_WSI_POISON") != NULL) {
+       uint32_t *const p = (uint32_t *)src;
+-      const size_t    n = (size_t)src_pitch / 4 * so->height;
++      const size_t    n = (size_t)src_pitch / 4 * so->src_height;
+       static bool     said;
+ 
+       for (size_t i = 0; i < n; i++)
+@@ -1074,7 +1120,7 @@
+       const uint32_t    rows = verify != NULL ? (uint32_t)strtoul(verify, NULL, 10) : 0;
+ 
+       if (rows != 0) {
+-         const uint32_t n = rows < so->height ? rows : so->height;
++         const uint32_t n = so->scale_x != NULL ? 0 : rows < so->height ? rows : so->height;
+          static unsigned said;
+ 
+          for (uint32_t y = 0; y < n && said < 4; y++) {
+@@ -1120,7 +1166,7 @@
+     * magnitude slower than one from ordinary RAM. This function reads the comparison band twice per frame
+     * (compare, then store), so pointing it at `dst` made an opt-in diagnostic cost more than the copy it was
+     * measuring alongside. `src` holds the same pixels in the driver's cached ONION arena. */
+-   wsi_orbis_frame_stats(src, so->width, so->height, src_pitch);
++   wsi_orbis_frame_stats(src, so->src_width, so->src_height, src_pitch);
+ 
+    /* Overlay the desktop cursor after the scene has been copied and before
+     * video-out takes ownership of this buffer. */
+--- a/src/vulkan/wsi/wsi_orbis.h
++++ b/src/vulkan/wsi/wsi_orbis.h
+@@ -63,6 +63,11 @@
+ 
+ /* The title's own frames while no swapchain presents (wsi_orbis.c, "The title's own frames"); exported to the
+  * title as pw_videoout_idle / pw_videoout_show_tiled / pw_videoout_quiesce by src/native/pw_vulkan_radv_ps4.c. */
++/* The scan-out every swapchain is shown on (win32u ps5drv: "the scanout is 1920x1080, not any size"). A swapchain of
++ * another size is scaled to fit it (Mesa patch 0039) and never registered zero-copy. */
++#define WSI_ORBIS_SCANOUT_WIDTH  1920u
++#define WSI_ORBIS_SCANOUT_HEIGHT 1080u
++
+ bool wsi_orbis_idle(void);
+ void *wsi_orbis_title_frame_begin(int *status);
+ int wsi_orbis_title_frame_flip(void);
+--- a/src/vulkan/wsi/wsi_common_headless.c
++++ b/src/vulkan/wsi/wsi_common_headless.c
+@@ -920,7 +920,11 @@
+       const char *const force_copy_env = getenv("ORBIS_WSI_FORCE_COPY");
+       const bool force_copy = force_copy_env != NULL && force_copy_env[0] != '\0' &&
+                               force_copy_env[0] != '0';
+-      bool direct = !force_copy && chain->base.image_count <= ARRAY_SIZE(addrs);
++      /* Zero copy only at the scan-out's own size: any other size is fitted to the screen in the copy
++       * (wsi_orbis_scanout_create), and registering a smaller image would show it in a corner. */
++      bool direct = !force_copy && chain->base.image_count <= ARRAY_SIZE(addrs) &&
++                    pCreateInfo->imageExtent.width == WSI_ORBIS_SCANOUT_WIDTH &&
++                    pCreateInfo->imageExtent.height == WSI_ORBIS_SCANOUT_HEIGHT;
+ 
+       if (force_copy)
+          mesa_logi("wsi/orbis: ORBIS_WSI_FORCE_COPY - using owned scan-out buffers instead of registering "
