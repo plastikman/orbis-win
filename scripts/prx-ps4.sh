@@ -66,6 +66,20 @@ $CC -std=c11 -O2 -Wall -Wextra -Werror -fPIC -I"$root/wine/ps5" \
 
 echo "== 2. descriptors (upstream's export lists) =="
 gen() { python3 "$root/tools/gen_prx_descriptor.py" "$@"; }
+# ⚠ ABI-v4 upstream (tools/build_wine_ps5.sh) added per-index pad, rumble and
+# menu calls to ntdll's export list. xinput1_3's unixlib dlsyms
+# pw_wine_pad_at/pw_wine_set_rumble_at, and the app looks up
+# pw_wine_set_pad_at, pw_wine_rumble_at, pw_wine_pads_wanted and
+# pw_wine_set_menu in ntdll's descriptor. Without them xinput finds no pad and
+# the app cannot feed one: the controller is simply lost (GLDS10043 01.05,
+# 2026-11-05). Export each only where this tree's sink defines it, so the
+# ABI-v3 tree still links.
+sink_exports=""
+for s in pw_wine_set_menu pw_wine_menu pw_wine_set_pad_at pw_wine_rumble_at \
+        pw_wine_pad_at pw_wine_set_rumble_at pw_wine_pads_wanted pw_wine_pad_changes; do
+    grep -q -E "^[a-z_0-9 ]+[ *]$s\(" "$root/wine/ps5/pw_wine_sink.c" && sink_exports="$sink_exports $s"
+done
+echo "   ntdll sink exports:$sink_exports"
 gen "$prx/obj/ntdll_desc.c" \
     __wine_main pw_wine_dl_adopt dlopen dlsym dlerror \
     pw_wine_heap_stats pw_wine_heap_malloc pw_wine_heap_free \
@@ -80,6 +94,7 @@ gen "$prx/obj/ntdll_desc.c" \
     __wine_ps5_memory_stats __wine_ps5_wait_for_exec_migration pw_cwd_set \
     __wine_ps5_set_segv_hook __wine_ps5_set_segv_unresolved_hook \
     pw_wine_set_display_release pw_wine_release_display pw_ps4_setenv pw_wine_dl_addr \
+    $sink_exports \
     --optional-from "$build/dlls/ntdll/ntdll.so" --nm llvm-nm \
     --optional-export __wine_prospero_native_wow64_caps \
     --optional-export __wine_prospero_native_profile_sample

@@ -1,5 +1,12 @@
 # Project notes for Codex
 
+- **Upstream syncs** (new prospero-win / Wine generation) follow
+  `docs/UPSTREAM-SYNC-PLAYBOOK.md`. Audit PS4 patches by content with
+  `scripts/audit-patch-presence.py`, never by patch number: upstream reuses
+  numbers. Do not install any package until
+  `scripts/check-ps4-package-parity.py <1090 stage> <candidate stage> --elf-dir
+  <prx build dir> --upstream-root <source>` exits 0.
+
 - PS4 `.sorbisdmp` crash dumps must be analyzed with the local dump/debugging
   tools available on this workstation. Do not conclude that a dump is
   undecodable based only on its `FACECS` header, `file` output, or readable

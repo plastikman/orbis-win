@@ -167,7 +167,7 @@ while IFS= read -r -d '' file; do
 done < <(find "$STAGE" -type f -print0)
 "$BUNDLE/orbis-compat/scripts/ps4/make-pkg.sh" \
   --eboot "$BUILD/eboot.bin" --out-dir "$OUT" \
-  --title-id "$TITLE_ID" --title "$TITLE" "${EXTRA[@]}"
+  --title-id "$TITLE_ID" --title "$TITLE" ${PKG_VERSION:+--version "$PKG_VERSION"} "${EXTRA[@]}"
 if (( NEO )); then
   "$ROOT/scripts/set-neo.sh" "$OUT"
 fi

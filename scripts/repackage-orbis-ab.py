@@ -34,6 +34,8 @@ def main() -> None:
     parser.add_argument("--out-dir", type=Path, required=True)
     parser.add_argument("--title-id", required=True)
     parser.add_argument("--title", required=True)
+    parser.add_argument("--version",
+                        help="APP_VER/VERSION for param.sfo (make-pkg.sh default: 01.00)")
     parser.add_argument("--eboot-source", type=Path,
                         help="replace the base stage EBOOT with this file")
     parser.add_argument("--replace", action="append", default=[], metavar="REL=SOURCE")
@@ -72,6 +74,8 @@ def main() -> None:
     command = [str(MAKE_PKG), "--eboot", str(eboot),
                "--out-dir", str(out), "--title-id", args.title_id,
                "--title", args.title]
+    if args.version:
+        command.extend(("--version", args.version))
     for rel, source in sorted(payload.items()):
         command.extend(("--extra", f"{source}:{rel}"))
     out.mkdir(parents=True, exist_ok=True)
