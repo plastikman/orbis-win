@@ -108,7 +108,7 @@ APP_OBJECTS+=("$PRX_BUILD/native_wine64_main_reloc.o")
   "${APP_OBJECTS[@]}" "$PRX_BUILD/app_entry.o" "$PRX_BUILD/descriptor.o" \
   -lSceNet -lSceNetCtl -lSceAudioOut -lSceSystemService -lSceSysmodule -lSceGnmDriver \
   -lSceVideoOut -lScePad -lSceUserService
-"$OO/bin/linux/create-fself" -in "$PRX_BUILD/app.shared.elf" \
+"$ROOT/scripts/create-fself-repro.sh" "$OO/bin/linux/create-fself" -in "$PRX_BUILD/app.shared.elf" \
   -out "$PRX_BUILD/app.oelf" -lib "$PRX_BUILD/relocated_wine_app.prx" \
   -libname relocated_wine_app.prx -ptype fake \
   -library-path "$PRX_BUILD:$ROOT/build/ps4-wine-sdk:$OO/lib" \
@@ -138,7 +138,7 @@ else
     -o "$BUILD/stub.elf" -lSceNet -lSceAudioOut -lSceSystemService \
     -lSceSysmodule -lSceGnmDriver -lSceVideoOut -lScePad -lSceUserService
 fi
-"$OO/bin/linux/create-fself" -in "$BUILD/stub.elf" \
+"$ROOT/scripts/create-fself-repro.sh" "$OO/bin/linux/create-fself" -in "$BUILD/stub.elf" \
   -out "$BUILD/stub.oelf" -eboot "$BUILD/eboot.bin" >/dev/null
 if (( PW_EBOOT_NO_RELRO )); then
   python3 "$ROOT/scripts/prepare-orbis-stub-no-relro.py" \

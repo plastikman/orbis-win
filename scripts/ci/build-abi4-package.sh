@@ -30,9 +30,13 @@ SDKBIN=$ROOT/sdk/orbis-sdk-v1/sdk/bin/linux
 
 # The matched ABI-v4 native WoW64 pair that 01.06 shipped. The PE side is built
 # by prospero-win tools/build_wow64native.sh into native/; the PRX by prx-ps4.sh.
+# The PRX pin moved from 1e93fca7... on 2026-11-05 when create-fself started
+# going through scripts/create-fself-repro.sh. The code is unchanged (its
+# loaded sections are identical); only the fself's digests of .comment/.debug_*
+# and the embedded -in path changed, which made CI builds differ from local ones.
 WOW64NATIVE_DLL=$ABI4/native/x86_64-windows/wow64native.dll
 WOW64NATIVE_ABI4_SHA256=e531a51bb19ae4f92e65556f0f6d4f89e930b9c7490d8a02988feb1d5ee9c044
-WOW64NATIVE_ABI4_PRX_SHA256=1e93fca76dc2649b43ec404b72db31095cf3ac77a05be550db7bfded75bc5683
+WOW64NATIVE_ABI4_PRX_SHA256=20eee436ae5856f06d39b9f9fa57720806612f15e1ebea4ab15b4638da5b729d
 
 # mesa-zink/ holds the artifacts of prospero-win tools/build_mesa_zink.sh (pinned
 # Mesa + llvm-mingw): the WGL/Zink OpenGL provider for graphics = opengl games.

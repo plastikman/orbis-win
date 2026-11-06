@@ -94,7 +94,7 @@ $CC -shared -Wl,-Bsymbolic -Wl,--eh-frame-hdr -Wl,-soname,wineps5.prx \
     { echo "   X link"; grep -E "error|undefined" "$log" | head -8 | sed 's/^/      /'; exit 1; }
 
 echo "== 5. container =="
-"$oo/bin/linux/create-fself" -in "$prx/wineps5.shared.elf" \
+"$root/scripts/create-fself-repro.sh" "$oo/bin/linux/create-fself" -in "$prx/wineps5.shared.elf" \
     -out "$prx/wineps5.oelf" -lib "$prx/sce_module/wineps5.prx" \
     -libname wineps5.prx -ptype fake \
     -library-path "$stubs:$oo/lib" >> "$log" 2>&1 ||

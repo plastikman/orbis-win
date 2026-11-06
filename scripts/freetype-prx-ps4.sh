@@ -87,7 +87,7 @@ $CC -shared -Wl,-Bsymbolic -Wl,--eh-frame-hdr -Wl,-soname,libfreetype.prx \
     { echo "   X link"; grep -E "error|undefined" "$log" | head -8 | sed 's/^/      /'; exit 1; }
 
 echo "== 4. container =="
-"$oo/bin/linux/create-fself" -in "$prx/libfreetype.shared.elf" \
+"$root/scripts/create-fself-repro.sh" "$oo/bin/linux/create-fself" -in "$prx/libfreetype.shared.elf" \
     -out "$prx/libfreetype.oelf" -lib "$prx/sce_module/libfreetype.prx" \
     -libname libfreetype.prx -ptype fake \
     -library-path "$prx/stubs:$oo/lib" >> "$log" 2>&1 ||

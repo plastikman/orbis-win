@@ -297,7 +297,7 @@ for step in "ntdll|dlls/ntdll/ntdll.so|$ntdll_shims" \
             -o "$prx/$name.shared.elf" $objs $shim_objs "$prx/obj/${name}_desc.o" \
             $extra_libs $tail_pad \
             ) > "$log" 2>&1 &&
-       "$oo/bin/linux/create-fself" -in "$prx/$name.shared.elf" \
+       "$gladius/scripts/create-fself-repro.sh" "$oo/bin/linux/create-fself" -in "$prx/$name.shared.elf" \
                -out "$prx/$name.oelf" -lib "$prx/sce_module/$name.prx" \
                -libname "$name.prx" -ptype fake -library-path "$stubs:$oo/lib" >> "$log" 2>&1
     then
@@ -385,7 +385,7 @@ $CC -shared -Wl,-Bsymbolic -Wl,-soname,wowprospero.prx \
     > "$prx/wowprospero.link.log" 2>&1 || { echo "  ✗ wowprospero: link"; grep -E "error" "$prx/wowprospero.link.log" | head -3; }
 
 if [ -f "$prx/wowprospero.shared.elf" ]; then
-    if "$oo/bin/linux/create-fself" -in "$prx/wowprospero.shared.elf" \
+    if "$gladius/scripts/create-fself-repro.sh" "$oo/bin/linux/create-fself" -in "$prx/wowprospero.shared.elf" \
            -out "$prx/wowprospero.oelf" -lib "$prx/sce_module/wowprospero.prx" \
            -libname "wowprospero.prx" -ptype fake -library-path "$stubs:$oo/lib" \
            >> "$prx/wowprospero.link.log" 2>&1
@@ -418,7 +418,7 @@ $CC -shared -Wl,-Bsymbolic -Wl,--eh-frame-hdr -Wl,-soname,wow64native.prx \
     }
 
 if [ -f "$prx/wow64native.shared.elf" ]; then
-    if "$oo/bin/linux/create-fself" -in "$prx/wow64native.shared.elf" \
+    if "$gladius/scripts/create-fself-repro.sh" "$oo/bin/linux/create-fself" -in "$prx/wow64native.shared.elf" \
            -out "$prx/wow64native.oelf" -lib "$prx/sce_module/wow64native.prx" \
            -libname "wow64native.prx" -ptype fake -library-path "$stubs:$oo/lib" \
            >> "$prx/wow64native.link.log" 2>&1

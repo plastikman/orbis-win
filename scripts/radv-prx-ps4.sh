@@ -103,7 +103,7 @@ echo "== 5. container =="
 # -library-path, as prx-ps4.sh passes for every other module: create-fself
 # resolves each imported symbol to a providing library, and without the path it
 # has nowhere to look.
-"$oo/bin/linux/create-fself" -in "$prx/libvulkan.shared.elf" \
+"$root/scripts/create-fself-repro.sh" "$oo/bin/linux/create-fself" -in "$prx/libvulkan.shared.elf" \
     -out "$prx/libvulkan.oelf" -lib "$prx/sce_module/libvulkan.prx" \
     -libname libvulkan.prx -ptype fake \
     -library-path "$prx/stubs:$oo/lib" >> "$log" 2>&1 ||

@@ -168,7 +168,7 @@ $CC -o "$OBJ/../wine_app.elf" "$OBJ"/*.o \
 printf '   elf %s\n' "$(du -h "$OBJ/../wine_app.elf" | cut -f1)"
 
 say "eboot"
-"$BUNDLE/sdk/bin/linux/create-fself" -in "$OBJ/../wine_app.elf" \
+"$ROOT/scripts/create-fself-repro.sh" "$BUNDLE/sdk/bin/linux/create-fself" -in "$OBJ/../wine_app.elf" \
     -out "$OBJ/../wine_app.oelf" -eboot "$OBJ/../eboot.bin" >/dev/null
 printf '   eboot.bin %s\n' "$(du -h "$OBJ/../eboot.bin" | cut -f1)"
 
