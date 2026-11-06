@@ -31,3 +31,11 @@
 - Bloodlines' quit hang.
 - The translator crash in Titan Quest.
 - A controller pass for Half-Life (`goldsrc`).
+
+## Update: published without the full run (Zak: "publish to GH")
+
+- **`v0.0.1-alpha.6` is published**: https://github.com/plastikman/orbis-win/releases/tag/v0.0.1-alpha.6 (pre-release, tag at `9749fcd`).
+  - Assets: the 01.38 `.pkg` (501,219,328 B, sha256 `cdd5723b…`), `BUILD-MANIFEST-01.38.txt`, `parity-01.38.txt`.
+  - The tag's workflow run 42265536858 was cancelled.
+- The release notes say plainly that this package has **not** had the nine-title run. Each title's last result and build are listed: Half-Life 2 on 01.37, the rest on 01.34.
+- **The baseline stays 01.34** until 01.38 passes the nine titles. Then promote `pkgout/abi4-0138-baseline` as planned above.
