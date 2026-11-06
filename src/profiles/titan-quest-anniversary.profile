@@ -1,4 +1,5 @@
 ; Titan Quest Anniversary — DX11 A/B with PS4 controller mouse bindings.
+
 [application]
 id = titan-quest-anniversary
 name = Titan Quest Anniversary
@@ -25,6 +26,7 @@ circle = mouse_right
 r1 = mouse_left
 
 [runtime]
+cpu = native
 
 [debug]
 winedebug = err+ntdll,warn+vulkan

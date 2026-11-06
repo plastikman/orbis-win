@@ -150,10 +150,28 @@ $CC -std=gnu11 -O2 -Wall -Werror -fPIC -D__WINESRC__ -DWINE_UNIX_LIB -D_REENTRAN
 # Wine's PS4 configure cannot find the WebKit-only POSIX resolver, so
 # ws2_32/unixlib.c compiles a getaddrinfo stub that returns WS_EAI_FAIL. Supply
 # Winsock's Unix side with the SDK's real sceNetResolver path instead.
+# ⚠ -femulated-tls, and pw_emutls_ps4.c linked in below. The shim keeps h_errno
+# and gethostbyname's hostent in "static _Thread_local" variables. A PRX gets no
+# static TLS block here, so they resolved to small absolute addresses: the first
+# snprintf into the hostent name wrote to 0x30. That was a syscall fault inside
+# unix_gethostbyname with host_mutex held, so the mutex was never unlocked and
+# the next lookup blocked forever. Titan Quest asked for gethostbyname("PS5"),
+# then hung at the spinner on gethostbyname of its own IP (2026-11-06, 01.25);
+# on 01.23 the same fault came just before the wineserver crash. Same cause and
+# same fix as wowprospero's (see its link below).
 $CC -std=gnu11 -O2 -Wall -Wextra -Werror -fPIC -D_REENTRANT -DPW_PS4_DNS \
+    -femulated-tls \
     -I"$oo/include" -c "$root/wine/ps5/pw_ws2_32_libc.c" \
     -o "$prx/obj/pw_ws2_32_libc_ps4.o" ||
     { echo "  X ws2_32: cannot compile the PS4 resolver shim" >&2; exit 1; }
+$CC -std=gnu11 -O2 -Wall -Werror -fPIC -D_REENTRANT \
+    -c "$gladius/src/native/pw_emutls_ps4.c" -o "$prx/obj/pw_emutls_ws2_32.o" ||
+    { echo "  X ws2_32: cannot compile emulated TLS" >&2; exit 1; }
+# pw_emutls_ps4.c reports each TLS object through pw_wow_log (a few lines in
+# /data/prospero-win/wowprospero.log, as for the WoW64 modules).
+$CC -std=gnu11 -O2 -Wall -Werror -fPIC -D_REENTRANT \
+    -c "$gladius/src/native/pw_wow_log_ps4.c" -o "$prx/obj/pw_wow_log_ws2_32.o" ||
+    { echo "  X ws2_32: cannot compile its log helper" >&2; exit 1; }
 
 # Configure cannot link the console-only resolver while probing libc, so the
 # generated config.h leaves HAVE_GETADDRINFO undefined. Compile just this
@@ -252,7 +270,7 @@ for step in "ntdll|dlls/ntdll/ntdll.so|$ntdll_shims" \
     # as upstream intends; pw_wine_heap takes its memory from anonymous mmap in
     # 1 MiB pieces, so the server draws on flexible memory instead.
     [ "$name" = wineserver ] && shim_objs="$shim_objs $heap"
-    [ "$name" = ws2_32 ] && shim_objs="$shim_objs $prx/obj/pw_ws2_32_libc_ps4.o"
+    [ "$name" = ws2_32 ] && shim_objs="$shim_objs $prx/obj/pw_ws2_32_libc_ps4.o $prx/obj/pw_emutls_ws2_32.o $prx/obj/pw_wow_log_ws2_32.o"
     [ "$name" = ws2_32 ] && extra_libs="-lSceNetCtl"
     # ⚠ And every other unixlib gets the forwarding half alone. Without it they
     # import malloc and free from the shared libc, while anything they are

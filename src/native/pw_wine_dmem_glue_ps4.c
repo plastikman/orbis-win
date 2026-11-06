@@ -1401,7 +1401,15 @@ static void thaw_exec_range(uintptr_t address, size_t bytes)
  * contents, only when the kernel query confirms RX did not take. */
 static int migrate_exec_page_to_flex_impl(uintptr_t page)
 {
-    uint8_t saved[PAGE];
+    /* ⚠ NOT ON THE STACK. This runs inside the SIGSEGV handler, on the
+     * thread's 64 KiB signal stack (struct thread_data sits at its bottom).
+     * A 16 KiB array here, inlined into __wine_ps5_mprotect, made one fault
+     * cost about 20 KiB of it; two nested faults more and the frames ran
+     * through thread_data (teb=0, tid=0) and off the block: Titan Quest's
+     * main thread wedged on Create with rsp=0xfffffff40 (2026-11-06; the
+     * same signature as ABI-v3 10142-10148). Use mmap scratch, as the range
+     * migration below already does. */
+    uint8_t *saved;
     void *mapped;
     int release_rc, adopt_rc, migration_slot;
 
@@ -1417,17 +1425,25 @@ static int migrate_exec_page_to_flex_impl(uintptr_t page)
         return 0;
     }
 
-    if (freeze_exec_range_readonly(page, PAGE))
+    saved = mmap(NULL, PAGE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    if (saved == MAP_FAILED)
     {
         exec_migration_end(migration_slot);
         return -1;
     }
-    memcpy(saved, (const void *)page, sizeof(saved));
+    if (freeze_exec_range_readonly(page, PAGE))
+    {
+        (void)munmap(saved, PAGE);
+        exec_migration_end(migration_slot);
+        return -1;
+    }
+    memcpy(saved, (const void *)page, PAGE);
     release_rc = pw_wine_dmem_replace(&dmem, page, PAGE, 0);
     if (release_rc)
     {
         exec_rx_add(&exec_rx_metrics.release_fail, 1);
         thaw_exec_range(page, PAGE);
+        (void)munmap(saved, PAGE);
         exec_migration_end(migration_slot);
         return -1;
     }
@@ -1439,23 +1455,26 @@ static int migrate_exec_page_to_flex_impl(uintptr_t page)
         exec_rx_add(&exec_rx_metrics.map_fail, 1);
         if (mapped != MAP_FAILED) (void)munmap(mapped, PAGE);
         if (!pw_wine_dmem_replace(&dmem, page, PAGE, PROT_READ | PROT_WRITE))
-            memcpy((void *)page, saved, sizeof(saved));
+            memcpy((void *)page, saved, PAGE);
+        (void)munmap(saved, PAGE);
         exec_migration_end(migration_slot);
         return -1;
     }
 
-    memcpy(mapped, saved, sizeof(saved));
+    memcpy(mapped, saved, PAGE);
     adopt_rc = pw_wine_dmem_adopt(&dmem, page, PAGE);
     if (adopt_rc)
     {
         exec_rx_add(&exec_rx_metrics.adopt_fail, 1);
         (void)munmap(mapped, PAGE);
         if (!pw_wine_dmem_replace(&dmem, page, PAGE, PROT_READ | PROT_WRITE))
-            memcpy((void *)page, saved, sizeof(saved));
+            memcpy((void *)page, saved, PAGE);
+        (void)munmap(saved, PAGE);
         exec_migration_end(migration_slot);
         return -1;
     }
 
+    (void)munmap(saved, PAGE);
     exec_migration_end(migration_slot);
     return 0;
 }
