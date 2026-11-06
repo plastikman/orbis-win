@@ -160,7 +160,7 @@ fi
 while IFS= read -r -d '' file; do
   rel="${file#"$STAGE"/}"
   case "$rel" in
-    eboot.bin|pkg.gp4|sce_sys/param.sfo|pkg-build.log|pkg-build-neo.log|build.log|*.pkg) continue ;;
+    eboot.bin|pkg.gp4|sce_sys/param.sfo|sce_sys/icon0.png|pkg-build.log|pkg-build-neo.log|build.log|*.pkg) continue ;;
   esac
   if (( PW_SPLIT_RUNTIME )); then
     case "$rel" in win/wine/*) continue ;; esac
@@ -176,8 +176,13 @@ while IFS= read -r -d '' file; do
   fi
   EXTRA+=(--extra "$file:$rel")
 done < <(find "$STAGE" -type f -print0)
+# The home-screen icon: upstream prospero-win's mark (assets/prospero-win-logo.svg),
+# rendered to 512x512 by scripts/render-logo-icon.py. Without it the title shows
+# a blank tile on the PS4 home screen (2026-11-06).
+ICON=${PS4_ICON:-$ROOT/assets/icon0.png}
+[[ -f "$ICON" ]] || { echo "missing home-screen icon: $ICON" >&2; exit 1; }
 "$BUNDLE/orbis-compat/scripts/ps4/make-pkg.sh" \
-  --eboot "$BUILD/eboot.bin" --out-dir "$OUT" \
+  --eboot "$BUILD/eboot.bin" --out-dir "$OUT" --icon "$ICON" \
   --title-id "$TITLE_ID" --title "$TITLE" ${PKG_VERSION:+--version "$PKG_VERSION"} "${EXTRA[@]}"
 if (( NEO )); then
   "$ROOT/scripts/set-neo.sh" "$OUT"

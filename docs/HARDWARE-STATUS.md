@@ -1,7 +1,7 @@
 # PS4 hardware status
 
-Status reflects the project test system on GLDS10043 01.21 (2026-11-05), the
-current baseline, and 01.23 (2026-11-06) for Bloodlines. A title is marked as working only because it reached
+Status reflects the project test system on GLDS10043 01.34 (2026-11-06), the
+current baseline. A title is marked as working only because it reached
 gameplay on hardware; it does not imply every release, add-on, or console model
 will behave the same way.
 
@@ -14,6 +14,7 @@ will behave the same way.
 | Half-Life | `half-life` | Native WoW64 | Reaches gameplay through Mesa Zink (OpenGL on Vulkan); the 4:3 picture is centred. Frame pacing can be uneven. |
 | MDK | `mdk-windows` | Translator | Reaches gameplay on the prospero-win translator. The native backend is not pursued for MDK. |
 | Vampire: The Masquerade - Bloodlines GOG | `bloodlines-gog` | Native WoW64 | Reaches gameplay from 01.23 (series 1065; 01.21 failed with "No access to memory location"). Its Quit hangs after unloading the game DLLs, as it did on ABI-v3; close it from the PS menu. |
+| Titan Quest Anniversary Edition | `titan-quest-anniversary` | Native WoW64 | Reaches gameplay from 01.34: character creation, play, save and quit to the launcher. Online services are unreachable and are skipped. The controller drives the mouse pointer; a fuller layout is pending. A large set of old saves once exhausted file descriptors on Start (open item). |
 
 On every title above except Bloodlines, the game's own Quit / Exit to Desktop
 returns to the title's launcher about 3–7 s after the game ends.
@@ -25,7 +26,7 @@ edition, profile, package version, and result before treating it as equivalent.
 ## Reproduction notes
 
 - Build and install from the same source commit; profiles and runtime packages
-  must not be mixed across ABI generations. 01.21 is ABI-v4.
+  must not be mixed across ABI generations. 01.34 is ABI-v4.
 - Keep the relocatable package path enabled. Oblivion's PE32 executable has no
   relocation section and needs its preferred low address available.
 - Fallout: New Vegas and Fallout 3 testing use the native WoW64 backend. Do not

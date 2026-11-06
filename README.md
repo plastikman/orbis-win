@@ -6,8 +6,8 @@ platform layer, upstream compatibility patches, packaging and deployment tools,
 game profiles, and hardware findings together so the port can follow upstream
 without losing its PS4-specific work.
 
-The current baseline is **GLDS10043 01.21** (2026-11-05); 01.23 adds the
-Bloodlines fix (series 1065). It is built on
+The current baseline is **GLDS10043 01.34** (2026-11-06): ABI-v4 with series
+1053–1068 and the Titan Quest fixes; every title below passes on it. It is built on
 prospero-win's ABI-v4 generation (upstream `main` at `18115ce`, 2026-11-01) with
 every functional PS4 patch from the earlier port carried forward. The PS4 side
 of prospero-win lives on [plastikman/prospero-win](https://github.com/plastikman/prospero-win)
@@ -29,6 +29,7 @@ for Bloodlines the game's own Quit / Exit returns to the title's launcher
 | Half-Life | `half-life` | Native WoW64 | OpenGL through Mesa Zink. A 4:3 picture is centred with black bars. |
 | MDK | `mdk-windows` | Translator | Runs on the prospero-win translator (`wowprospero.dll`). |
 | Vampire: The Masquerade - Bloodlines (GOG) | `bloodlines-gog` | Native WoW64 | Plays (from 01.23). Its Quit hangs; close it from the PS menu. |
+| Titan Quest Anniversary Edition | `titan-quest-anniversary` | Native WoW64 | Plays from 01.34: create, play, save, quit. Mouse-driven; the controller layout is basic. |
 
 See [hardware status and caveats](docs/HARDWARE-STATUS.md) and the
 [latest handoff](docs/HANDOFF-2026-11-05.md).
@@ -65,7 +66,7 @@ Install them on the console under `/data/prospero-win/`:
 A profile that names an input preset (`preset = goldsrc`) needs that preset
 installed too; the launcher rejects the preset otherwise.
 
-The settings each tested title ran with (01.21; Bloodlines on 01.23):
+The settings each tested title ran with on 01.34:
 
 | Profile | `cpu` | Input mode | Preset | DLL overrides |
 |---|---|---|---|---|
@@ -76,6 +77,7 @@ The settings each tested title ran with (01.21; Bloodlines on 01.23):
 | `half-life` | native | xinput (mouse 2) | `goldsrc` | `opengl32=n` |
 | `mdk-windows` | translator | keyboard (mouse 2) | – | `d3d8,d3d9,d3d10core,d3d11,dxgi=n` |
 | `bloodlines-gog` | native | keyboard (mouse 2) | – | `d3d8,d3d9,d3d10core,d3d11,dxgi=n` |
+| `titan-quest-anniversary` | native | keyboard (mouse 1) | – | `d3d8,d3d9,d3d10core,d3d11,dxgi=n` |
 
 Other profiles in `src/profiles` are diagnostic or untested variants.
 
