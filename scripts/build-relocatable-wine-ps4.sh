@@ -193,15 +193,23 @@ cmp -s "$PRX_BUILD/relocated_wine_app.prx" "$OUT/pkg-stage/sce_module/relocated_
   echo "package staged a stale relocated_wine_app.prx" >&2; exit 1;
 }
 if (( PW_EBOOT_NO_RELRO )); then
-  if llvm-readelf -lW "$BUILD/stub.oelf" | grep -q '0x61000010'; then
-    echo "no-RELRO build still contains PT_SCE_RELRO" >&2; exit 1
-  fi
-  llvm-readelf -lW "$BUILD/stub.oelf" | grep -q '0x61000001' || {
-    echo "no-RELRO eboot lost PT_SCE_PROCPARAM" >&2; exit 1;
+  # Read the headers once and search the text. `llvm-readelf | grep -q` under
+  # pipefail fails when grep exits on its first match while readelf is still
+  # writing (SIGPIPE): CI run 42145205110 reported "lost PT_SCE_PROCPARAM"
+  # for an oelf whose header dump above listed it.
+  stub_headers=$(llvm-readelf -lW "$BUILD/stub.oelf") || {
+    echo "llvm-readelf failed on $BUILD/stub.oelf (exit $?)" >&2; exit 1;
   }
-  llvm-readelf -lW "$BUILD/stub.oelf" | grep -q '0x61000000' || {
-    echo "no-RELRO eboot lost PT_SCE_DYNLIBDATA" >&2; exit 1;
+  stub_check() {  # <pattern> <present|absent> <message>
+    local found=0
+    [[ $stub_headers == *"$1"* ]] && found=1
+    if [[ $2 == present && $found == 0 || $2 == absent && $found == 1 ]]; then
+      echo "$3" >&2; printf '%s\n' "$stub_headers" >&2; exit 1
+    fi
   }
+  stub_check 0x61000010 absent "no-RELRO build still contains PT_SCE_RELRO"
+  stub_check 0x61000001 present "no-RELRO eboot lost PT_SCE_PROCPARAM"
+  stub_check 0x61000000 present "no-RELRO eboot lost PT_SCE_DYNLIBDATA"
 fi
 if (( PW_SPLIT_RUNTIME )); then
   if find "$OUT/pkg-stage/win/wine" -type f -print -quit 2>/dev/null | grep -q .; then

@@ -90,7 +90,7 @@ log "package hash and signature validation"
 LD_LIBRARY_PATH=$OPENSSL_LIB DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 \
 DOTNET_BUNDLE_EXTRACT_BASE_DIR=${DOTNET_BUNDLE_EXTRACT_BASE_DIR:-$OUT/dotnet-extract} \
   "$SDKBIN/PkgTool.Core" pkg_validate "$PKG" | tee "$OUT/pkg_validate.txt"
-if grep -v '^\[OK\]' "$OUT/pkg_validate.txt" | grep -q .; then
+if grep -qvE '^(\[OK\]|$)' "$OUT/pkg_validate.txt"; then
   echo "pkg_validate reported a non-OK line" >&2; exit 1
 fi
 
