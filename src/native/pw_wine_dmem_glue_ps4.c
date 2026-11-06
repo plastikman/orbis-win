@@ -71,15 +71,28 @@ extern size_t sceKernelGetDirectMemorySize(void);
  * Keep the upstream ABI, but use the PS4 libkernel query and types. */
 void __wine_ps5_memory_budget(unsigned long long *total, unsigned long long *available)
 {
-    enum { GIB = 1024 * 1024 * 1024 };
+    /* sceKernelAvailableDirectMemorySize reports only the LARGEST free block
+     * in the range it is given, so one query over the whole pool undercounts
+     * fragmented free memory (archive 1014). Query disjoint 64 MiB ranges
+     * and sum their largest blocks: a block can straddle a range boundary
+     * and be counted as two smaller pieces, but no byte is counted twice.
+     * About pool/64 MiB queries per GlobalMemoryStatusEx. */
+    enum { GIB = 1024 * 1024 * 1024, RANGE = 64 * 1024 * 1024, ALIGN = 0x4000 };
     size_t pool = sceKernelGetDirectMemorySize(), free_bytes = 0;
-    off_t physical = 0;
-    int status = pool ? sceKernelAvailableDirectMemorySize(0, (off_t)pool, 0x4000,
-                                                           &physical, &free_bytes) : -1;
+    off_t limit = (off_t)(pool & ~(size_t)(ALIGN - 1));
+    int answered = 0;
 
-    (void)physical;
+    for (off_t start = 0; start < limit; start += RANGE)
+    {
+        off_t end = start + RANGE < limit ? start + RANGE : limit, physical = 0;
+        size_t block = 0;
+
+        if (sceKernelAvailableDirectMemorySize(start, end, ALIGN, &physical, &block)) continue;
+        answered = 1;
+        free_bytes += block;
+    }
     *total = pool ? pool : 4ull * GIB;
-    *available = status ? 0 : free_bytes;
+    *available = answered ? free_bytes : 0;
     if (*available > *total) *available = *total;
 }
 
