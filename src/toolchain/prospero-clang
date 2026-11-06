@@ -22,10 +22,16 @@ TOOL_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 PATH="$TOOL_DIR:$PATH"; export PATH
 # This shim is copied from src/toolchain/ into build/ps4-wine-sdk/bin/. Walk
 # upward until the repository root is found, so it works in either location.
-ROOT=$TOOL_DIR
-while [ "$ROOT" != / ] && [ ! -f "$ROOT/sdk/orbis-sdk-v1/BUNDLE.txt" ]; do
-  ROOT=$(dirname "$ROOT")
-done
+# The ARC runner invokes the cached compiler through /orbis-cache/deps, which
+# also contains the SDK marker; prefer the workspace link created by
+# scripts/ci/prepare-runner.sh so linker scripts and sources come from checkout.
+ROOT=${PW_PS4_ROOT:-/home/zpeirce/ps4-gladius}
+if [ ! -f "$ROOT/sdk/orbis-sdk-v1/BUNDLE.txt" ]; then
+  ROOT=$TOOL_DIR
+  while [ "$ROOT" != / ] && [ ! -f "$ROOT/sdk/orbis-sdk-v1/BUNDLE.txt" ]; do
+    ROOT=$(dirname "$ROOT")
+  done
+fi
 [ -f "$ROOT/sdk/orbis-sdk-v1/BUNDLE.txt" ] || {
   echo "cannot locate orbis-win root; run scripts/fetch-sdk.sh first" >&2
   exit 2

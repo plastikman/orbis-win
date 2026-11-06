@@ -41,7 +41,10 @@ PY
 echo "== 1. platform units =="
 for unit in pw_wine_prx pw_wine_dl pw_wine_dl_libc pw_wine_compat pw_wine_compat_libc \
         pw_wine_threads pw_wine_threads_libc pw_wine_sink pw_wine_cwd pw_wine_cwd_libc; do
+    # Overlay the BSD headers the OpenOrbis SDK omits or spells differently.
+    # Each wrapper include_nexts the SDK header and adds only the missing API.
     $CC -DPW_WINE_PRX_BUILD -std=gnu11 -O2 -Wall -Wextra -Werror -fPIC \
+        -I"$gladius/src/freebsd-compat" \
         -c "$root/wine/ps5/$unit.c" -o "$prx/obj/$unit.o"
 done
 
@@ -159,7 +162,8 @@ $CC -std=gnu11 -O2 -Wall -Wextra -Werror -fPIC -D_REENTRANT -DPW_PS4_DNS \
 $CC -std=gnu11 -m64 -DHAVE_GETADDRINFO -DPW_PS4_DNS -c \
     -o "$prx/obj/ws2_32_unixlib_dns.o" "$work/source/dlls/ws2_32/unixlib.c" \
     -I"$build/dlls/ws2_32" -I"$work/source/dlls/ws2_32" -I"$build/include" \
-    -I"$work/source/include" -D__WINESRC__ -D_WS2_32_ -DWINE_UNIX_LIB \
+    -I"$work/source/include" -I"$gladius/src/freebsd-compat" \
+    -D__WINESRC__ -D_WS2_32_ -DWINE_UNIX_LIB \
     -Wall -pipe -fcf-protection=none -fvisibility=hidden -fno-stack-protector \
     -fno-strict-aliasing -Wdeclaration-after-statement -Wempty-body \
     -Wignored-qualifiers -Winit-self -Wpointer-arith -Wstrict-prototypes \
