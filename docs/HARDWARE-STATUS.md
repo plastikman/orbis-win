@@ -15,6 +15,7 @@ will behave the same way.
 | MDK | `mdk-windows` | Translator | Reaches gameplay on the prospero-win translator. The native backend is not pursued for MDK. |
 | Vampire: The Masquerade - Bloodlines GOG | `bloodlines-gog` | Native WoW64 | Reaches gameplay from 01.23 (series 1065; 01.21 failed with "No access to memory location"). Its Quit hangs after unloading the game DLLs, as it did on ABI-v3; close it from the PS menu. |
 | Titan Quest Anniversary Edition | `titan-quest-anniversary` | Native WoW64 | Reaches gameplay from 01.34: character creation, play, save and quit to the launcher. Online services are unreachable and are skipped. The controller drives the mouse pointer; a fuller layout is pending. A large set of old saves once exhausted file descriptors on Start (open item). |
+| Half-Life 2 | `half-life-2` | Native WoW64 | Reaches the menu (first start ~67 s, then ~50 s) and plays; Options opens the pause menu (`options = escape`), the touchpad is the mouse, and Quit returns to the launcher. Upstream prospero-win's profile; DXVK 2.6.2 x32 in the prefix. Inverted look is set in the game's `hl2/cfg/autoexec.cfg` (`joy_inverty 1`), not the profile. |
 
 On every title above except Bloodlines, the game's own Quit / Exit to Desktop
 returns to the title's launcher about 3–7 s after the game ends.

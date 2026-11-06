@@ -30,6 +30,7 @@ for Bloodlines the game's own Quit / Exit returns to the title's launcher
 | MDK | `mdk-windows` | Translator | Runs on the prospero-win translator (`wowprospero.dll`). |
 | Vampire: The Masquerade - Bloodlines (GOG) | `bloodlines-gog` | Native WoW64 | Plays (from 01.23). Its Quit hangs; close it from the PS menu. |
 | Titan Quest Anniversary Edition | `titan-quest-anniversary` | Native WoW64 | Plays from 01.34: create, play, save, quit. Mouse-driven; the controller layout is basic. |
+| Half-Life 2 | `half-life-2` | Native WoW64 | Plays: menu, game, pause menu (Options), quit. Touchpad is the mouse for the settings menus. First start ~67 s, later ~50 s. |
 
 See [hardware status and caveats](docs/HARDWARE-STATUS.md) and the
 [latest handoff](docs/HANDOFF-2026-11-05.md).
@@ -66,6 +67,11 @@ Install them on the console under `/data/prospero-win/`:
 A profile that names an input preset (`preset = goldsrc`) needs that preset
 installed too; the launcher rejects the preset otherwise.
 
+The pointer can follow a stick (`mouse = left_stick` / `right_stick`) or the
+touchpad (`mouse = touchpad`, like a laptop trackpad; `mouse_speed` 1200 is one
+pixel per touchpad unit). `touchpad = mouse_left` makes a pad click a left
+click; two-finger click opens the on-screen keyboard.
+
 The settings each tested title ran with on 01.34:
 
 | Profile | `cpu` | Input mode | Preset | DLL overrides |
@@ -78,6 +84,7 @@ The settings each tested title ran with on 01.34:
 | `mdk-windows` | translator | keyboard (mouse 2) | – | `d3d8,d3d9,d3d10core,d3d11,dxgi=n` |
 | `bloodlines-gog` | native | keyboard (mouse 2) | – | `d3d8,d3d9,d3d10core,d3d11,dxgi=n` |
 | `titan-quest-anniversary` | native | keyboard (mouse 1) | – | `d3d8,d3d9,d3d10core,d3d11,dxgi=n` |
+| `half-life-2` | native | xinput (mouse touchpad) | – | `d3d8,d3d9,d3d10core,d3d11,dxgi=n` |
 
 Other profiles in `src/profiles` are diagnostic or untested variants.
 
@@ -110,9 +117,21 @@ step for normal game builds.
 
 Console-specific addresses belong in an ignored `config.env`, never in a
 committed profile or build script. `config.env.example` shows the supported
-settings. A package sends its app log only if it contains a `dev.conf`
-(local builds take `build/devconf/dev.conf`; CI uses the `PS4_LOG_SERVER`
-repository variable). Release packages have none.
+settings.
+
+**App log.** A package sends its app log to a `ps5logd` host if it contains
+a `dev.conf` (local builds take `build/devconf/dev.conf`; CI uses the
+`PS4_LOG_SERVER` repository variable). Release packages have none, so they are
+silent unless one is put on the console: copy a `dev.conf` to
+`/data/prospero-win/dev.conf` to turn logging on for every launch, and delete
+it to turn it off. A minimal `dev.conf`, received by `scripts/ps5logd.py 9300`
+on your PC:
+
+```
+DEV_ENABLED=1
+DEV_SERVER=<your PC's IP address>
+DEV_PORT=9300
+```
 
 ## What is in this repository
 
