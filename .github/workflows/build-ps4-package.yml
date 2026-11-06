@@ -89,6 +89,26 @@ jobs:
       - name: Check build prerequisites
         run: scripts/prereqs.sh
 
+      # ⚠ Without /app0/dev.conf the title sends its app log nowhere: ps5log
+      # reads it before /data is readable, so the copy in /data/homebrew is not
+      # enough (scripts/build-app-ps4.sh). Local builds take it from the
+      # gitignored build/devconf/dev.conf; CI writes it from the repository
+      # variable PS4_LOG_SERVER (the ps5logd host). CI 01.15 had none, so its
+      # Half-Life and FNV quit crashes on 2026-11-05 left no app log.
+      - name: Point the title's app log at the log host
+        env:
+          PS4_LOG_SERVER: ${{ vars.PS4_LOG_SERVER }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$PS4_LOG_SERVER" ]]; then
+            echo "::warning::PS4_LOG_SERVER is not set: this package will send no app log"
+            exit 0
+          fi
+          mkdir -p build/devconf
+          printf '%s\n' DEV_ENABLED=1 "DEV_SERVER=$PS4_LOG_SERVER" DEV_PORT=9300 DEV_UDP=0 \
+            DEV_CONNECT_TIMEOUT_MS=500 DEV_SEND_TIMEOUT_MS=200 DEV_TAG=orbis-win-ci \
+            > build/devconf/dev.conf
+
       # ABI-v4, built the way GLDS10043 01.06 was validated on hardware
       # (2026-11-05). build-abi4-package.sh fails the job if any parity gate
       # (relocation stub, Vulkan surface, display, PS4 RADV, PRX exports,

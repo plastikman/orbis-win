@@ -103,6 +103,12 @@ log "provenance"
   echo "prospero_win_abi4_commit=$(git -C "$PW" rev-parse HEAD)"
   echo "prospero_win_abi4_diff_sha256=$(git -C "$PW" diff --binary | sha256sum | cut -d' ' -f1)"
   echo "mesa_commit=$(git -C "$ROOT/mesa-build/mesa-ps4" rev-parse HEAD)"
+  # No dev.conf, no app log (see build-app-ps4.sh). Record which way it went.
+  if [[ -f $STAGE/dev.conf ]]; then
+    echo "app_log=$(sed -n 's/^DEV_SERVER=//p' "$STAGE/dev.conf"):$(sed -n 's/^DEV_PORT=//p' "$STAGE/dev.conf")"
+  else
+    echo "app_log=none (no /app0/dev.conf)"
+  fi
   for f in eboot.bin sce_module/relocated_wine_app.prx sce_module/ntdll.prx sce_module/win32u.prx \
            sce_module/wineserver.prx sce_module/libvulkan.prx sce_module/wow64native.prx \
            win/wine/lib/wine/x86_64-windows/wow64native.dll win/wine/lib/wine/i386-windows/kernelbase.dll; do
