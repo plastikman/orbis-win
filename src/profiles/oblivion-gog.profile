@@ -22,7 +22,7 @@ mouse_speed = 1200
 keyboard_stick = left_stick
 stick_deadzone = 25
 ; PS3 actions translated to Oblivion's PC defaults.
-cross = enter
+cross = space
 circle = tab
 square = f
 triangle = e
@@ -40,4 +40,4 @@ options = escape
 create = t
 
 [debug]
-winedebug = +ps5drv,warn+dinput,warn+rawinput,warn+msg,warn+vulkan
+winedebug = +ps5drv,warn+dinput,warn+rawinput,warn+msg,warn+vulkan,+seh

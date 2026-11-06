@@ -1,0 +1,23 @@
+; MDK's original PC controls, mapped to a DualSense.
+; The D-pad moves and turns Kurt, or aims in sniper mode.
+[input]
+mode = keyboard
+mouse = right_stick
+mouse_speed = 1200
+up = up
+down = down
+left = left
+right = right
+cross = alt
+square = enter
+triangle = a
+circle = z
+l1 = lbracket
+r1 = rbracket
+l2 = space
+r2 = ctrl
+l3 = shift
+r3 = x
+options = f12
+create = escape
+touchpad = f1

@@ -1,6 +1,20 @@
 #!/usr/bin/env bash
 # Copy the validated local build inputs to the runner's private NFS PVC.
+#
+#   sync-cache.sh               everything (~26 GB)
+#   sync-cache.sh --abi4-only   only the ABI-v4 trees and the baseline stage
+#                               (~8 GB): what changes when a patch is ported or
+#                               a baseline is promoted. The older prospero-win
+#                               tree, Mesa, the SDK, the toolchain and OpenSSL
+#                               are left as the last full sync put them.
 set -euo pipefail
+
+SCOPE=all
+case ${1:-} in
+  "") ;;
+  --abi4-only) SCOPE=abi4 ;;
+  *) echo "usage: $0 [--abi4-only]" >&2; exit 2 ;;
+esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 NAMESPACE=${ACTIONS_RUNNER_NAMESPACE:-actions-runner}
@@ -28,14 +42,26 @@ copy_tree() {
     kubectl -n "$NAMESPACE" exec -i "$POD" -- tar -C "$DEST/$target" -xf -
 }
 
-copy_tree prospero-win prospero-win
-copy_tree mesa-build mesa-build
-tar -C "$ROOT/sdk" -cf - orbis-sdk-v1 |
-  kubectl -n "$NAMESPACE" exec -i "$POD" -- tar -C "$DEST/sdk" -xf -
-copy_tree build/ps4-wine-sdk build/ps4-wine-sdk
-copy_tree build/orbw00053-iret-selectors-wow64native build/orbw00053-iret-selectors-wow64native
-tar -C "$HOME/.cache/orbis-ports/openssl11" -cf - lib |
-  kubectl -n "$NAMESPACE" exec -i "$POD" -- tar -C "$DEST/openssl11" -xf -
+if [[ $SCOPE == all ]]; then
+  copy_tree prospero-win prospero-win
+  copy_tree mesa-build mesa-build
+  tar -C "$ROOT/sdk" -cf - orbis-sdk-v1 |
+    kubectl -n "$NAMESPACE" exec -i "$POD" -- tar -C "$DEST/sdk" -xf -
+  copy_tree build/ps4-wine-sdk build/ps4-wine-sdk
+  copy_tree build/orbw00053-iret-selectors-wow64native build/orbw00053-iret-selectors-wow64native
+  tar -C "$HOME/.cache/orbis-ports/openssl11" -cf - lib |
+    kubectl -n "$NAMESPACE" exec -i "$POD" -- tar -C "$DEST/openssl11" -xf -
+else
+  echo "skip prospero-win, mesa-build, sdk, toolchain, openssl11 (--abi4-only)"
+  # ⚠ Except prospero-win/.git (~14 MB). The ABI-v4 source is a worktree of
+  # it (source/.git -> prospero-win/.git/worktrees/source), so its HEAD, refs
+  # and objects live there; a stale copy makes the build manifest record the
+  # wrong commit and a dirty diff (found 2026-11-06).
+  echo "sync prospero-win/.git -> prospero-win/.git"
+  kubectl -n "$NAMESPACE" exec "$POD" -- rm -rf "$DEST/prospero-win/.git"
+  tar -C "$ROOT/prospero-win" -cf - .git |
+    kubectl -n "$NAMESPACE" exec -i "$POD" -- tar -C "$DEST/prospero-win" -xf -
+fi
 
 # ABI-v4 build inputs for scripts/ci/build-abi4-package.sh (~7.5 GB). Only the
 # trees the build reads: the synced prospero-win source with its wine-host
@@ -62,6 +88,7 @@ tar -C "$BASELINE" -cf - pkg-stage |
 
 manifest=$(cat <<EOF
 seeded_at=$(date -u +%FT%TZ)
+sync_scope=$SCOPE
 root_commit=$(git -C "$ROOT" rev-parse HEAD)
 root_status=$(git -C "$ROOT" status --short | tr '\n' ';')
 prospero_win_commit=$(git -C "$ROOT/prospero-win" rev-parse HEAD)

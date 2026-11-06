@@ -6,64 +6,115 @@ platform layer, upstream compatibility patches, packaging and deployment tools,
 game profiles, and hardware findings together so the port can follow upstream
 without losing its PS4-specific work.
 
-The current baseline is the last committed state before the recent MDK
-investigation. MDK is outside the scope of the reported four-title results.
-Successful runs are hardware and game-version specific, not a blanket
+The current baseline is **GLDS10043 01.21** (2026-11-05). It is built on
+prospero-win's ABI-v4 generation (upstream `main` at `18115ce`, 2026-11-01) with
+every functional PS4 patch from the earlier port carried forward. The PS4 side
+of prospero-win lives on [plastikman/prospero-win](https://github.com/plastikman/prospero-win)
+`main`. Successful runs are hardware and game-version specific, not a blanket
 compatibility claim.
 
 ## Hardware status
 
-The PS4 test system has reached gameplay with these four titles:
+On the project test console, every title below reaches gameplay, and the
+game's own Quit / Exit returns to the title's launcher (about 3–7 s after the
+game ends).
 
 | Game | Profile | CPU mode | Notes |
 |---|---|---|---|
-| Grand Theft Auto IV | `gtaiv` | Native WoW64 | Reaches gameplay. |
-| The Elder Scrolls IV: Oblivion (GOG) | `oblivion-gog` | Native WoW64 | Reaches gameplay; DualSense left stick maps movement to keyboard input. |
-| Fallout: New Vegas | `fallout-new-vegas` | Native WoW64 | Reaches gameplay; V.A.T.S. has a known DXVK/D3D9 fault guarded in the current profile. |
-| Fallout 3 GOTY (GOG) | `fallout3-gog` | Translator | Reaches gameplay; V.A.T.S. was exercised successfully. |
+| Grand Theft Auto IV | `gtaiv-test` | Native WoW64 | Reaches gameplay. Slower to load than the other titles. |
+| The Elder Scrolls IV: Oblivion (GOG) | `oblivion-gog` | Native WoW64 | Keyboard input mode; the left stick maps to movement keys. |
+| Fallout: New Vegas | `fallout-new-vegas` | Native WoW64 | V.A.T.S. works. The wineserver heap is backed by direct memory. |
+| Fallout 3 GOTY (GOG) | `fallout3-gog` | Native WoW64 | V.A.T.S. works. MPEG-1 videos do not play (no Wine MPEG-I splitter). |
+| Half-Life | `half-life` | Native WoW64 | OpenGL through Mesa Zink. A 4:3 picture is centred with black bars. |
+| MDK | `mdk-windows` | Translator | Runs on the prospero-win translator (`wowprospero.dll`). |
 
-The profiles are under [`src/profiles`](src/profiles). The status records
-hardware runs on the project test console; another PS4 model still needs its
-own validation. See [hardware status and caveats](docs/HARDWARE-STATUS.md) and
-the [latest handoff](docs/HANDOFF-2026-10-26.md).
+See [hardware status and caveats](docs/HARDWARE-STATUS.md) and the
+[latest handoff](docs/HANDOFF-2026-11-05.md).
+
+## Profiles
+
+A profile tells the launcher how to run one game: the executable, the CPU
+backend, the input mode and preset, DLL overrides, and any environment the
+game needs. The tested profiles are in [`src/profiles`](src/profiles), copied
+from the test console as they ran on 01.21; input presets (`goldsrc` for
+Half-Life, `mdk` for MDK's original controls) are in
+[`src/profiles/input`](src/profiles/input).
+
+The tested profiles keep the `[debug]` sections they were tested with (Wine
+debug channels, trace switches); Half-Life's one-off crash diagnostics were
+removed. Those lines only add logging and can be removed,
+with one exception: keep `PW_WINESERVER_HEAP_DIRECT=1` in the Fallout profiles.
+It backs the wineserver heap with PS4 direct memory, which is how Fallout 3
+and New Vegas were validated.
+
+Install them on the console under `/data/prospero-win/`:
+
+| What | Console path |
+|---|---|
+| Profiles (`*.profile`) | `/data/prospero-win/profiles/` |
+| Input presets (`*.input`) | `/data/prospero-win/input/` |
+| Game files | `/data/prospero-win/prefixes/<profile>/drive_c/...` |
+
+A profile that names an input preset (`preset = goldsrc`) needs that preset
+installed too; the launcher rejects the preset otherwise.
+
+The settings each tested title ran with on 01.21:
+
+| Profile | `cpu` | Input mode | Preset | DLL overrides |
+|---|---|---|---|---|
+| `gtaiv-test` | native | xinput | – | `d3d8,d3d9,d3d10core,d3d11,dxgi=n;dinput8=n,b` |
+| `oblivion-gog` | native | keyboard (mouse 2) | – | – |
+| `fallout-new-vegas` | native | xinput | – | `d3d8,d3d9,d3d10core,d3d11,dxgi=n` |
+| `fallout3-gog` | native | xinput | – | `d3d9=n;dxgi=b` |
+| `half-life` | native | xinput (mouse 2) | `goldsrc` | `opengl32=n` |
+| `mdk-windows` | translator | keyboard (mouse 2) | – | `d3d8,d3d9,d3d10core,d3d11,dxgi=n` |
+
+Other profiles in `src/profiles` are diagnostic or untested variants.
+
+## Install and use
+
+Releases are on the [releases page](https://github.com/plastikman/orbis-win/releases).
+Each one carries a single installer, `IV0000-GLDS10043_00-GLDS100430000000.pkg`
+(title ID GLDS10043). Its version increases with every build, so it installs
+over an earlier one.
+
+1. Install the package with GoldHEN's package installer.
+2. Copy the profiles and input presets above to the console, and each game's
+   files into its prefix.
+3. Start the title. The launcher lists the installed profiles; pick a game.
+   Quitting the game returns to the launcher. Holding Options + Create asks
+   the game to close.
 
 ## Build and package
 
-Start with [`docs/BUILDING.md`](docs/BUILDING.md). The short version:
+Start with [`docs/BUILDING.md`](docs/BUILDING.md) and the
+[upstream sync playbook](docs/UPSTREAM-SYNC-PLAYBOOK.md). Release packages are
+built by the [`Build PS4 package`](.github/workflows/build-ps4-package.yml)
+workflow on a self-hosted runner from a private build cache; see
+[`scripts/ci/README.md`](scripts/ci/README.md). The same script,
+`scripts/ci/build-abi4-package.sh`, builds locally, and a package is published
+only if every parity gate against the baseline passes.
 
-```sh
-./scripts/prereqs.sh
-./scripts/fetch-sdk.sh
-git clone https://github.com/mpereiraesaa/prospero-win.git prospero-win
-```
-
-Check out the upstream commit and apply the PS4 delta as documented in the
-build guide, then build Wine, the PS4 PRXs, and the relocatable package. The
-package build defaults to relocatable mode; do not remove the relocation step
-for normal game builds.
+The package build defaults to relocatable mode; do not remove the relocation
+step for normal game builds.
 
 Console-specific addresses belong in an ignored `config.env`, never in a
 committed profile or build script. `config.env.example` shows the supported
-settings.
+settings. A package sends its app log only if it contains a `dev.conf`
+(local builds take `build/devconf/dev.conf`; CI uses the `PS4_LOG_SERVER`
+repository variable). Release packages have none.
 
 ## What is in this repository
 
 - `src/native/`: PS4 presentation, controller, audio, network and runtime glue.
-- `src/wine-patches-ps4/`: PS4 Wine patch series.
+- `src/wine-patches-ps4/`: the PS4 Wine patch archive. The ABI-v4 series that
+  ports them lives in the prospero-win fork under `wine/patches/`.
+- `src/mesa-patches-ps4/`: PS4 Mesa (RADV and the `wsi/orbis` scan-out).
 - `src/prospero-win-patches-ps4/`: PS4 delta against the pinned upstream tree.
-- `src/profiles/`: tested and diagnostic game profiles.
+- `src/profiles/`: tested and diagnostic game profiles, and input presets.
 - `scripts/`: SDK setup, build, packaging, deployment and log capture.
 - `docs/`: build guide, hardware status, design notes and chronological
   handoffs.
-
-## Porting work captured
-
-This snapshot includes the PS4 native WoW64 path, relocatable Wine package
-layout, Vulkan/RADV integration, filesystem and network bindings, controller
-mapping, audio setup, and runtime diagnostics. It also preserves title-specific
-profiles and the fixes learned while bringing the four games above to
-gameplay. The build guide pins the matching upstream source and SDK bundle so
-another PS4 developer can reproduce the same starting point before rebasing.
 
 ## License
 
