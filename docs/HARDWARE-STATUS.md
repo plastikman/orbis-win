@@ -1,7 +1,7 @@
 # PS4 hardware status
 
 Status reflects the project test system on GLDS10043 01.21 (2026-11-05), the
-current baseline. A title is marked as working only because it reached
+current baseline, and 01.23 (2026-11-06) for Bloodlines. A title is marked as working only because it reached
 gameplay on hardware; it does not imply every release, add-on, or console model
 will behave the same way.
 
@@ -13,9 +13,10 @@ will behave the same way.
 | Fallout 3 GOTY GOG | `fallout3-gog` | Native WoW64 | Reaches gameplay; V.A.T.S. works. The GOG launcher is bypassed; `Fallout3.exe` starts directly. MPEG-1 videos do not play. |
 | Half-Life | `half-life` | Native WoW64 | Reaches gameplay through Mesa Zink (OpenGL on Vulkan); the 4:3 picture is centred. Frame pacing can be uneven. |
 | MDK | `mdk-windows` | Translator | Reaches gameplay on the prospero-win translator. The native backend is not pursued for MDK. |
+| Vampire: The Masquerade - Bloodlines GOG | `bloodlines-gog` | Native WoW64 | Reaches gameplay from 01.23 (series 1065; 01.21 failed with "No access to memory location"). Its Quit hangs after unloading the game DLLs, as it did on ABI-v3; close it from the PS menu. |
 
-On every title above, the game's own Quit / Exit to Desktop returns to the
-title's launcher about 3–7 s after the game ends.
+On every title above except Bloodlines, the game's own Quit / Exit to Desktop
+returns to the title's launcher about 3–7 s after the game ends.
 
 These results were recorded on one PS4 test console. A PS4 Slim user's setup is
 an independent validation target. Record its firmware, GoldHEN version, game

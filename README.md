@@ -6,7 +6,8 @@ platform layer, upstream compatibility patches, packaging and deployment tools,
 game profiles, and hardware findings together so the port can follow upstream
 without losing its PS4-specific work.
 
-The current baseline is **GLDS10043 01.21** (2026-11-05). It is built on
+The current baseline is **GLDS10043 01.21** (2026-11-05); 01.23 adds the
+Bloodlines fix (series 1065). It is built on
 prospero-win's ABI-v4 generation (upstream `main` at `18115ce`, 2026-11-01) with
 every functional PS4 patch from the earlier port carried forward. The PS4 side
 of prospero-win lives on [plastikman/prospero-win](https://github.com/plastikman/prospero-win)
@@ -15,9 +16,9 @@ compatibility claim.
 
 ## Hardware status
 
-On the project test console, every title below reaches gameplay, and the
-game's own Quit / Exit returns to the title's launcher (about 3–7 s after the
-game ends).
+On the project test console, every title below reaches gameplay, and except
+for Bloodlines the game's own Quit / Exit returns to the title's launcher
+(about 3–7 s after the game ends).
 
 | Game | Profile | CPU mode | Notes |
 |---|---|---|---|
@@ -27,6 +28,7 @@ game ends).
 | Fallout 3 GOTY (GOG) | `fallout3-gog` | Native WoW64 | V.A.T.S. works. MPEG-1 videos do not play (no Wine MPEG-I splitter). |
 | Half-Life | `half-life` | Native WoW64 | OpenGL through Mesa Zink. A 4:3 picture is centred with black bars. |
 | MDK | `mdk-windows` | Translator | Runs on the prospero-win translator (`wowprospero.dll`). |
+| Vampire: The Masquerade - Bloodlines (GOG) | `bloodlines-gog` | Native WoW64 | Plays (from 01.23). Its Quit hangs; close it from the PS menu. |
 
 See [hardware status and caveats](docs/HARDWARE-STATUS.md) and the
 [latest handoff](docs/HANDOFF-2026-11-05.md).
@@ -42,10 +44,15 @@ Half-Life, `mdk` for MDK's original controls) are in
 
 The tested profiles keep the `[debug]` sections they were tested with (Wine
 debug channels, trace switches); Half-Life's one-off crash diagnostics were
-removed. Those lines only add logging and can be removed,
-with one exception: keep `PW_WINESERVER_HEAP_DIRECT=1` in the Fallout profiles.
-It backs the wineserver heap with PS4 direct memory, which is how Fallout 3
-and New Vegas were validated.
+removed. Most of those lines only add logging and can be removed. Keep two
+in the Fallout profiles, because they change behaviour and are how Fallout 3
+and New Vegas were validated:
+
+- `PW_WINESERVER_HEAP_DIRECT=1` backs the wineserver heap with PS4 direct
+  memory.
+- `PW_PS4_FORCE_EXEC=0` keeps no-exec on for data pages, although these games
+  lack the NX-compatible flag. Without it, every readable page asks for
+  execute permission and is moved out of direct memory.
 
 Install them on the console under `/data/prospero-win/`:
 
@@ -58,7 +65,7 @@ Install them on the console under `/data/prospero-win/`:
 A profile that names an input preset (`preset = goldsrc`) needs that preset
 installed too; the launcher rejects the preset otherwise.
 
-The settings each tested title ran with on 01.21:
+The settings each tested title ran with (01.21; Bloodlines on 01.23):
 
 | Profile | `cpu` | Input mode | Preset | DLL overrides |
 |---|---|---|---|---|
@@ -68,6 +75,7 @@ The settings each tested title ran with on 01.21:
 | `fallout3-gog` | native | xinput | – | `d3d9=n;dxgi=b` |
 | `half-life` | native | xinput (mouse 2) | `goldsrc` | `opengl32=n` |
 | `mdk-windows` | translator | keyboard (mouse 2) | – | `d3d8,d3d9,d3d10core,d3d11,dxgi=n` |
+| `bloodlines-gog` | native | keyboard (mouse 2) | – | `d3d8,d3d9,d3d10core,d3d11,dxgi=n` |
 
 Other profiles in `src/profiles` are diagnostic or untested variants.
 
