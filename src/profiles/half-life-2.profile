@@ -56,4 +56,6 @@ options = escape
 ; The touchpad is a mouse: slide to move the pointer (menus, Options > Video),
 ; click to left-click. Both sticks stay with the game.
 mouse = touchpad
+; 400: a full swipe moves the pointer about a third of the screen (1200 = one pixel per touchpad unit).
+mouse_speed = 400
 touchpad = mouse_left
