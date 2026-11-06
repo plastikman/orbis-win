@@ -16,8 +16,9 @@ artifact.
 Package numbering:
 - `title_id` (default GLDS10043) picks the install slot and the installer
   filename. GLDS10043 is the test slot. GLDS10044 holds the hardware-validated
-  1090 baseline; build for it only when deliberately promoting a fully
-  validated build to replace the control.
+  baseline (01.21's tree as GLDS10044 01.01 since 2026-11-05; the 1090
+  package before that); build for it only when deliberately promoting a
+  fully validated build to replace the control.
 - `version` (APP_VER, `NN.NN`) is required on manual runs and has no default.
   Tag runs derive it from the tag (`v1.08` or `v1.8` → `01.08`); other tag
   shapes fail the job. Use a number never used before for that title ID, and
@@ -46,13 +47,14 @@ manifest.txt                    source commits and cache provenance
 abi4/source/                    ABI-v4 prospero-win source + .deps/wine-host build/install
 abi4/build/wine-ps5/            ABI-v4 Unix Wine build (objects, make.log, prx/)
 abi4/native/                    ABI-v4 native WoW64 PE outputs (wow64native.dll)
-baseline-1090/pkg-stage/        hardware-validated 1090 stage the parity gate compares against
+baseline/pkg-stage/             hardware-validated stage the parity gate compares against
 ```
 
 `prepare-runner.sh` links `abi4/` to
 `/home/zpeirce/codex_scratch/abi4-upstream-port-20261104`, because the ABI-v4
 generated makefiles and the `.deps/wine-ps5` symlink embed that path. It links
-`baseline-1090/` to `pkgout/falloutnv-no-relro-kept-data-1090`. After any
+`baseline/` to `pkgout/baseline`, which locally is a symlink to the promoted
+stage (`pkgout/abi4-0121-baseline`). After any
 change to the ABI-v4 trees (a ported patch, a rebuilt object), re-run
 `scripts/ci/sync-cache.sh` so the runner builds what was validated locally.
 Running `scripts/ci/build-abi4-package.sh` locally first, with

@@ -5,7 +5,7 @@
         [--elf-dir PRX_BUILD_DIR] [--upstream-root PROSPERO_WIN_SOURCE]
 
 BASELINE_STAGE is the last known-good package stage (e.g.
-pkgout/falloutnv-no-relro-kept-data-1090/pkg-stage). CANDIDATE_STAGE is the
+pkgout/baseline/pkg-stage, a symlink to the promoted build). CANDIDATE_STAGE is the
 stage about to be packaged. --elf-dir is the PRX build directory holding the
 candidate's unstripped *.shared.elf files (enables the signal-mask check).
 

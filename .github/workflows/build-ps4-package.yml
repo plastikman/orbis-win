@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       title_id:
-        description: Title ID (GLDS10043 is the test slot; GLDS10044 holds the 1090 baseline)
+        description: Title ID (GLDS10043 is the test slot; GLDS10044 holds the promoted baseline)
         default: GLDS10043
       title:
         description: Title shown on the console

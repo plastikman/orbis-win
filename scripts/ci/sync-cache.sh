@@ -47,15 +47,18 @@ ABI4=${PW_ABI4_ROOT:-/home/zpeirce/codex_scratch/abi4-upstream-port-20261104}
 for p in source build/wine-ps5 native mesa-zink; do
   [[ -e "$ABI4/$p" ]] || { echo "missing ABI-v4 input: $ABI4/$p" >&2; exit 1; }
 done
-kubectl -n "$NAMESPACE" exec "$POD" -- mkdir -p "$DEST/abi4/build" "$DEST/baseline-1090"
+kubectl -n "$NAMESPACE" exec "$POD" -- mkdir -p "$DEST/abi4/build" "$DEST/baseline"
 echo "sync $ABI4/{source,build/wine-ps5,native,mesa-zink} -> $DEST/abi4"
 tar -C "$ABI4" -cf - source build/wine-ps5 native mesa-zink |
   kubectl -n "$NAMESPACE" exec -i "$POD" -- tar -C "$DEST/abi4" -xf -
 # The hardware-validated baseline the parity gate compares every build against.
-BASELINE=$ROOT/pkgout/falloutnv-no-relro-kept-data-1090
+# pkgout/baseline is a symlink to the promoted stage (2026-11-05: GLDS10043
+# 01.21, abi4-0121-baseline; before that falloutnv-no-relro-kept-data-1090).
+BASELINE=$(readlink -f "$ROOT/pkgout/baseline")
 [[ -f "$BASELINE/pkg-stage/eboot.bin" ]] || { echo "missing baseline stage: $BASELINE" >&2; exit 1; }
+kubectl -n "$NAMESPACE" exec "$POD" -- rm -rf "$DEST/baseline/pkg-stage"
 tar -C "$BASELINE" -cf - pkg-stage |
-  kubectl -n "$NAMESPACE" exec -i "$POD" -- tar -C "$DEST/baseline-1090" -xf -
+  kubectl -n "$NAMESPACE" exec -i "$POD" -- tar -C "$DEST/baseline" -xf -
 
 manifest=$(cat <<EOF
 seeded_at=$(date -u +%FT%TZ)
@@ -73,7 +76,8 @@ abi4_commit=$(git -C "$ABI4/source" rev-parse HEAD)
 abi4_branch=$(git -C "$ABI4/source" branch --show-current)
 abi4_diff_sha256=$(git -C "$ABI4/source" diff --binary | sha256sum | cut -d' ' -f1)
 abi4_wow64native_sha256=$(sha256sum "$ABI4/native/x86_64-windows/wow64native.dll" | cut -d' ' -f1)
-baseline_1090_eboot_sha256=$(sha256sum "$BASELINE/pkg-stage/eboot.bin" | cut -d' ' -f1)
+baseline=$(basename "$BASELINE")
+baseline_eboot_sha256=$(sha256sum "$BASELINE/pkg-stage/eboot.bin" | cut -d' ' -f1)
 EOF
 )
 printf '%s\n' "$manifest" | kubectl -n "$NAMESPACE" exec -i "$POD" -- sh -c "cat > '$DEST/manifest.txt'"

@@ -4,7 +4,7 @@
   `docs/UPSTREAM-SYNC-PLAYBOOK.md`. Audit PS4 patches by content with
   `scripts/audit-patch-presence.py`, never by patch number: upstream reuses
   numbers. Do not install any package until
-  `scripts/check-ps4-package-parity.py <1090 stage> <candidate stage> --elf-dir
+  `scripts/check-ps4-package-parity.py <baseline stage> <candidate stage> --elf-dir
   <prx build dir> --upstream-root <source>` exits 0.
 
 - PS4 `.sorbisdmp` crash dumps must be analyzed with the local dump/debugging

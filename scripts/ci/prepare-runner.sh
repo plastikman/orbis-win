@@ -37,8 +37,8 @@ for p in source/.deps/wine-host/build source/.deps/wine-host/install/usr/lib/win
          mesa-zink/i386-windows/opengl32.dll mesa-zink/x86_64-windows/opengl32.dll; do
   [[ -e "$CACHE/abi4/$p" ]] || { echo "missing cached ABI-v4 input: $CACHE/abi4/$p" >&2; exit 1; }
 done
-[[ -f "$CACHE/baseline-1090/pkg-stage/eboot.bin" ]] || {
-  echo "missing known-good 1090 baseline stage under $CACHE/baseline-1090" >&2; exit 1;
+[[ -f "$CACHE/baseline/pkg-stage/eboot.bin" ]] || {
+  echo "missing known-good baseline stage under $CACHE/baseline (run scripts/ci/sync-cache.sh)" >&2; exit 1;
 }
 
 link_cache() {
@@ -67,7 +67,7 @@ sudo ln -sfn "$CACHE/abi4" "$ABI4_PATH"
 
 link_cache "$CACHE/prospero-win" "$ROOT/prospero-win"
 mkdir -p "$ROOT/pkgout"
-link_cache "$CACHE/baseline-1090" "$ROOT/pkgout/falloutnv-no-relro-kept-data-1090"
+link_cache "$CACHE/baseline" "$ROOT/pkgout/baseline"
 link_cache "$CACHE/mesa-build" "$ROOT/mesa-build"
 link_cache "$CACHE/build" "$ROOT/build"
 mkdir -p "$ROOT/sdk"

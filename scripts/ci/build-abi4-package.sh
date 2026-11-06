@@ -24,7 +24,9 @@ OUT=${OUT:?set OUT to the output directory}
 TITLE_ID=${TITLE_ID:-GLDS10043}
 TITLE=${TITLE:-Orbis Wine ABI-v4}
 PKG_VERSION=${PKG_VERSION:-01.00}
-BASELINE=${PS4_BASELINE_STAGE:-$ROOT/pkgout/falloutnv-no-relro-kept-data-1090/pkg-stage}
+# pkgout/baseline -> the promoted known-good build (GLDS10043 01.21 since
+# 2026-11-05; the 1090 stage before it stays in pkgout for history).
+BASELINE=${PS4_BASELINE_STAGE:-$ROOT/pkgout/baseline/pkg-stage}
 OPENSSL_LIB=${PS4_PKGTOOL_OPENSSL_LIB:-$HOME/.cache/orbis-ports/openssl11/lib}
 SDKBIN=$ROOT/sdk/orbis-sdk-v1/sdk/bin/linux
 
