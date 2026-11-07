@@ -62,7 +62,7 @@ Install them on the console under `/data/prospero-win/`:
 |---|---|
 | Profiles (`*.profile`) | `/data/prospero-win/profiles/` |
 | Input presets (`*.input`) | `/data/prospero-win/input/` |
-| Game files | `/data/prospero-win/prefixes/<profile>/drive_c/...` |
+| Game prefixes | `/data/prospero-win/prefixes/<profile>/` (a complete Wine prefix, game in `drive_c/...`) |
 
 A profile that names an input preset (`preset = goldsrc`) needs that preset
 installed too; the launcher rejects the preset otherwise.
@@ -97,7 +97,10 @@ over an earlier one.
 
 1. Install the package with GoldHEN's package installer.
 2. Copy the profiles and input presets above to the console, and each game's
-   files into its prefix.
+   complete Wine prefix, made on a PC, to `/data/prospero-win/prefixes/`. A
+   game folder alone isn't enough: the console can't create a prefix itself.
+   [Installing games](docs/INSTALLING-GAMES.md) walks through it and covers
+   troubleshooting.
 3. Start the title. The launcher lists the installed profiles; pick a game.
    Quitting the game returns to the launcher. Holding Options + Create asks
    the game to close.
