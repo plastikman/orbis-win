@@ -66,9 +66,15 @@ differ in DLLs and registry layout, and it hasn't been tested.
 
 ### Option A: upstream's installer (recommended for new games)
 
-prospero-win ships the tools for this, and our fork
-([plastikman/prospero-win](https://github.com/plastikman/prospero-win)) has
-the same tools with the PS4 patches:
+The tools for this are in upstream
+[prospero-win](https://github.com/mpereiraesaa/prospero-win). You don't need
+our fork ([plastikman/prospero-win](https://github.com/plastikman/prospero-win)).
+Its PS4 patches only change code that is built for the console, so they make
+no difference to a prefix built on the PC. What matters is the Wine revision:
+`WINE_COMMIT` in upstream's `tools/build_wine_ps5.sh` must match the one in
+our fork at the commit the release was built from (the release notes name it).
+Today both are `490f6d5`. If upstream moves to a newer Wine before we do, use
+our fork at the release's commit instead.
 
 1. Build the PC's Wine once. It needs a Wine checkout that contains the pinned
    revision (`WINE_COMMIT` in `tools/build_wine_ps5.sh`), and it applies the
