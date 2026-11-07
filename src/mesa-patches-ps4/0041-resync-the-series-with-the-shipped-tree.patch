@@ -1,0 +1,691 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Subject: [PATCH] Resync the series with the tree that builds libvulkan.prx.
+
+0001-0040 no longer rebuilt the driver that shipped from 01.38 to 01.40: 0010
+loses one hunk in ac_orbis_drm.c, and about 300 lines in 12 files that are
+in mesa-build/mesa-ps4 (and so in every package) were in no patch at all.
+This patch is exactly that difference, measured on 2026-11-07 against
+1a59cc1 + 0001-0040 applied with `patch -p1 --forward` and rejects dropped.
+What it carries:
+
+- the allocation-failure diagnostics from the GTA IV out-of-memory work and
+  the 1082 RADV allocation trace: PW_ORBIS_VA_FAIL (host-bookkeeping,
+  replay-range, replay-conflict, window-exhausted), PW_ORBIS_MAP_FAIL
+  stage=mprotect, PW_RADV_ALLOC_FAIL, RADV_GRAPHICS_PIPELINE_FAIL,
+  RADV_BLIT2D_PIPELINE_FAIL, RADV_ALLOC_CMD_BUFFER, RADV_CS_FINALIZE,
+  RADV_CMD_OOM and the command-stream list realloc failures;
+- the Vulkan cursor overlay in wsi_orbis.c/.h that draws Wine's cursor image
+  over the scan-out;
+- 0010's lost hunk and smaller edits in the submit-trace and descriptor
+  paths of ac_orbis_drm.c.
+
+No behaviour change against shipped packages: this is what they were built
+from.
+---
+diff --git a/src/amd/common/ac_orbis_drm.c b/src/amd/common/ac_orbis_drm.c
+index 734c307..46a41bb 100644
+--- a/src/amd/common/ac_orbis_drm.c
++++ b/src/amd/common/ac_orbis_drm.c
+@@ -2115,16 +2115,30 @@ orbis_follow_sh_pointers(uint64_t seq, const uint32_t *w, uint32_t n, bool verbo
+                   uint64_t blo = 0, bhi = 0;
+                   const char *bwhat = "?";
+ 
+-                  if (base == 0 || !ac_orbis_va_in_freed_range(base, &blo, &bhi, &bwhat))
+-                     continue;
++                  if (base != 0 && ac_orbis_va_in_freed_range(base, &blo, &bhi, &bwhat)) {
++                     static unsigned said_desc;
++                     if (orbis_budget(&said_desc, 8))
++                        mesa_loge("orbis-drm: USE AFTER FREE - submit #%" PRIu64 " has a descriptor at 0x%" PRIx64
++                                  " (SH 0x%03x) whose base 0x%" PRIx64 " is 0x%" PRIx64 " into a %s of 0x%" PRIx64
++                                  " bytes that was FREED. The shader will read it, because this arena never "
++                                  "unmaps anything.",
++                                  seq, va, reg, base, base - blo, bwhat, bhi - blo);
++                  }
+ 
+-                  static unsigned said_desc;
+-                  if (orbis_budget(&said_desc, 8))
+-                     mesa_loge("orbis-drm: USE AFTER FREE - submit #%" PRIu64 " has a descriptor at 0x%" PRIx64
+-                               " (SH 0x%03x) whose base 0x%" PRIx64 " is 0x%" PRIx64 " into a %s of 0x%" PRIx64
+-                               " bytes that was FREED. The shader will read it, because this arena never "
+-                               "unmaps anything.",
+-                               seq, va, reg, base, base - blo, bwhat, bhi - blo);
++                  /* A descriptor-shaped pair is only a candidate until its format is decoded. Report whether
++                   * its base currently belongs to a live BO; this distinguishes a plausible resource from a
++                   * stale or nonsensical address without relying on the address-reuse-prone freed-range ring. */
++                  static unsigned said_candidates;
++                  if (base != 0 && verbose && orbis_budget(&said_candidates, 64)) {
++                     uint64_t live_lo = 0, live_hi = 0;
++                     uint32_t live_bo = 0;
++                     if (orbis_va_mapping_of(base, &live_lo, &live_hi, &live_bo))
++                        mesa_logi("orbis-drm:   V# candidate[%u] base 0x%" PRIx64 " -> live BO %u, offset 0x%" PRIx64
++                                  ", 0x%" PRIx64 " bytes remain", d, base, live_bo, base - live_lo, live_hi - base);
++                     else
++                        mesa_logi("orbis-drm:   V# candidate[%u] base 0x%" PRIx64 " is not in a live BO mapping", d,
++                                  base);
++                  }
+                }
+             }
+ 
+@@ -7606,8 +7620,9 @@ orbis_backing_map_locked(struct orbis_bo *bo, uint64_t bo_offset, uint64_t size,
+ 
+       const int32_t err = sceKernelMprotect((const void *)(uintptr_t)start, (size_t)bytes, ORBIS_GRAPHICS_PROT);
+       if (err != 0) {
+-         mesa_loge("orbis-drm: granting access to 0x%" PRIx64 "..0x%" PRIx64 " failed: 0x%08x", start, start + bytes,
+-                   (unsigned)err);
++         mesa_loge("PW_ORBIS_MAP_FAIL stage=mprotect addr=0x%" PRIx64 " end=0x%" PRIx64
++                   " size=%" PRIu64 " bo_offset=%" PRIu64 " phys=0x%" PRIx64 " result=0x%08x",
++                   start, start + bytes, bytes, bo_offset, (uint64_t)phys, (unsigned)err);
+          return -ENOMEM;
+       }
+       /* ⚠ TRACED, BECAUSE I HAVE BEEN REASONING ABOUT THE TIMING OF MY OWN MECHANISM WITH NO RECORD OF IT. Three
+@@ -8587,8 +8602,11 @@ ac_drm_va_range_alloc(ac_drm_device *dev, enum amdgpu_gpu_va_range va_range_type
+    const uint64_t limit = (flags & AMDGPU_VA_RANGE_32_BIT) ? MIN2(hi_window_end, orbis_va_end) : orbis_va_end;
+ 
+    struct amdgpu_va *va = calloc(1, sizeof(*va));
+-   if (!va)
++   if (!va) {
++      mesa_loge("PW_ORBIS_VA_FAIL stage=host-bookkeeping size=%" PRIu64 " align=%" PRIu64 " result=%d",
++                size, align, -ENOMEM);
+       return -ENOMEM;
++   }
+    va->size = size;
+ 
+    simple_mtx_lock(&orbis_va_lock);
+@@ -8642,6 +8660,10 @@ ac_drm_va_range_alloc(ac_drm_device *dev, enum amdgpu_gpu_va_range va_range_type
+        * all - moving it would make a captured trace address different memory than it captured. */
+       if (va_base_required < orbis_va_base || va_base_required + size > limit ||
+           (va_base_required & (align - 1))) {
++         mesa_loge("PW_ORBIS_VA_FAIL stage=replay-range size=%" PRIu64 " align=%" PRIu64
++                   " requested=0x%" PRIx64 " arena=0x%" PRIx64 "..0x%" PRIx64 " limit=0x%" PRIx64
++                   " flags=0x%" PRIx64 " result=%d",
++                   size, align, va_base_required, orbis_va_base, orbis_va_end, limit, flags, -EINVAL);
+          simple_mtx_unlock(&orbis_va_lock);
+          free(va);
+          return -EINVAL;
+@@ -8659,6 +8681,9 @@ ac_drm_va_range_alloc(ac_drm_device *dev, enum amdgpu_gpu_va_range va_range_type
+ 
+       if (va_base_required) {
+          /* The exact address is taken. */
++         mesa_loge("PW_ORBIS_VA_FAIL stage=replay-conflict size=%" PRIu64 " align=%" PRIu64
++                   " requested=0x%" PRIx64 " conflicting=0x%" PRIx64 "..0x%" PRIx64 " result=%d",
++                   size, align, va_base_required, (*link)->base, (*link)->base + (*link)->size, -EINVAL);
+          simple_mtx_unlock(&orbis_va_lock);
+          free(va);
+          return -EINVAL;
+@@ -8670,8 +8695,10 @@ ac_drm_va_range_alloc(ac_drm_device *dev, enum amdgpu_gpu_va_range va_range_type
+    if (candidate + size > limit) {
+       simple_mtx_unlock(&orbis_va_lock);
+       free(va);
+-      mesa_loge("orbis-drm: out of %s VA for %" PRIu64 " bytes%s",
+-                (flags & AMDGPU_VA_RANGE_32_BIT) ? "32-bit" : "device", size,
++      mesa_loge("PW_ORBIS_VA_FAIL stage=window-exhausted size=%" PRIu64 " align=%" PRIu64
++                " candidate=0x%" PRIx64 " limit=0x%" PRIx64 " flags=0x%" PRIx64 " result=%d (%s VA)%s",
++                size, align, candidate, limit, flags, -ENOMEM,
++                (flags & AMDGPU_VA_RANGE_32_BIT) ? "32-bit" : "device",
+                 no_reuse ? " - with ORBIS_VA_NO_REUSE set, so this is the window being consumed rather than "
+                            "fragmented, and everything measured before this line still stands"
+                          : "");
+@@ -9793,21 +9820,6 @@ ac_drm_cs_submit_raw2(ac_drm_device *dev, uint32_t ctx_id, uint32_t bo_list_hand
+                      draw_stages[st].name = stages[st].name;
+                      draw_stages[st].pgm = stages[st].pgm;
+                   }
+-
+-                  /* A descriptor-shaped pair is only a candidate until its format is decoded. Report whether
+-                   * its base currently belongs to a live BO; this distinguishes a plausible resource from a
+-                   * stale or nonsensical address without relying on the address-reuse-prone freed-range ring. */
+-                  static unsigned said_candidates;
+-                  if (base != 0 && verbose && orbis_budget(&said_candidates, 64)) {
+-                     uint64_t live_lo = 0, live_hi = 0;
+-                     uint32_t live_bo = 0;
+-                     if (orbis_va_mapping_of(base, &live_lo, &live_hi, &live_bo))
+-                        mesa_logi("orbis-drm:   V# candidate[%u] base 0x%" PRIx64 " -> live BO %u, offset 0x%" PRIx64
+-                                  ", 0x%" PRIx64 " bytes remain", d, base, live_bo, base - live_lo, live_hi - base);
+-                     else
+-                        mesa_logi("orbis-drm:   V# candidate[%u] base 0x%" PRIx64 " is not in a live BO mapping", d,
+-                                  base);
+-                  }
+                }
+                i += cnt;
+             }
+@@ -9926,6 +9938,32 @@ ac_drm_cs_submit_raw2(ac_drm_device *dev, uint32_t ctx_id, uint32_t bo_list_hand
+                             hung, draw_stages[st].name, pgm);
+                   orbis_dump_ib(hung, (const uint32_t *)(uintptr_t)pgm, 128, draw_stages[st].name, false);
+                }
++
++               if (draw_vs_prolog_inputs != 0) {
++                  uint64_t main_vs = draw_vs_prolog_inputs;
++                  const char *source = "direct VS prolog input";
++                  if (orbis_va_is_mapped(draw_vs_prolog_inputs, 8)) {
++                     const uint32_t *input = (const uint32_t *)(uintptr_t)draw_vs_prolog_inputs;
++                     const uint64_t indirect = (uint64_t)input[0] | ((uint64_t)input[1] << 32);
++                     if ((indirect & 0xffu) == 0 && indirect >= orbis_va_base &&
++                         indirect + 512 <= orbis_va_end && orbis_va_is_mapped(indirect, 512)) {
++                        main_vs = indirect;
++                        source = "VS prolog input table";
++                     }
++                  }
++                  mesa_logi("orbis-drm: submit #%" PRIu64 " draw VS prolog input 0x%" PRIx64
++                            " resolves to main VS 0x%" PRIx64 " (%s)",
++                            hung, draw_vs_prolog_inputs, main_vs, source);
++                  if (main_vs >= orbis_va_base && main_vs + 512 <= orbis_va_end &&
++                      orbis_va_is_mapped(main_vs, 512)) {
++                     mesa_logi("orbis-drm: submit #%" PRIu64 " DRAW_INDEX_2 main VS at 0x%" PRIx64
++                               ": first 128 dwords follow", hung, main_vs);
++                     orbis_dump_ib(hung, (const uint32_t *)(uintptr_t)main_vs, 128, "VS_MAIN", false);
++                  } else {
++                     mesa_logw("orbis-drm: submit #%" PRIu64 " resolved main VS 0x%" PRIx64
++                               " is not fully inside a live mapping; not dumping shader bytes", hung, main_vs);
++                  }
++               }
+             }
+ 
+             unsigned dumped = 0;
+diff --git a/src/amd/vulkan/meta/radv_meta_blit2d.c b/src/amd/vulkan/meta/radv_meta_blit2d.c
+index 1400339..3778aa1 100644
+--- a/src/amd/vulkan/meta/radv_meta_blit2d.c
++++ b/src/amd/vulkan/meta/radv_meta_blit2d.c
+@@ -13,6 +13,7 @@
+ #include "radv_meta.h"
+ #include "vk_format.h"
+ #include "vk_shader_module.h"
++#include "util/log.h"
+ 
+ enum blit2d_src_type {
+    BLIT2D_SRC_TYPE_IMAGE,
+@@ -489,8 +490,11 @@ get_color_pipeline(struct radv_device *device, enum blit2d_src_type src_type, Vk
+    VkResult result;
+ 
+    result = create_layout(device, src_type, layout_out);
+-   if (result != VK_SUCCESS)
++   if (result != VK_SUCCESS) {
++      mesa_loge("RADV_BLIT2D_PIPELINE_FAIL stage=layout result=%d src=%d format=%d samples=%u/%u",
++                result, src_type, format, src_log2_samples, dst_log2_samples);
+       return result;
++   }
+ 
+    memset(&key, 0, sizeof(key));
+    key.type = RADV_META_OBJECT_KEY_BLIT2D_COLOR;
+@@ -610,6 +614,9 @@ get_color_pipeline(struct radv_device *device, enum blit2d_src_type src_type, Vk
+ 
+    result = vk_meta_create_graphics_pipeline(&device->vk, &device->meta_state.device, &pipeline_create_info, &render,
+                                              &key, sizeof(key), pipeline_out);
++   if (result != VK_SUCCESS)
++      mesa_loge("RADV_BLIT2D_PIPELINE_FAIL stage=graphics result=%d src=%d format=%d samples=%u/%u",
++                result, src_type, format, src_log2_samples, dst_log2_samples);
+ 
+    ralloc_free(vs_module);
+    ralloc_free(fs_module);
+diff --git a/src/amd/vulkan/radv_cmd_buffer.c b/src/amd/vulkan/radv_cmd_buffer.c
+index 2ee1650..bcfe12f 100644
+--- a/src/amd/vulkan/radv_cmd_buffer.c
++++ b/src/amd/vulkan/radv_cmd_buffer.c
+@@ -49,6 +49,7 @@
+ 
+ #include "util/compiler.h"
+ #include "util/fast_idiv_by_const.h"
++#include "util/log.h"
+ #include "util/simple_mtx.h"
+ #include "util/perf/u_trace.h"
+ 
+@@ -1274,11 +1275,15 @@ radv_create_cmd_buffer(struct vk_command_pool *pool, VkCommandBufferLevel level,
+    struct radv_cmd_buffer *cmd_buffer;
+ 
+    cmd_buffer = vk_zalloc(&pool->alloc, sizeof(*cmd_buffer), 8, VK_SYSTEM_ALLOCATION_SCOPE_OBJECT);
+-   if (cmd_buffer == NULL)
++   if (cmd_buffer == NULL) {
++      mesa_loge("RADV_ALLOC_CMD_BUFFER stage=object result=%d size=%zu", VK_ERROR_OUT_OF_HOST_MEMORY,
++                sizeof(*cmd_buffer));
+       return vk_error(device, VK_ERROR_OUT_OF_HOST_MEMORY);
++   }
+ 
+    VkResult result = vk_command_buffer_init(pool, &cmd_buffer->vk, &radv_cmd_buffer_ops, level);
+    if (result != VK_SUCCESS) {
++      mesa_loge("RADV_ALLOC_CMD_BUFFER stage=common-init result=%d cmd=%p", result, (void *)cmd_buffer);
+       vk_free(&cmd_buffer->vk.pool->alloc, cmd_buffer);
+       return result;
+    }
+@@ -1315,6 +1320,8 @@ radv_create_cmd_buffer(struct vk_command_pool *pool, VkCommandBufferLevel level,
+       result =
+          radv_create_cmd_stream(device, ip, cmd_buffer->vk.level == VK_COMMAND_BUFFER_LEVEL_SECONDARY, &cmd_buffer->cs);
+       if (result != VK_SUCCESS) {
++         mesa_loge("RADV_ALLOC_CMD_BUFFER stage=cmd-stream result=%d ip=%d cmd=%p", result, ip,
++                   (void *)cmd_buffer);
+          radv_destroy_cmd_buffer(&cmd_buffer->vk);
+          return vk_error(device, VK_ERROR_OUT_OF_DEVICE_MEMORY);
+       }
+diff --git a/src/amd/vulkan/radv_cs.c b/src/amd/vulkan/radv_cs.c
+index bd0caae..71223aa 100644
+--- a/src/amd/vulkan/radv_cs.c
++++ b/src/amd/vulkan/radv_cs.c
+@@ -495,7 +495,10 @@ radv_finalize_cmd_stream(const struct radv_device *device, struct radv_cmd_strea
+ {
+    struct radeon_winsys *ws = device->ws;
+ 
+-   return ws->cs_finalize(cs->b);
++   VkResult result = ws->cs_finalize(cs->b);
++   if (result != VK_SUCCESS)
++      mesa_loge("RADV_CS_FINALIZE failed result=%d ip=%d cs=%p", result, cs->hw_ip, (void *)cs);
++   return result;
+ }
+ 
+ void
+diff --git a/src/amd/vulkan/radv_descriptor_update_template.c b/src/amd/vulkan/radv_descriptor_update_template.c
+index 6af02fc..1024d6a 100644
+--- a/src/amd/vulkan/radv_descriptor_update_template.c
++++ b/src/amd/vulkan/radv_descriptor_update_template.c
+@@ -117,18 +117,20 @@ radv_trace_gta_template_image_owner(const struct radv_descriptor_set *set, uint3
+    const uint64_t image_base = ((uint64_t)desc[0] << 8) | ((uint64_t)(desc[1] & 0xffu) << 40);
+    const uint64_t bind_va = image->bindings[bind_idx].addr;
+    const uint32_t level = MIN2(iview->vk.base_mip_level, image->vk.mip_levels - 1);
+-   const uint64_t level_offset = image->planes[iview->plane_id].surface.u.legacy.level[level].offset_256B;
++   const uint64_t level0_offset = image->planes[iview->plane_id].surface.u.legacy.level[0].offset_256B;
++   const uint64_t view_level_offset = image->planes[iview->plane_id].surface.u.legacy.level[level].offset_256B;
+    owner_logs++;
+ 
+    mesa_logi("orbis-drm: GTA_IMG_OWNER_TEMPLATE set_va=0x%" PRIx64 " binding=%u element=%u type=%u offset=0x%x "
+              "imageView=%p image=%p plane=%u view_fmt=%u image_fmt=%u view_base_mip=%u view_extent=%ux%ux%u "
+-             "image_extent=%ux%ux%u samples=%u bind_va=0x%" PRIx64 " level_offset_256B=0x%" PRIx64 " "
++             "image_extent=%ux%ux%u samples=%u bind_va=0x%" PRIx64 " level0_offset_256B=0x%" PRIx64 " "
++             "view_level_offset_256B=0x%" PRIx64 " "
+              "desc_base=0x%" PRIx64 " words=%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x",
+              set->header.va, binding, array_element, type, offset, iview, image, iview->plane_id, iview->vk.format,
+              image->vk.format, iview->vk.base_mip_level, iview->extent.width, iview->extent.height,
+              iview->extent.depth, image->vk.extent.width, image->vk.extent.height, image->vk.extent.depth,
+-             image->vk.samples, bind_va, level_offset, image_base, desc[0], desc[1], desc[2], desc[3], desc[4],
+-             desc[5], desc[6], desc[7]);
++             image->vk.samples, bind_va, level0_offset, view_level_offset, image_base, desc[0], desc[1], desc[2],
++             desc[3], desc[4], desc[5], desc[6], desc[7]);
+ }
+ 
+ VKAPI_ATTR VkResult VKAPI_CALL
+diff --git a/src/amd/vulkan/radv_pipeline_graphics.c b/src/amd/vulkan/radv_pipeline_graphics.c
+index 77ec09f..d3b9185 100644
+--- a/src/amd/vulkan/radv_pipeline_graphics.c
++++ b/src/amd/vulkan/radv_pipeline_graphics.c
+@@ -15,6 +15,7 @@
+ #include "nir/radv_nir.h"
+ #include "tools/radv_rmv.h"
+ #include "util/mesa-blake3.h"
++#include "util/log.h"
+ #include "util/os_time.h"
+ #include "util/u_atomic.h"
+ #include "radv_device.h"
+@@ -2852,8 +2853,11 @@ radv_generate_graphics_pipeline_state(struct radv_device *device, const VkGraphi
+                                             NULL /* driver_mv */, NULL /* driver_rp */,
+                                             0, NULL, NULL,
+                                             VK_SYSTEM_ALLOCATION_SCOPE_OBJECT, &gfx_state->vk_data);
+-   if (result != VK_SUCCESS)
++   if (result != VK_SUCCESS) {
++      mesa_loge("RADV_GRAPHICS_PIPELINE_FAIL stage=state_fill result=%d stages=%u", result,
++                pCreateInfo->stageCount);
+       goto fail;
++   }
+ 
+    if (pipeline_layout)
+       radv_graphics_pipeline_import_layout(&gfx_state->layout, pipeline_layout);
+@@ -2868,6 +2872,8 @@ radv_generate_graphics_pipeline_state(struct radv_device *device, const VkGraphi
+       gfx_state->stages = calloc(MESA_VULKAN_SHADER_STAGES, sizeof(struct radv_shader_stage));
+       if (!gfx_state->stages) {
+          result = VK_ERROR_OUT_OF_HOST_MEMORY;
++         mesa_loge("RADV_GRAPHICS_PIPELINE_FAIL stage=stage_array_alloc result=%d bytes=%zu",
++                   result, MESA_VULKAN_SHADER_STAGES * sizeof(struct radv_shader_stage));
+          goto fail;
+       }
+ 
+@@ -3250,6 +3256,9 @@ radv_graphics_pipeline_init(struct radv_graphics_pipeline *pipeline, struct radv
+       if (gfx_state.compilation_required) {
+          result =
+             radv_graphics_pipeline_compile(pipeline, pCreateInfo, &gfx_state, device, cache, fast_linking_enabled);
++         if (result != VK_SUCCESS)
++            mesa_loge("RADV_GRAPHICS_PIPELINE_FAIL stage=compile result=%d stages=%u", result,
++                      pCreateInfo->stageCount);
+       }
+    }
+ 
+@@ -3302,8 +3311,11 @@ radv_graphics_pipeline_create(VkDevice _device, VkPipelineCache _cache, const Vk
+    VkResult result;
+ 
+    pipeline = vk_zalloc2(&device->vk.alloc, pAllocator, sizeof(*pipeline), 8, VK_SYSTEM_ALLOCATION_SCOPE_OBJECT);
+-   if (pipeline == NULL)
++   if (pipeline == NULL) {
++      mesa_loge("RADV_GRAPHICS_PIPELINE_FAIL stage=object_alloc result=%d bytes=%zu",
++                VK_ERROR_OUT_OF_HOST_MEMORY, sizeof(*pipeline));
+       return vk_error(device, VK_ERROR_OUT_OF_HOST_MEMORY);
++   }
+ 
+    radv_pipeline_init(device, &pipeline->base, RADV_PIPELINE_GRAPHICS);
+    pipeline->base.create_flags = vk_graphics_pipeline_create_flags(pCreateInfo);
+@@ -3311,6 +3323,7 @@ radv_graphics_pipeline_create(VkDevice _device, VkPipelineCache _cache, const Vk
+ 
+    result = radv_graphics_pipeline_init(pipeline, device, cache, pCreateInfo);
+    if (result != VK_SUCCESS) {
++      mesa_loge("RADV_GRAPHICS_PIPELINE_FAIL stage=init result=%d stages=%u", result, pCreateInfo->stageCount);
+       radv_pipeline_destroy(device, &pipeline->base, pAllocator);
+       return result;
+    }
+diff --git a/src/amd/vulkan/winsys/amdgpu/radv_amdgpu_bo.c b/src/amd/vulkan/winsys/amdgpu/radv_amdgpu_bo.c
+index ca3c9d7..d12382e 100644
+--- a/src/amd/vulkan/winsys/amdgpu/radv_amdgpu_bo.c
++++ b/src/amd/vulkan/winsys/amdgpu/radv_amdgpu_bo.c
+@@ -10,6 +10,7 @@
+  */
+ 
+ #include <stdio.h>
++#include <errno.h>
+ 
+ #include "tools/radv_debug.h"
+ #include "radv_amdgpu_bo.h"
+@@ -37,6 +38,17 @@
+ 
+ static void radv_amdgpu_winsys_bo_destroy(struct radeon_winsys *_ws, struct radeon_winsys_bo *_bo);
+ 
++static void
++radv_log_ps4_alloc_failure(const char *stage, uint64_t size, uint64_t alignment, uint64_t va, int result)
++{
++   static unsigned count;
++   if (size < 16ull * 1024 * 1024 || __sync_fetch_and_add(&count, 1) >= 64)
++      return;
++   fprintf(stderr, "PW_RADV_ALLOC_FAIL stage=%s size=%" PRIu64 " align=%" PRIu64
++                   " va=0x%" PRIx64 " result=%d\n",
++           stage, size, alignment, va, result);
++}
++
+ static int
+ radv_amdgpu_bo_va_op(struct radv_amdgpu_winsys *ws, uint32_t bo_handle, uint64_t offset, uint64_t size, uint64_t addr,
+                      uint32_t bo_flags, uint64_t internal_flags, uint32_t ops)
+@@ -480,6 +492,7 @@ radv_amdgpu_winsys_virtual_bo_create(struct radeon_winsys *_ws, uint64_t size, u
+ 
+    bo = CALLOC_STRUCT(radv_amdgpu_winsys_bo);
+    if (!bo) {
++      radv_log_ps4_alloc_failure("host-bookkeeping", size, alignment, 0, -ENOMEM);
+       return VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
+ 
+@@ -499,6 +512,7 @@ radv_amdgpu_winsys_virtual_bo_create(struct radeon_winsys *_ws, uint64_t size, u
+    r = ac_drm_va_range_alloc(ws->dev, amdgpu_gpu_va_range_general, size + va_gap_size, virt_alignment, replay_address,
+                              &va, &va_handle, va_flags);
+    if (r) {
++      radv_log_ps4_alloc_failure("va-reserve-virtual", size + va_gap_size, virt_alignment, va, r);
+       result = replay_address ? VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS : VK_ERROR_OUT_OF_DEVICE_MEMORY;
+       goto error_va_alloc;
+    }
+@@ -563,6 +577,7 @@ radv_amdgpu_winsys_bo_create(struct radeon_winsys *_ws, uint64_t size, unsigned
+ 
+    bo = CALLOC_STRUCT(radv_amdgpu_winsys_bo);
+    if (!bo) {
++      radv_log_ps4_alloc_failure("host-bookkeeping", size, alignment, 0, -ENOMEM);
+       return VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
+ 
+@@ -580,6 +595,7 @@ radv_amdgpu_winsys_bo_create(struct radeon_winsys *_ws, uint64_t size, unsigned
+    r = ac_drm_va_range_alloc(ws->dev, amdgpu_gpu_va_range_general, va_size + va_gap_size, virt_alignment, replay_address,
+                              &va, &va_handle, va_flags);
+    if (r) {
++      radv_log_ps4_alloc_failure("va-reserve", va_size + va_gap_size, virt_alignment, va, r);
+       result = replay_address ? VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS : VK_ERROR_OUT_OF_DEVICE_MEMORY;
+       goto error_va_alloc;
+    }
+@@ -661,6 +677,7 @@ radv_amdgpu_winsys_bo_create(struct radeon_winsys *_ws, uint64_t size, unsigned
+ 
+    r = ac_drm_bo_alloc(ws->dev, &request, &buf_handle);
+    if (r) {
++      radv_log_ps4_alloc_failure("bo-create", size, alignment, va, r);
+       fprintf(stderr, "radv/amdgpu: Failed to allocate a buffer:\n");
+       fprintf(stderr, "radv/amdgpu:    size      : %" PRIu64 " bytes\n", size);
+       fprintf(stderr, "radv/amdgpu:    alignment : %u bytes\n", alignment);
+@@ -675,6 +692,7 @@ radv_amdgpu_winsys_bo_create(struct radeon_winsys *_ws, uint64_t size, unsigned
+ 
+    r = radv_amdgpu_bo_va_op(ws, kms_handle, 0, size, va, flags, 0, AMDGPU_VA_OP_MAP);
+    if (r) {
++      radv_log_ps4_alloc_failure("va-map", size, alignment, va, r);
+       result = VK_ERROR_OUT_OF_DEVICE_MEMORY;
+       goto error_va_map;
+    }
+@@ -687,6 +705,7 @@ radv_amdgpu_winsys_bo_create(struct radeon_winsys *_ws, uint64_t size, unsigned
+       r = radv_amdgpu_bo_va_op(ws, kms_handle, 0, page, va + align64(size, page), flags | RADEON_FLAG_READ_ONLY,
+                                0, AMDGPU_VA_OP_MAP);
+       if (r) {
++         radv_log_ps4_alloc_failure("va-pad-map", page, alignment, va + align64(size, page), r);
+          result = VK_ERROR_OUT_OF_DEVICE_MEMORY;
+          goto error_va_map;
+       }
+diff --git a/src/amd/vulkan/winsys/amdgpu/radv_amdgpu_cs.c b/src/amd/vulkan/winsys/amdgpu/radv_amdgpu_cs.c
+index b7a8a2e..c20657a 100644
+--- a/src/amd/vulkan/winsys/amdgpu/radv_amdgpu_cs.c
++++ b/src/amd/vulkan/winsys/amdgpu/radv_amdgpu_cs.c
+@@ -375,6 +375,9 @@ radv_amdgpu_cs_add_ib_buffer(struct radv_amdgpu_cs *cs, struct radeon_winsys_bo
+       unsigned max_num_ib_buffers = MAX2(1, cs->max_num_ib_buffers * 2);
+       struct radv_amdgpu_ib *ib_buffers = realloc(cs->ib_buffers, max_num_ib_buffers * sizeof(*ib_buffers));
+       if (!ib_buffers) {
++         mesa_loge("radv: command stream IB list realloc failed: ip=%u count=%u capacity=%u request=%zu bytes",
++                   cs->hw_ip, cs->num_ib_buffers, cs->max_num_ib_buffers,
++                   (size_t)max_num_ib_buffers * sizeof(*ib_buffers));
+          cs->status = VK_ERROR_OUT_OF_HOST_MEMORY;
+          return;
+       }
+@@ -631,6 +634,9 @@ radv_amdgpu_cs_add_buffer_internal(struct radv_amdgpu_cs *cs, uint32_t bo, uint8
+          cs->max_num_buffers = new_count;
+          cs->handles = new_entries;
+       } else {
++         mesa_loge("radv: command stream BO list realloc failed: ip=%u count=%u capacity=%u request=%zu bytes",
++                   cs->hw_ip, cs->num_buffers, cs->max_num_buffers,
++                   (size_t)new_count * sizeof(struct drm_amdgpu_bo_list_entry));
+          cs->status = VK_ERROR_OUT_OF_HOST_MEMORY;
+          return;
+       }
+diff --git a/src/vulkan/runtime/vk_command_buffer.h b/src/vulkan/runtime/vk_command_buffer.h
+index b6cc177..decdeb0 100644
+--- a/src/vulkan/runtime/vk_command_buffer.h
++++ b/src/vulkan/runtime/vk_command_buffer.h
+@@ -29,6 +29,7 @@
+ #include "vk_log.h"
+ #include "vk_meta_object_list.h"
+ #include "vk_object.h"
++#include "util/log.h"
+ #include "util/list.h"
+ #include "util/u_dynarray.h"
+ 
+@@ -236,8 +237,12 @@ __vk_command_buffer_set_error(struct vk_command_buffer *command_buffer,
+ {
+    assert(error != VK_SUCCESS);
+    error = __vk_errorf(command_buffer, error, file, line, NULL);
+-   if (command_buffer->record_result == VK_SUCCESS)
++   if (command_buffer->record_result == VK_SUCCESS) {
++       if (error == VK_ERROR_OUT_OF_HOST_MEMORY)
++           mesa_loge("RADV_CMD_OOM first command-buffer host OOM at %s:%d cmd=%p", file, line,
++                     (const void *)command_buffer);
+        command_buffer->record_result = error;
++   }
+    return error;
+ }
+ 
+diff --git a/src/vulkan/runtime/vk_command_pool.c b/src/vulkan/runtime/vk_command_pool.c
+index 3eea789..cd634e4 100644
+--- a/src/vulkan/runtime/vk_command_pool.c
++++ b/src/vulkan/runtime/vk_command_pool.c
+@@ -29,6 +29,7 @@
+ #include "vk_common_entrypoints.h"
+ #include "vk_device.h"
+ #include "vk_log.h"
++#include "util/log.h"
+ 
+ static bool
+ should_recycle_command_buffers(struct vk_device *device)
+@@ -216,8 +217,11 @@ vk_common_AllocateCommandBuffers(VkDevice device,
+          vk_command_pool_find_free(pool, pAllocateInfo->level);
+       if (cmd_buffer == NULL) {
+          result = pool->command_buffer_ops->create(pool, pAllocateInfo->level, &cmd_buffer);
+-         if (unlikely(result != VK_SUCCESS))
++         if (unlikely(result != VK_SUCCESS)) {
++            mesa_loge("VK_ALLOC_CMD_BUFFERS failed result=%d index=%u count=%u level=%u pool=%p", result, i,
++                      pAllocateInfo->commandBufferCount, pAllocateInfo->level, (void *)pool);
+             goto fail;
++         }
+       }
+ 
+       cmd_buffer->level = pAllocateInfo->level;
+diff --git a/src/vulkan/wsi/wsi_orbis.c b/src/vulkan/wsi/wsi_orbis.c
+index b0c2f58..51d15cb 100644
+--- a/src/vulkan/wsi/wsi_orbis.c
++++ b/src/vulkan/wsi/wsi_orbis.c
+@@ -10,6 +10,7 @@
+ #include "wsi_orbis.h"
+ 
+ #include <inttypes.h>
++#include <pthread.h>
+ #include <stdlib.h>
+ #include <string.h>
+ 
+@@ -17,6 +18,124 @@
+ #include "util/os_time.h"
+ #include "util/macros.h"
+ 
++/* Wine's Vulkan cursor hook hands us a transient straight-alpha ARGB image.
++ * Keep a private copy so win32u can release its cursor lock as soon as this
++ * update returns. Presentation composites the copy after the GPU wait and
++ * before the scan-out flip. */
++static struct {
++   pthread_mutex_t mutex;
++   uint32_t *pixels;
++   size_t capacity;
++   uint32_t width, height, screen_width, screen_height;
++   int32_t x, y;
++   bool visible;
++} wsi_orbis_cursor = { .mutex = PTHREAD_MUTEX_INITIALIZER };
++
++int
++wsi_orbis_cursor_update(const uint32_t *argb, uint32_t width, uint32_t height,
++                        int32_t x, int32_t y, uint32_t screen_width, uint32_t screen_height)
++{
++   size_t bytes;
++
++   pthread_mutex_lock(&wsi_orbis_cursor.mutex);
++   if (!argb || !width || !height) {
++      wsi_orbis_cursor.visible = false;
++      pthread_mutex_unlock(&wsi_orbis_cursor.mutex);
++      return 0;
++   }
++
++   if (width > 512 || height > 512 || !screen_width || !screen_height) {
++      wsi_orbis_cursor.visible = false;
++      pthread_mutex_unlock(&wsi_orbis_cursor.mutex);
++      return -1;
++   }
++
++   bytes = (size_t)width * height * sizeof(*argb);
++   if (wsi_orbis_cursor.capacity < bytes) {
++      uint32_t *pixels = realloc(wsi_orbis_cursor.pixels, bytes);
++      if (!pixels) {
++         wsi_orbis_cursor.visible = false;
++         pthread_mutex_unlock(&wsi_orbis_cursor.mutex);
++         return -1;
++      }
++      wsi_orbis_cursor.pixels = pixels;
++      wsi_orbis_cursor.capacity = bytes;
++   }
++
++   memcpy(wsi_orbis_cursor.pixels, argb, bytes);
++   wsi_orbis_cursor.width = width;
++   wsi_orbis_cursor.height = height;
++   wsi_orbis_cursor.x = x;
++   wsi_orbis_cursor.y = y;
++   wsi_orbis_cursor.screen_width = screen_width;
++   wsi_orbis_cursor.screen_height = screen_height;
++   wsi_orbis_cursor.visible = true;
++   pthread_mutex_unlock(&wsi_orbis_cursor.mutex);
++   return 0;
++}
++
++static inline uint8_t
++wsi_orbis_blend_channel(uint8_t source, uint8_t destination, uint8_t alpha)
++{
++   return (uint8_t)(((unsigned)source * alpha + (unsigned)destination * (255 - alpha) + 127) / 255);
++}
++
++static int64_t
++wsi_orbis_scale_position(int32_t pos, uint32_t output_size, uint32_t screen_size)
++{
++   const int64_t value = (int64_t)pos * output_size;
++   if (value >= 0)
++      return value / screen_size;
++   return -((-value + screen_size - 1) / screen_size);
++}
++
++static void
++wsi_orbis_cursor_composite(uint8_t *dst, uint32_t pitch, uint32_t output_width, uint32_t output_height)
++{
++   pthread_mutex_lock(&wsi_orbis_cursor.mutex);
++   if (wsi_orbis_cursor.visible) {
++      const uint32_t source_width = wsi_orbis_cursor.width;
++      const uint32_t source_height = wsi_orbis_cursor.height;
++      const uint32_t screen_width = wsi_orbis_cursor.screen_width;
++      const uint32_t screen_height = wsi_orbis_cursor.screen_height;
++      const uint32_t scaled_width = MAX2(1, (uint32_t)(((uint64_t)source_width * output_width + screen_width - 1) /
++                                                        screen_width));
++      const uint32_t scaled_height = MAX2(1, (uint32_t)(((uint64_t)source_height * output_height + screen_height - 1) /
++                                                         screen_height));
++      const int64_t left = wsi_orbis_scale_position(wsi_orbis_cursor.x, output_width, screen_width);
++      const int64_t top = wsi_orbis_scale_position(wsi_orbis_cursor.y, output_height, screen_height);
++
++      for (uint32_t cy = 0; cy < scaled_height; cy++) {
++         const int64_t dy = top + cy;
++         if (dy < 0 || dy >= output_height)
++            continue;
++         const uint32_t sy = (uint32_t)((uint64_t)cy * source_height / scaled_height);
++         const uint32_t *source = wsi_orbis_cursor.pixels + (size_t)sy * source_width;
++         uint8_t *row = dst + (size_t)dy * pitch;
++
++         for (uint32_t cx = 0; cx < scaled_width; cx++) {
++            const int64_t dx = left + cx;
++            if (dx < 0 || dx >= output_width)
++               continue;
++            const uint32_t sx = (uint32_t)((uint64_t)cx * source_width / scaled_width);
++            const uint32_t argb = source[sx];
++            const uint8_t alpha = (uint8_t)(argb >> 24);
++            if (!alpha)
++               continue;
++
++            /* Scan-out is A8B8G8R8: on this little-endian target its bytes are
++             * R, G, B, A. Wine supplies straight-alpha pixels as 0xAARRGGBB. */
++            uint8_t *pixel = row + (size_t)dx * 4;
++            pixel[0] = wsi_orbis_blend_channel((uint8_t)(argb >> 16), pixel[0], alpha);
++            pixel[1] = wsi_orbis_blend_channel((uint8_t)(argb >> 8), pixel[1], alpha);
++            pixel[2] = wsi_orbis_blend_channel((uint8_t)argb, pixel[2], alpha);
++            pixel[3] = 0xff;
++         }
++      }
++   }
++   pthread_mutex_unlock(&wsi_orbis_cursor.mutex);
++}
++
+ /* ⚠ THE SDK IS ON THE CONSOLE'S SIDE OF THE SEAM, AND SO IS THE TELEVISION.
+  *
+  * ac_orbis_drm.c splits the same way and states the principle: -Dplatforms=orbis selects the ARM, not the
+@@ -1049,6 +1168,10 @@ wsi_orbis_scanout_present(struct wsi_orbis_scanout *so, uint32_t index, const vo
+     * measuring alongside. `src` holds the same pixels in the driver's cached ONION arena. */
+    wsi_orbis_frame_stats(src, so->src_width, so->src_height, src_pitch);
+ 
++   /* Overlay the desktop cursor after the scene has been copied and before
++    * video-out takes ownership of this buffer. */
++   wsi_orbis_cursor_composite(dst, dst_pitch, so->width, so->height);
++
+    if (trace)
+       mesa_logi("wsi/orbis: present copied %u KiB, flipping index %u",
+                 (unsigned)((uint64_t)dst_pitch * so->height / 1024), index);
+diff --git a/src/vulkan/wsi/wsi_orbis.h b/src/vulkan/wsi/wsi_orbis.h
+index 353a277..9b6e438 100644
+--- a/src/vulkan/wsi/wsi_orbis.h
++++ b/src/vulkan/wsi/wsi_orbis.h
+@@ -75,6 +75,11 @@ int wsi_orbis_quiesce(unsigned timeout_ms, unsigned *waited_ms, int *pending_las
+ 
+ void wsi_orbis_scanout_destroy(struct wsi_orbis_scanout *so);
+ 
++/* Copies a Wine Vulkan cursor image for composition into the next scan-out frame.
++ * argb is straight-alpha 0xAARRGGBB and is copied before this call returns. */
++int wsi_orbis_cursor_update(const uint32_t *argb, uint32_t width, uint32_t height,
++                            int32_t x, int32_t y, uint32_t screen_width, uint32_t screen_height);
++
+ #ifdef __cplusplus
+ }
+ #endif

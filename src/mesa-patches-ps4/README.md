@@ -254,3 +254,46 @@ RADV queue-submit entry and return from process startup. The 10166 trace showed
 the same render stop at a different point than the 0035 window, so the full
 trace avoids guessing a stable call number. Package 10167 includes 0033, 0034,
 and 0036.
+
+0037-0040 are the WSI hand-off and scaling changes and the acquire-trace cap;
+their headers say what each does.
+
+### Applying the series (read this before rebuilding the driver)
+
+As of 2026-11-07, 0001-0040 apply only with `patch -p1 --forward` (fuzz), not
+`git apply`, and 0010 loses one hunk in `ac_orbis_drm.c`. Delete the `.rej` and
+`.orig` files and continue: 0041 restores what was lost. 0041 and 0042 then
+apply with `git apply`. The whole series on `1a59cc1` reproduces
+`mesa-build/mesa-ps4`, the tree that builds `libvulkan.prx`, byte-for-byte in
+all 27 files. When the Mesa tree changes, add a patch here in the same commit,
+so the series keeps matching what ships.
+
+0041 is that resync. 0001-0040 had stopped rebuilding the driver that shipped
+from 01.38 to 01.40: about 300 lines in 12 files were in no patch. It holds:
+- the allocation-failure diagnostics from the GTA IV out-of-memory work and the
+  1082 RADV allocation trace (`PW_ORBIS_VA_FAIL`, `PW_ORBIS_MAP_FAIL`,
+  `PW_RADV_ALLOC_FAIL`, `RADV_GRAPHICS_PIPELINE_FAIL`, `RADV_CMD_OOM` and
+  related);
+- the Vulkan cursor overlay in `wsi_orbis.c`;
+- 0010's lost hunk.
+
+It changes no behaviour against shipped packages.
+
+0042 stops the GPU address window filling up (2026-11-07, packages 01.40/01.41).
+Fallout 3 (Pip-Boy), New Vegas (V.A.T.S.) and Left 4 Dead 2 (after 3.5 minutes)
+all died when DXVK's next allocation failed:
+- **Per-frame retire.** Freed VA ranges were handed back only when the GPU had
+  caught up with every submission. Present waits for its own frame while the
+  next one is submitted, so that almost never happened. The WSI's present now
+  calls `ac_orbis_frame_boundary()`, which stamps parked ranges with the newest
+  submission and releases them once the label passes. `PW_ORBIS_RETIRE` logs
+  what is held.
+- **Window extension.** The window is the arena plus `ORBIS_ARENA_EXT_MIB`
+  (default 1024) of reserved addresses. Ranges there get their own direct
+  memory when mapped (`PW_ORBIS_EXT`).
+- **Honest heap sizes and budget.** The pool was advertised twice over
+  (661 + 1322 MiB for a 992 MiB window) and its usage counted twice.
+
+On 01.41 L4D2 ran 7 min 45 s with nothing left waiting, and Fallout 3, New
+Vegas, GTA IV and Bloodlines passed. The same fix is prepared for Max's ps4-wine as
+`patches/mesa-ps4/0004` (branch `orbis-gpu-window-retire`, not yet pushed).
