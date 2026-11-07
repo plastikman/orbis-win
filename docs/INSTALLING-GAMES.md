@@ -127,6 +127,7 @@ first line to where yours is. These are the usual places:
 
 - Steam on Linux: `~/.steam/steam/steamapps/common/Half-Life 2`
 - A Windows drive mounted on Linux: `/media/C/Program Files (x86)/Steam/steamapps/common/Half-Life 2`
+  ([mounting a Windows share on Linux](https://www.akamai.com/cloud/guides/linux-mount-smb-share))
 
 ```sh
 GAME="$HOME/.steam/steam/steamapps/common/Half-Life 2"
