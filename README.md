@@ -6,8 +6,9 @@ platform layer, upstream compatibility patches, packaging and deployment tools,
 game profiles, and hardware findings together so the port can follow upstream
 without losing its PS4-specific work.
 
-The current baseline is **GLDS10043 01.34** (2026-11-06): ABI-v4 with series
-1053–1068 and the Titan Quest fixes; every title below passes on it. It is built on
+The current baseline is **GLDS10043 01.41** (2026-11-07, release `v0.0.1-beta.1`):
+ABI-v4 with series 1053–1068, the Titan Quest fixes, and the GPU memory fixes in
+Mesa patches 0041–0042; every title below passes on it. It is built on
 prospero-win's ABI-v4 generation (upstream `main` at `18115ce`, 2026-11-01) with
 every functional PS4 patch from the earlier port carried forward. The PS4 side
 of prospero-win lives on [plastikman/prospero-win](https://github.com/plastikman/prospero-win)
@@ -31,9 +32,10 @@ for Bloodlines the game's own Quit / Exit returns to the title's launcher
 | Vampire: The Masquerade - Bloodlines (GOG) | `bloodlines-gog` | Native WoW64 | Plays (from 01.23). Its Quit hangs; close it from the PS menu. |
 | Titan Quest Anniversary Edition | `titan-quest-anniversary` | Native WoW64 | Plays from 01.34: create, play, save, quit. Mouse-driven; the controller layout is basic. |
 | Half-Life 2 | `half-life-2` | Native WoW64 | Plays: menu, game, pause menu (Options), quit. Touchpad is the mouse for the settings menus. First start ~67 s, later ~50 s. |
+| Space Cadet Pinball | `pinball` | Translator | GDI (no Direct3D), 800x600 desktop. |
 
 See [hardware status and caveats](docs/HARDWARE-STATUS.md) and the
-[latest handoff](docs/HANDOFF-2026-11-05.md).
+[latest handoff](docs/HANDOFF-2026-11-06-alpha6.md).
 
 ## Profiles
 
@@ -72,7 +74,7 @@ touchpad (`mouse = touchpad`, like a laptop trackpad; `mouse_speed` 1200 is one
 pixel per touchpad unit). `touchpad = mouse_left` makes a pad click a left
 click; two-finger click opens the on-screen keyboard.
 
-The settings each tested title ran with on 01.34:
+The settings each tested title ran with on 01.41:
 
 | Profile | `cpu` | Input mode | Preset | DLL overrides |
 |---|---|---|---|---|
@@ -85,6 +87,7 @@ The settings each tested title ran with on 01.34:
 | `bloodlines-gog` | native | keyboard (mouse 2) | – | `d3d8,d3d9,d3d10core,d3d11,dxgi=n` |
 | `titan-quest-anniversary` | native | keyboard (mouse 1) | – | `d3d8,d3d9,d3d10core,d3d11,dxgi=n` |
 | `half-life-2` | native | xinput (mouse touchpad) | – | `d3d8,d3d9,d3d10core,d3d11,dxgi=n` |
+| `pinball` | translator | keyboard | – | – |
 
 Other profiles in `src/profiles` are diagnostic or untested variants.
 

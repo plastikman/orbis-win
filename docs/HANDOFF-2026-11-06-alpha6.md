@@ -139,3 +139,21 @@
   - It ran 09:26:11–09:33:57 (7 m 45 s); Zak closed it, no crash. 01.40 crashed at ~5 min.
   - `radv.log` (`radv-0141-l4d2-end.log`): zero `PW_ORBIS_VA_FAIL`. Every `PW_ORBIS_RETIRE` line up to boundary 17401 shows 0 freed ranges waiting, with `label` 1–4 behind `newest` at every boundary; that lag is why the old full-idle rule never released anything.
   - The extension carried real usage beyond the arena.
+
+## Update (2026-11-07 10:05): 01.41 passes the full run, promoted, published as `v0.0.1-beta.1`
+
+- **Every title reached gameplay on 01.41** (Zak: "yes all passed"), with no GPU allocation, VA or guest-fault records in any session:
+  - GTA IV, FNV, FO3 (Pip-Boy fine), Oblivion (native).
+  - MDK (translator; `wowprospero.dll` + `BTCpuSimulate` confirmed).
+  - Half-Life (Zink), Bloodlines, Titan Quest, Half-Life 2.
+  - Space Cadet Pinball (GDI, translator). Its device opens but it never presents through the Vulkan WSI, so 0042's frame boundary does not run for it.
+  - Also Zak's L4D2 test, 7 m 45 s.
+- **Promoted:** `pkgout/abi4-0141-baseline` (stage, `.pkg` `4cae83ce…`, parity, pkg_validate, manifest); `pkgout/baseline` now points at it. 01.34 stays in `pkgout/`.
+- **Source of 01.41:**
+  - orbis-win `main`: Mesa patches 0041–0042, so the series rebuilds the shipped `libvulkan.prx`.
+  - prospero-win fork `main` `2e7f76a`: `ORBIS_` env family. Same tree as the build's `pw108194ec78+dirty` marker (diff sha `e145dc38…`).
+  - Mesa: `1a59cc1` + `src/mesa-patches-ps4/0001–0042`.
+- **Still open:**
+  - CI cache resync (`scripts/ci/sync-cache.sh --abi4-only`); it now must carry the 01.41 stage and the Mesa tree.
+  - Max's PR: branch `orbis-gpu-window-retire` in `codex_scratch/max-ps4-wine`, not pushed. The push was blocked by the permission check and needs Zak.
+  - Bloodlines' quit hang. Titan Quest: descriptor ceiling, controls, translator crash. Half-Life `goldsrc` controller pass.
