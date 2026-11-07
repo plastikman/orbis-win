@@ -303,7 +303,8 @@ GoldHEN's FTP server on port 2121. What it does:
   Wine's `wow64cpu.dll`; on the console it must be `wowprospero.dll`. The
   push changes it, and a pull changes it back.
 - **Resumes.** If the push is interrupted, run it again and it carries on.
-  Later pushes send only what changed.
+  Later pushes send only what changed (but see [Saves and settings](#saves-and-settings)
+  for pushing a game that has already run).
 
 `--cpu-dll` is required on the first push. On the PS4 the launcher checks the
 prefix's CPU DLL each time it starts a game, and copies the package's own if
@@ -328,10 +329,21 @@ console.
 ### Saves and settings
 
 On the console the prefix is the game's live copy: saves and settings change
-there. Before pushing a changed prefix again, bring the console's changes
-back with `python3 tools/pw_prefix.py pull <id> --library ~/prospero-library
---host <PS4 IP> --port 2121`. A push refuses to overwrite a console prefix
-that changed since the last push or pull, unless you add `--force`.
+there.
+
+⚠ **`pw_prefix.py pull` and `status` don't work on the PS4.** They list
+folders with the FTP command `MLSD`, which GoldHEN's server refuses (`501`).
+The same goes for `push --trust-size`. A plain `push` doesn't list folders and
+works.
+
+That affects pushing the same game again:
+
+- Once the game has run, its registry on the console has changed, so a second
+  push refuses to go ahead.
+- `--force` makes it push anyway. It overwrites the console's registry files
+  and any file you changed on the PC, which can reset the game's settings.
+- Save files only on the console are left alone, but copy anything you want to
+  keep off the console first (for example with `scripts/ftp-get.py`).
 
 ### Profiles for the tested games
 
