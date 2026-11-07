@@ -2,11 +2,11 @@
 # Copy the validated local build inputs to the runner's private NFS PVC.
 #
 #   sync-cache.sh               everything (~26 GB)
-#   sync-cache.sh --abi4-only   only the ABI-v4 trees and the baseline stage
-#                               (~8 GB): what changes when a patch is ported or
-#                               a baseline is promoted. The older prospero-win
-#                               tree, Mesa, the SDK, the toolchain and OpenSSL
-#                               are left as the last full sync put them.
+#   sync-cache.sh --abi4-only   only the ABI-v4 trees, Mesa and the baseline
+#                               stage (~9 GB): what changes when a patch is
+#                               ported or a baseline is promoted. The older
+#                               prospero-win tree, the SDK, the toolchain and
+#                               OpenSSL are left as the last full sync put them.
 set -euo pipefail
 
 SCOPE=all
@@ -52,7 +52,12 @@ if [[ $SCOPE == all ]]; then
   tar -C "$HOME/.cache/orbis-ports/openssl11" -cf - lib |
     kubectl -n "$NAMESPACE" exec -i "$POD" -- tar -C "$DEST/openssl11" -xf -
 else
-  echo "skip prospero-win, mesa-build, sdk, toolchain, openssl11 (--abi4-only)"
+  echo "skip prospero-win, sdk, toolchain, openssl11 (--abi4-only)"
+  # ⚠ Mesa IS synced (2026-11-07, ~0.9 GB). The package links
+  # mesa-build/mesa-ps4/build-orbis's libvulkan_radeon.a, and Mesa now changes
+  # with fixes (src/mesa-patches-ps4/0041-0042 in 01.41): a quick sync that
+  # skipped it left CI linking the old driver while the manifest looked current.
+  copy_tree mesa-build mesa-build
   # ⚠ Except prospero-win/.git (~14 MB). The ABI-v4 source is a worktree of
   # it (source/.git -> prospero-win/.git/worktrees/source), so its HEAD, refs
   # and objects live there; a stale copy makes the build manifest record the
