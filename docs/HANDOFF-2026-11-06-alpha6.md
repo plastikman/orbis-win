@@ -39,3 +39,13 @@
   - The tag's workflow run 42265536858 was cancelled.
 - The release notes say plainly that this package has **not** had the nine-title run. Each title's last result and build are listed: Half-Life 2 on 01.37, the rest on 01.34.
 - **The baseline stays 01.34** until 01.38 passes the nine titles. Then promote `pkgout/abi4-0138-baseline` as planned above.
+
+## Update (16:30–17:15): install guide tested end to end; New Vegas idle
+
+- **`docs/INSTALLING-GAMES.md`** (new): installing games and troubleshooting them. Its quick start was run as written from a fresh Debian 13 Hyper-V VM to the console with Half-Life 2 (Zak: "everything works").
+  - Route: upstream prospero-win's `tools/build_host_wine.sh` (26 min on the VM), then `tools/build_wowprospero.sh --build .deps/wine-host/build --source .deps/wine-host/source` (10 s, no second Wine build). Next, `wineboot --init` with `USER=prospero`, `WINEARCH=win64`, `WINEDLLOVERRIDES='winemenubuilder.exe=d;mshtml=;mscoree='`. Then the game files and DXVK 2.6.2 x32. Last, `pw_prefix.py push --port 2121` (3,183 files, 5.23 GiB, 5 min 41 s).
+  - **`pw_prefix.py` works against GoldHEN's FTP server.** Its anonymous login did not crash it, unlike `lftp` on 2026-10-06.
+  - **Don't make prefixes with the old host Wines here.** `prospero-win/.deps/wine-host` (2026-10-08) carries `PW_WOW64_PRE_IRET` diagnostics: its 32-bit side overflows the stack, so `syswow64` stays empty. `abi4-upstream-port-20261104/source/.deps/wine-host` crashed its wineserver in `wineboot`. The working one is `codex_scratch/quickstart-test/ps4-wine/prospero-win/.deps/wine-host`.
+  - The fresh prefix matches the old console one: 17,087 vs 17,080 registry keys, the same DXVK sizes. Font values name host paths (`Z:\home\...`) in both; on the console Wine adds `Z:\app0\...` entries.
+- **Console Half-Life 2 is now the end-to-end prefix.** The old one is kept as `/data/prospero-win/prefixes/half-life-2.before-e2e-20261106` (~5 GB). Delete it once Zak agrees. `hl2/cfg/autoexec.cfg` (`joy_inverty 1`) was restored into the new prefix. The `pw_prefix` manifest for this prefix is in the VM test library (`codex_scratch/quickstart-test/ps4-wine/prospero-library/.pw/`). A push from 10.168.2.188's library would now need `--force`.
+- **New Vegas idle, 01.38: no stall.** Zak left it idle; it ran 62 min and quit normally (`session_end reason=guest-exit`, no `PW_EXCEPTION32`). `flexible_free` was flat at 303,104 KiB from minute 55 to 62. On 2026-11-04 (1102 A/B) it reached 0 KiB at ~48 min and graphics stalled. The session log keeps only the last ~2 MiB, so minutes 0–55 are not on record. Logs: `codex_scratch/quickstart-test/fnv-idle/session-0*.log`.

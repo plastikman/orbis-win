@@ -44,40 +44,47 @@ game folder. A prefix is a whole small Windows installation: a registry,
   listens on port 2121.
 - The package `IV0000-GLDS10043_00-GLDS100430000000.pkg` from the
   [releases page](https://github.com/plastikman/orbis-win/releases).
-- A Linux PC (or WSL) on the same network, with Python 3, to make prefixes
-  and copy them over.
+- A Linux PC or virtual machine on the same network as the PS4, to make
+  prefixes and copy them over.
 - Your own copy of the game.
 
 ## Quick start: Half-Life 2 from start to finish
 
 This walks through one tested game with every command. Copy and paste them in
 order on a Debian or Ubuntu PC. The steps after it explain each part in
-detail. On Windows, WSL2 with Ubuntu should work, but it hasn't been tested.
+detail.
 
-Replace `192.168.1.50` with your PS4's IP address, shown under Settings >
-Network > View Connection Status. Turn on GoldHEN's FTP server first.
+Every step was run as written on 2026-11-06, from a fresh Debian 13 VM
+(6 cores, 8 GB of RAM) to the test console: the push sent 5.23 GiB in under
+6 minutes, and Half-Life 2 reached its menu, loaded a map and quit back to the
+launcher. On Windows, the test VM ran under Hyper-V:
+[Create a Debian Linux virtual machine using Hyper-V](https://techlabs.blog/categories/debian-linux/create-a-debian-linux-virtual-machine-using-hyper-v).
+
+You need your PS4's IP address (Settings > Network > View Connection Status).
+Turn on GoldHEN's FTP server before step 9. Replace `192.168.1.50` with your
+PS4's address.
 
 **1. Install the tools (once).**
 
 ```sh
 sudo apt-get update
-sudo apt-get install git python3 python3-yaml rsync curl build-essential \
+sudo apt-get install git python3 python3-yaml curl build-essential \
     bison flex pkg-config gcc-mingw-w64 g++-mingw-w64 \
     libx11-dev libxext-dev libfreetype-dev libfontconfig-dev libvulkan-dev \
     libgnutls28-dev libasound2-dev libpulse-dev zlib1g-dev zip unzip
 ```
 
-**2. Get the code (once).**
+**2. Get the code (once).** prospero-win has the tools; orbis-win has the
+tested profiles.
 
 ```sh
 mkdir -p ~/ps4-wine && cd ~/ps4-wine
-git clone https://github.com/plastikman/orbis-win.git
 git clone https://github.com/mpereiraesaa/prospero-win.git
+git clone https://github.com/plastikman/orbis-win.git
 ```
 
 **3. Build Wine for your PC (once).** This is the same Wine version the PS4
-package uses. The build takes a while: from tens of minutes to over an hour,
-depending on the PC.
+package uses. On the test VM the build took 26 minutes.
 
 ```sh
 cd ~/ps4-wine/prospero-win
@@ -86,68 +93,83 @@ git -C .deps/wine/source checkout "$(sed -n 's/^WINE_COMMIT=//p' tools/build_win
 tools/build_host_wine.sh
 ```
 
-The last line it prints is the path of your new `wine`:
-`~/ps4-wine/prospero-win/.deps/wine-host/install/usr/bin/wine`.
+It ends by printing `host wine: wine-11.17-54-g490f6d5dcb` and the path of
+the new `wine`.
 
-**4. Make Half-Life 2's prefix.** If Wine offers to install Mono or Gecko,
-you can cancel: Half-Life 2 doesn't need them.
+**4. Build the CPU DLL (once).** The push in step 9 needs prospero-win's
+`wowprospero.dll`. This builds it into the Wine you just built, in about
+10 seconds:
+
+```sh
+tools/build_wowprospero.sh --build .deps/wine-host/build --source .deps/wine-host/source
+```
+
+**5. Make Half-Life 2's prefix.** This takes about 15 seconds. The settings
+skip Wine's Mono and Gecko installers and its desktop menu entries, which the
+console doesn't use.
 
 ```sh
 WINE=~/ps4-wine/prospero-win/.deps/wine-host/install/usr/bin/wine
-PREFIX=~/ps4-wine/prefixes/half-life-2
-USER=prospero LOGNAME=prospero WINEPREFIX="$PREFIX" "$WINE" wineboot --init
+PREFIX=~/prospero-library/prefixes/half-life-2
+mkdir -p "$PREFIX/drive_c/Games/HalfLife2"
+USER=prospero LOGNAME=prospero WINEARCH=win64 \
+WINEPREFIX="$PREFIX" WINEDEBUG=-all \
+WINEDLLOVERRIDES='winemenubuilder.exe=d;mshtml=;mscoree=' \
+"$WINE" wineboot --init
 ```
 
-**5. Copy the game in.** Use your Steam install of Half-Life 2, from Windows
-or from Steam on Linux. Change the first line to where yours is.
+Check that it worked: `ls "$PREFIX/drive_c/windows/syswow64" | wc -l` should
+print several hundred. If it prints 0, the 32-bit half of Wine didn't run, and
+32-bit games won't work in this prefix.
+
+**6. Copy the game in.** Use your Steam install of Half-Life 2. Change the
+first line to where yours is. These are the usual places:
+
+- Steam on Linux: `~/.steam/steam/steamapps/common/Half-Life 2`
+- A Windows drive mounted on Linux: `/media/C/Program Files (x86)/Steam/steamapps/common/Half-Life 2`
 
 ```sh
-HL2="$HOME/.steam/steam/steamapps/common/Half-Life 2"
-mkdir -p "$PREFIX/drive_c/Games/HalfLife2"
-cp -r "$HL2/hl2.exe" "$HL2/bin" "$HL2/platform" "$HL2/hl2" "$PREFIX/drive_c/Games/HalfLife2/"
+GAME="$HOME/.steam/steam/steamapps/common/Half-Life 2"
+cp -a "$GAME/hl2.exe" "$GAME/bin" "$GAME/platform" "$GAME/hl2" \
+    "$PREFIX/drive_c/Games/HalfLife2/"
 ```
 
-**6. Add DXVK.** Half-Life 2 is a 32-bit Direct3D 9 game, so it needs DXVK's
+**7. Add DXVK.** Half-Life 2 is a 32-bit Direct3D 9 game, so it needs DXVK's
 32-bit DLLs in `syswow64`.
 
 ```sh
 cd ~/ps4-wine
 curl -LO https://github.com/doitsujin/dxvk/releases/download/v2.6.2/dxvk-2.6.2.tar.gz
 tar xf dxvk-2.6.2.tar.gz
-cp dxvk-2.6.2/x32/*.dll "$PREFIX/drive_c/windows/syswow64/"
+cp dxvk-2.6.2/x32/{d3d8,d3d9,d3d10core,d3d11,dxgi}.dll "$PREFIX/drive_c/windows/syswow64/"
 ```
 
-**7. Prepare the copy for the PS4.** This leaves out links the PS4 can't use.
-Without this step, the upload would try to copy your whole PC.
+**8. Add the profile.** It tells the launcher how to run the game.
 
 ```sh
-STAGE=~/ps4-wine/stage/half-life-2
-rsync -a --no-links --exclude=.wineserver "$PREFIX/" "$STAGE/"
-printf 'c:\t../drive_c\nz:\t/\n' > "$STAGE/dosdevices/.pw-symlinks"
-for d in "AppData/Local/Temp" "AppData/LocalLow" "AppData/Roaming" \
-         "Desktop" "Documents" "Saved Games"; do
-    mkdir -p "$STAGE/drive_c/users/prospero/$d"
-done
+mkdir -p ~/prospero-library/profiles
+cp ~/ps4-wine/orbis-win/src/profiles/half-life-2.profile ~/prospero-library/profiles/
 ```
 
-**8. Send it to the PS4.** The prefix goes first and the profile last, so the
-game only appears in the launcher once it is all there. The upload is a few
-GB and takes a while.
+**9. Send it to the PS4.** Run this from the prospero-win folder. It sends
+about 5 GB, so it takes a while. If it stops part way, run the same command
+again and it carries on where it stopped.
 
 ```sh
-cd ~/ps4-wine/orbis-win
-python3 scripts/ftp-put-tree.py 192.168.1.50 2121 "$STAGE" /data/prospero-win/prefixes/half-life-2
-python3 scripts/ftp-put.py 192.168.1.50 2121 src/profiles/half-life-2.profile \
-    /data/prospero-win/profiles/half-life-2.profile
+cd ~/ps4-wine/prospero-win
+python3 tools/pw_prefix.py push half-life-2 \
+    --library ~/prospero-library \
+    --host 192.168.1.50 --port 2121 \
+    --cpu-dll .deps/wine-host/build/dlls/wowprospero/x86_64-windows/wowprospero.dll
 ```
 
-**9. Play.** Install the package (Step 1 below) if you haven't, start the
+**10. Play.** Install the package (Step 1 below) if you haven't, start the
 app and pick Half-Life 2. The first start takes about a minute. Options opens
 the game's menu, and the touchpad moves the mouse pointer.
 
-If it doesn't work, see [Troubleshooting](#troubleshooting). Steps 1 to 3 are
-one-time setup. For another game, repeat steps 4 to 8 with that game's files,
-profile and prefix name.
+If it doesn't work, see [Troubleshooting](#troubleshooting). Steps 1 to 4 are
+one-time setup. For another game, repeat steps 5 to 9 with that game's files,
+profile and name.
 
 ## Step 1: Install the package
 
@@ -182,8 +204,11 @@ our fork at the release's commit instead.
    same patch series as the console build:
 
    ```sh
-   tools/build_host_wine.sh --source <wine checkout> --jobs 8   # prints the path of its wine when done
+   tools/build_host_wine.sh   # prints the path of its wine when done
    ```
+
+   Quick-start steps 3 and 4 have the exact commands, including getting the
+   Wine checkout.
 
 2. Install the game from a [Lutris installer
    script](https://github.com/lutris/lutris/blob/master/docs/installers.rst):
@@ -202,7 +227,7 @@ uses, and replaces Wine's links into your home folder with real folders inside
 the prefix. Recipes, DXVK and ReShade options and the `prospero` block are
 described in upstream's
 [`docs/INSTALLING_GAMES.md`](https://github.com/mpereiraesaa/prospero-win/blob/main/docs/INSTALLING_GAMES.md).
-Only its *push* step is different on the PS4 (Step 3).
+Its push step works on the PS4 too: see Step 3.
 
 ### Option B: by hand (a game you already have installed)
 
@@ -216,11 +241,14 @@ PREFIX=~/prospero-library/prefixes/<id>
 
 # 1. A fresh prefix, as the console's user. USER and LOGNAME make the
 #    Windows user "prospero", whose folders the console uses.
-USER=prospero LOGNAME=prospero WINEPREFIX="$PREFIX" "$WINE" wineboot --init
+mkdir -p "$PREFIX/drive_c/Games/<Name>"
+USER=prospero LOGNAME=prospero WINEARCH=win64 \
+WINEPREFIX="$PREFIX" WINEDEBUG=-all \
+WINEDLLOVERRIDES='winemenubuilder.exe=d;mshtml=;mscoree=' \
+"$WINE" wineboot --init
 
 # 2. The game into C:\Games\<Name>.
-mkdir -p "$PREFIX/drive_c/Games/<Name>"
-cp -r /path/to/installed/game/. "$PREFIX/drive_c/Games/<Name>/"
+cp -a /path/to/installed/game/. "$PREFIX/drive_c/Games/<Name>/"
 ```
 
 Then:
@@ -247,65 +275,62 @@ ways around DRM.
 
 ## Step 3: Copy the prefix and profile to the console
 
-### Prepare the copy
-
-A Wine prefix contains symbolic links. The PS4 app can't create or follow real
-ones, so it keeps them in a `.pw-symlinks` table in each folder instead. One
-link also points at your PC's whole filesystem (`dosdevices/z:` → `/`), so an
-FTP client that follows links would try to upload your entire PC. Stage a copy
-without links first:
+Use upstream's `pw_prefix.py`, from the prospero-win folder. Put the profile
+in `~/prospero-library/profiles/<id>.profile` first:
 
 ```sh
-STAGE=~/ps4-stage/<id>
-rsync -a --no-links --exclude=.wineserver "$PREFIX/" "$STAGE/"
-
-# The two drive letters the console needs, as a link table.
-printf 'c:\t../drive_c\nz:\t/\n' > "$STAGE/dosdevices/.pw-symlinks"
-
-# The console's user folders. pw_install.py already makes them; this is
-# harmless if they exist.
-for d in "AppData/Local/Temp" "AppData/LocalLow" "AppData/Roaming" \
-         "Desktop" "Documents" "Saved Games"; do
-    mkdir -p "$STAGE/drive_c/users/prospero/$d"
-done
+cd ~/ps4-wine/prospero-win
+python3 tools/pw_prefix.py push <id> --library ~/prospero-library \
+    --host <PS4 IP> --port 2121 \
+    --cpu-dll .deps/wine-host/build/dlls/wowprospero/x86_64-windows/wowprospero.dll
 ```
 
-You don't need to copy a CPU DLL or change the registry's WoW64 setting.
-Each time the launcher starts a game, it checks the prefix's `system32` for
-the CPU backend the profile asks for (`wow64native.dll`, or `wowprospero.dll`
-for `cpu = translator`). It copies the package's copy in if that file is
-missing or different.
+This is how the tested Half-Life 2 was put on the test console, through
+GoldHEN's FTP server on port 2121. What it does:
 
-### Upload
+- **Copies the whole prefix and the profile.** The profile goes last, so the
+  game only appears in the launcher once its files are there.
+- **Handles the symbolic links.** A Wine prefix contains links, and the PS4
+  app can't create or follow real ones. It keeps them in a `.pw-symlinks`
+  table in each folder instead, which the push writes. One link points at your
+  PC's whole filesystem (`dosdevices/z:` → `/`). That is why a general FTP
+  client that follows links is a bad idea here: it would try to upload your
+  entire PC.
+- **Creates the console user's folders** (`drive_c/users/prospero/...`) if
+  the prefix lacks them.
+- **Sets the registry's 32-bit CPU setting for the console.** On the PC it is
+  Wine's `wow64cpu.dll`; on the console it must be `wowprospero.dll`. The
+  push changes it, and a pull changes it back.
+- **Resumes.** If the push is interrupted, run it again and it carries on.
+  Later pushes send only what changed.
 
-Use this repository's FTP scripts. They send only the commands an upload needs
-and never log in:
+`--cpu-dll` is required on the first push. On the PS4 the launcher checks the
+prefix's CPU DLL each time it starts a game, and copies the package's own if
+the file is missing or different. So any build of `wowprospero.dll` satisfies
+the first push.
+
+Input presets are not part of the push. If the profile names one
+(`preset = <name>`), copy it to `/data/prospero-win/input/<name>.input` once,
+for example with this repository's `scripts/ftp-put.py`:
 
 ```sh
-CONSOLE=<PS4 IP>
-python3 scripts/ftp-put-tree.py "$CONSOLE" 2121 "$STAGE" /data/prospero-win/prefixes/<id>
-
-# The input preset, if the profile names one (preset = <name>).
-python3 scripts/ftp-put.py "$CONSOLE" 2121 <name>.input /data/prospero-win/input/<name>.input
-
-# The profile last, so the game only appears in the launcher once its files are there.
-python3 scripts/ftp-put.py "$CONSOLE" 2121 <id>.profile /data/prospero-win/profiles/<id>.profile
+python3 scripts/ftp-put.py <PS4 IP> 2121 src/profiles/input/<name>.input /data/prospero-win/input/<name>.input
 ```
 
-⚠ **The FTP server can crash.** On the test console, GoldHEN's FTP server
-(v2.2) crashed twice when a full FTP client (`lftp`) logged in. It took all of
-GoldHEN down with it, and the console needed a reboot. The repository's
-scripts avoid the login and the extra commands for that reason. If you use
-another client and the server dies as soon as it connects, that is the likely
-cause, not a damaged console.
+⚠ **About FTP clients.** On the test console, GoldHEN's FTP server (v2.2)
+crashed twice when `lftp`, a full-featured FTP client, logged in. It took
+GoldHEN down with it, and the console needed a reboot. `pw_prefix.py` and this
+repository's scripts have worked without trouble. If another client kills the
+server as soon as it connects, the client is the likely cause, not a damaged
+console.
 
-Upstream's `pw_prefix.py push` also logs in (anonymously) and lists folders
-with MLSD. It was written for the PS5's FTP server and hasn't been tested
-against GoldHEN's, so it may crash the server the same way.
+### Saves and settings
 
-`ftp-put-tree.py` has no resume and uploads the whole tree each time. To
-update a few files later, such as a changed `user.reg` or a config file, send
-them one at a time with `ftp-put.py`.
+On the console the prefix is the game's live copy: saves and settings change
+there. Before pushing a changed prefix again, bring the console's changes
+back with `python3 tools/pw_prefix.py pull <id> --library ~/prospero-library
+--host <PS4 IP> --port 2121`. A push refuses to overwrite a console prefix
+that changed since the last push or pull, unless you add `--force`.
 
 ### Profiles for the tested games
 
