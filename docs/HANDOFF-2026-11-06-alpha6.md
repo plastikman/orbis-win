@@ -157,3 +157,21 @@
   - CI cache resync (`scripts/ci/sync-cache.sh --abi4-only`); it now must carry the 01.41 stage and the Mesa tree.
   - Max's PR: branch `orbis-gpu-window-retire` in `codex_scratch/max-ps4-wine`, not pushed. The push was blocked by the permission check and needs Zak.
   - Bloodlines' quit hang. Titan Quest: descriptor ceiling, controls, translator crash. Half-Life `goldsrc` controller pass.
+
+## Update (2026-11-07 11:30): MP3 through DirectShow without GStreamer; `v0.0.2` = 01.43
+
+- **Cause of Oblivion's music problem.** quartz's MPEG-I Stream Splitter and l3codecx's MPEG Layer-3 Decoder only wrapped winegstreamer classes. Our Wine has no GStreamer, so no `.mp3` could be rendered. Oblivion retried forever and leaked file handles (WineHQ 19967), which is why it ran with `bMusicEnabled=0` since Oct 20. Fallout 3 logged the same `MPEG-I Stream Splitter` failure.
+- **Fix: fork Wine patch 1069** (prospero-win `407b1cc`).
+  - `dlls/quartz/mpegaudiosplit.c`: an elementary MPEG audio splitter, used when the wg class is missing.
+  - `l3codecx.ax` hosts `mp3dmod` in the DMO Wrapper.
+- **How the package gets these DLLs.** It takes Wine's PE DLLs from `wine-host/install/usr/lib/wine`, not `build/wine-ps5/pe` (only `wow64native` comes from there). The two modules were rebuilt in `wine-host/build` and installed stripped.
+- **PC test:** upstream host Wine 490f6d5 with the patch, Oblivion's `tes4title.mp3`. `RenderFile` → splitter → decoder → DirectSound; 110.94 s; full decode to EC_COMPLETE twice. The test program is in `codex_scratch/mp3-test/`.
+- **Hardware, 01.43** (`2465e806…`):
+  - Oblivion: music on, no lag, ~9 min, 3 track changes, quit normally, no file-handle errors.
+  - New Vegas: MP3 audio plays.
+  - Fallout 3: MP3s play.
+  - Harmless log noise: `mp3dmod` fixme lines for `IMediaSample2` and similar optional interfaces, once per sample when logging is on.
+- **Published as `v0.0.2`** (Zak: "this is a good release").
+  - Baseline for parity stays 01.41; 01.43 differs only in quartz/l3codecx and version stamps.
+  - The CI cache still has the old host-Wine install; re-run `scripts/ci/sync-cache.sh --abi4-only` before the next CI build.
+- **Open: the fork's Wine series has two `0740` patches** (since `661e3ad`), so `tools/build_wine_ps5.sh --check-patches`, and with it `build_host_wine.sh`, refuses to build a fresh host Wine from fork `main`.

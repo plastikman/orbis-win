@@ -8,7 +8,9 @@ without losing its PS4-specific work.
 
 The current baseline is **GLDS10043 01.41** (2026-11-07, release `v0.0.1`):
 ABI-v4 with series 1053–1068, the Titan Quest fixes, and the GPU memory fixes in
-Mesa patches 0041–0042; every title below passes on it. It is built on
+Mesa patches 0041–0042; every title below passes on it. The latest release,
+`v0.0.2` (01.43), adds MP3 audio through DirectShow (prospero-win Wine patch
+1069): Oblivion's music works again, and Fallout 3 and New Vegas play their MP3s. It is built on
 prospero-win's ABI-v4 generation (upstream `main` at `18115ce`, 2026-11-01) with
 every functional PS4 patch from the earlier port carried forward. The PS4 side
 of prospero-win lives on [plastikman/prospero-win](https://github.com/plastikman/prospero-win)
@@ -24,7 +26,7 @@ for Bloodlines the game's own Quit / Exit returns to the title's launcher
 | Game | Profile | CPU mode | Notes |
 |---|---|---|---|
 | Grand Theft Auto IV | `gtaiv-test` | Native WoW64 | Reaches gameplay. Slower to load than the other titles. |
-| The Elder Scrolls IV: Oblivion (GOG) | `oblivion-gog` | Native WoW64 | Keyboard input mode; the left stick maps to movement keys. |
+| The Elder Scrolls IV: Oblivion (GOG) | `oblivion-gog` | Native WoW64 | Keyboard input mode; the left stick maps to movement keys. Music works from 01.43 (`bMusicEnabled=1`). |
 | Fallout: New Vegas | `fallout-new-vegas` | Native WoW64 | V.A.T.S. works. The wineserver heap is backed by direct memory. |
 | Fallout 3 GOTY (GOG) | `fallout3-gog` | Native WoW64 | V.A.T.S. works. MPEG-1 videos do not play (no Wine MPEG-I splitter). |
 | Half-Life | `half-life` | Native WoW64 | OpenGL through Mesa Zink. A 4:3 picture is centred with black bars. |
