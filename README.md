@@ -6,7 +6,7 @@ platform layer, upstream compatibility patches, packaging and deployment tools,
 game profiles, and hardware findings together so the port can follow upstream
 without losing its PS4-specific work.
 
-The current baseline is **GLDS10043 01.41** (2026-11-07, release `v0.0.1-beta.1`):
+The current baseline is **GLDS10043 01.41** (2026-11-07, release `v0.0.1`):
 ABI-v4 with series 1053–1068, the Titan Quest fixes, and the GPU memory fixes in
 Mesa patches 0041–0042; every title below passes on it. It is built on
 prospero-win's ABI-v4 generation (upstream `main` at `18115ce`, 2026-11-01) with

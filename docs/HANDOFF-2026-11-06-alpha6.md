@@ -140,7 +140,7 @@
   - `radv.log` (`radv-0141-l4d2-end.log`): zero `PW_ORBIS_VA_FAIL`. Every `PW_ORBIS_RETIRE` line up to boundary 17401 shows 0 freed ranges waiting, with `label` 1–4 behind `newest` at every boundary; that lag is why the old full-idle rule never released anything.
   - The extension carried real usage beyond the arena.
 
-## Update (2026-11-07 10:05): 01.41 passes the full run, promoted, published as `v0.0.1-beta.1`
+## Update (2026-11-07 10:05): 01.41 passes the full run, promoted, published as `v0.0.1`
 
 - **Every title reached gameplay on 01.41** (Zak: "yes all passed"), with no GPU allocation, VA or guest-fault records in any session:
   - GTA IV, FNV, FO3 (Pip-Boy fine), Oblivion (native).
