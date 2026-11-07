@@ -48,6 +48,107 @@ game folder. A prefix is a whole small Windows installation: a registry,
   and copy them over.
 - Your own copy of the game.
 
+## Quick start: Half-Life 2 from start to finish
+
+This walks through one tested game with every command. Copy and paste them in
+order on a Debian or Ubuntu PC. The steps after it explain each part in
+detail. On Windows, WSL2 with Ubuntu should work, but it hasn't been tested.
+
+Replace `192.168.1.50` with your PS4's IP address, shown under Settings >
+Network > View Connection Status. Turn on GoldHEN's FTP server first.
+
+**1. Install the tools (once).**
+
+```sh
+sudo apt-get update
+sudo apt-get install git python3 python3-yaml rsync curl build-essential \
+    bison flex pkg-config gcc-mingw-w64 g++-mingw-w64 \
+    libx11-dev libxext-dev libfreetype-dev libfontconfig-dev libvulkan-dev \
+    libgnutls28-dev libasound2-dev libpulse-dev zlib1g-dev zip unzip
+```
+
+**2. Get the code (once).**
+
+```sh
+mkdir -p ~/ps4-wine && cd ~/ps4-wine
+git clone https://github.com/plastikman/orbis-win.git
+git clone https://github.com/mpereiraesaa/prospero-win.git
+```
+
+**3. Build Wine for your PC (once).** This is the same Wine version the PS4
+package uses. The build takes a while: from tens of minutes to over an hour,
+depending on the PC.
+
+```sh
+cd ~/ps4-wine/prospero-win
+git clone --filter=blob:none --no-checkout https://github.com/wine-mirror/wine.git .deps/wine/source
+git -C .deps/wine/source checkout "$(sed -n 's/^WINE_COMMIT=//p' tools/build_wine_ps5.sh)"
+tools/build_host_wine.sh
+```
+
+The last line it prints is the path of your new `wine`:
+`~/ps4-wine/prospero-win/.deps/wine-host/install/usr/bin/wine`.
+
+**4. Make Half-Life 2's prefix.** If Wine offers to install Mono or Gecko,
+you can cancel: Half-Life 2 doesn't need them.
+
+```sh
+WINE=~/ps4-wine/prospero-win/.deps/wine-host/install/usr/bin/wine
+PREFIX=~/ps4-wine/prefixes/half-life-2
+USER=prospero LOGNAME=prospero WINEPREFIX="$PREFIX" "$WINE" wineboot --init
+```
+
+**5. Copy the game in.** Use your Steam install of Half-Life 2, from Windows
+or from Steam on Linux. Change the first line to where yours is.
+
+```sh
+HL2="$HOME/.steam/steam/steamapps/common/Half-Life 2"
+mkdir -p "$PREFIX/drive_c/Games/HalfLife2"
+cp -r "$HL2/hl2.exe" "$HL2/bin" "$HL2/platform" "$HL2/hl2" "$PREFIX/drive_c/Games/HalfLife2/"
+```
+
+**6. Add DXVK.** Half-Life 2 is a 32-bit Direct3D 9 game, so it needs DXVK's
+32-bit DLLs in `syswow64`.
+
+```sh
+cd ~/ps4-wine
+curl -LO https://github.com/doitsujin/dxvk/releases/download/v2.6.2/dxvk-2.6.2.tar.gz
+tar xf dxvk-2.6.2.tar.gz
+cp dxvk-2.6.2/x32/*.dll "$PREFIX/drive_c/windows/syswow64/"
+```
+
+**7. Prepare the copy for the PS4.** This leaves out links the PS4 can't use.
+Without this step, the upload would try to copy your whole PC.
+
+```sh
+STAGE=~/ps4-wine/stage/half-life-2
+rsync -a --no-links --exclude=.wineserver "$PREFIX/" "$STAGE/"
+printf 'c:\t../drive_c\nz:\t/\n' > "$STAGE/dosdevices/.pw-symlinks"
+for d in "AppData/Local/Temp" "AppData/LocalLow" "AppData/Roaming" \
+         "Desktop" "Documents" "Saved Games"; do
+    mkdir -p "$STAGE/drive_c/users/prospero/$d"
+done
+```
+
+**8. Send it to the PS4.** The prefix goes first and the profile last, so the
+game only appears in the launcher once it is all there. The upload is a few
+GB and takes a while.
+
+```sh
+cd ~/ps4-wine/orbis-win
+python3 scripts/ftp-put-tree.py 192.168.1.50 2121 "$STAGE" /data/prospero-win/prefixes/half-life-2
+python3 scripts/ftp-put.py 192.168.1.50 2121 src/profiles/half-life-2.profile \
+    /data/prospero-win/profiles/half-life-2.profile
+```
+
+**9. Play.** Install the package (Step 1 below) if you haven't, start the
+app and pick Half-Life 2. The first start takes about a minute. Options opens
+the game's menu, and the touchpad moves the mouse pointer.
+
+If it doesn't work, see [Troubleshooting](#troubleshooting). Steps 1 to 3 are
+one-time setup. For another game, repeat steps 4 to 8 with that game's files,
+profile and prefix name.
+
 ## Step 1: Install the package
 
 Install `IV0000-GLDS10043_00-GLDS100430000000.pkg` with GoldHEN's package
