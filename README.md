@@ -6,11 +6,13 @@ platform layer, upstream compatibility patches, packaging and deployment tools,
 game profiles, and hardware findings together so the port can follow upstream
 without losing its PS4-specific work.
 
-The current baseline is **GLDS10043 01.41** (2026-11-07, release `v0.0.1`):
-ABI-v4 with series 1053–1068, the Titan Quest fixes, and the GPU memory fixes in
-Mesa patches 0041–0042; every title below passes on it. The latest release,
-`v0.0.2` (01.43), adds MP3 audio through DirectShow (prospero-win Wine patch
-1069): Oblivion's music works again, and Fallout 3 and New Vegas play their MP3s. It is built on
+The current baseline is **GLDS10043 01.49** (2026-11-08, release `v0.0.3`):
+ABI-v4 with the Wine runtime built from the prospero-win fork's patch series
+alone (reproducible; CI checks it on every build), a launcher notice when a
+newer release is on GitHub, and Mesa patches 0001–0044 (0043/0044: the GPU
+driver's hang report no longer crashes or stutters games); every title below
+passes on it. `v0.0.2` (01.43) added MP3 audio through DirectShow and
+`v0.0.1` (01.41) the GPU memory fixes. It is built on
 prospero-win's ABI-v4 generation (upstream `main` at `18115ce`, 2026-11-01) with
 every functional PS4 patch from the earlier port carried forward. The PS4 side
 of prospero-win lives on [plastikman/prospero-win](https://github.com/plastikman/prospero-win)
@@ -34,10 +36,10 @@ for Bloodlines the game's own Quit / Exit returns to the title's launcher
 | Vampire: The Masquerade - Bloodlines (GOG) | `bloodlines-gog` | Native WoW64 | Plays (from 01.23). Its Quit hangs; close it from the PS menu. |
 | Titan Quest Anniversary Edition | `titan-quest-anniversary` | Native WoW64 | Plays from 01.34: create, play, save, quit. Mouse-driven; the controller layout is basic. |
 | Half-Life 2 | `half-life-2` | Native WoW64 | Plays: menu, game, pause menu (Options), quit. Touchpad is the mouse for the settings menus. First start ~67 s, later ~50 s. |
-| Space Cadet Pinball | `pinball` | Translator | GDI (no Direct3D), 800x600 desktop. |
+| Space Cadet Pinball | `pinball` | Translator | GDI (no Direct3D), 800x600 desktop. The touchpad is the mouse, so Game > Exit works (from v0.0.3's profile). |
 
 See [hardware status and caveats](docs/HARDWARE-STATUS.md) and the
-[latest handoff](docs/HANDOFF-2026-11-06-alpha6.md).
+[latest handoff](docs/HANDOFF-2026-11-08.md).
 
 ## Profiles
 
