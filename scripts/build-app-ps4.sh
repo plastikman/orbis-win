@@ -83,13 +83,20 @@ case "$PW_WINE64_HEAP_FLEXIBLE" in
   0|1) ;;
   *) echo "PW_WINE64_HEAP_FLEXIBLE must be 0 or 1" >&2; exit 2 ;;
 esac
-CFL="-std=gnu11 -O2 -fPIC -DPW_BUILD_ID=\"${PW_BUILD_ID:-unknown-local}\" -DPW_WINE64_WAIT_WATCHDOG=$PW_WINE64_WAIT_WATCHDOG -DPW_WINE64_SERVER_DIRECT_OFF=$PW_WINE64_SERVER_DIRECT_OFF -DPW_WINE64_HEAP_FLEXIBLE=$PW_WINE64_HEAP_FLEXIBLE $INC $PS5LOG_NET"
+# The release this build belongs to (VERSION: the last published orbis-win
+# release, bumped when the next one is cut). The launcher compares it with
+# the newest stable release on GitHub and says when a newer one exists.
+PW_RELEASE_VERSION="${PW_RELEASE_VERSION:-$(tr -d '[:space:]' < "$ROOT/VERSION" 2>/dev/null)}"
+[[ $PW_RELEASE_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+  echo "PW_RELEASE_VERSION must be MAJOR.MINOR.PATCH (VERSION file): '$PW_RELEASE_VERSION'" >&2; exit 2;
+}
+CFL="-std=gnu11 -O2 -fPIC -DPW_RELEASE_VERSION=\"$PW_RELEASE_VERSION\" -DPW_BUILD_ID=\"${PW_BUILD_ID:-unknown-local}\" -DPW_WINE64_WAIT_WATCHDOG=$PW_WINE64_WAIT_WATCHDOG -DPW_WINE64_SERVER_DIRECT_OFF=$PW_WINE64_SERVER_DIRECT_OFF -DPW_WINE64_HEAP_FLEXIBLE=$PW_WINE64_HEAP_FLEXIBLE $INC $PS5LOG_NET"
 
 say "compile: portable core (DBT + launcher) and the portable half of native/"
 for f in "$PW"/src/*.c "$PW"/native/wine64_main.c "$PW"/native/pw_data_mount.c \
          "$PW"/native/pw_diagnostics.c "$PW"/native/pw_wine_display.c \
          "$PW"/native/pw_wine_library.c "$PW"/native/pw_wine_prefix.c \
-         "$PW"/native/pw_osk_ps5.c "$PW"/native/ps5log/*.c; do
+         "$PW"/native/pw_osk_ps5.c "$PW"/native/pw_update_ps4.c "$PW"/native/ps5log/*.c; do
   [ -f "$f" ] || continue
   $CC $CFL -c "$f" -o "$OBJ/$(echo "${f#$PW/}" | tr '/' '_' | sed 's/\.c$/.o/')"
 done
@@ -236,7 +243,10 @@ if (( PKG )); then
   # Keep the same six Wine TTFs that repaired the empty Fonts directories on
   # the console, once under the app's common runtime so every profile can use
   # them without duplicating them into each game's installer.
-  FONTDIR=$PW/.deps/wine-host/install/usr/share/wine/fonts
+  # PW_HOST_WINE names the host Wine work directory (build/, install/) the PE
+  # runtime and fonts come from; default the synced tree.
+  HOST_WINE=${PW_HOST_WINE:-$PW/.deps/wine-host}
+  FONTDIR=$HOST_WINE/install/usr/share/wine/fonts
   if [[ ! -f "$FONTDIR/tahoma.ttf" ]]; then
     echo "   X Wine runtime fonts missing at $FONTDIR (requires tahoma.ttf)" >&2
     exit 1
@@ -265,7 +275,7 @@ if (( PKG )); then
   #
   # They come debug-stripped from the host build's install tree, which is what
   # keeps this near upstream's 515 MiB rather than the 1.3 GB it builds as.
-  PELIB=$PW/.deps/wine-host/install/usr/lib/wine
+  PELIB=$HOST_WINE/install/usr/lib/wine
   # A PS4 diagnostic build can override the host-built 32-bit ntdll PE. Keep
   # this opt-in so normal packages continue using the pinned host runtime.
   PS4_NTDLL32_DLL="${PS4_NTDLL32_DLL:-}"

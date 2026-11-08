@@ -1,5 +1,7 @@
 # Handoff — 2026-11-06: alpha.6 candidate waiting for its hardware run
 
+> **Superseded by [HANDOFF-2026-11-08.md](HANDOFF-2026-11-08.md)** for the current state. This file keeps the history.
+
 **State:** GLDS10043 **01.38** is built and uploaded to the console's `/data/pkg/IV0000-GLDS10043_00-GLDS100430000000.pkg` (readback hash matched). Zak will install it and run the titles later.
 
 - Package `codex_scratch/release-0138/app/IV0000-GLDS10043_00-GLDS100430000000.pkg`, sha256 `cdd5723bb7b58471b6c051def4c09dc132a77fae1f9dab3480c81b4d25702464`.
@@ -173,5 +175,5 @@
   - Harmless log noise: `mp3dmod` fixme lines for `IMediaSample2` and similar optional interfaces, once per sample when logging is on.
 - **Published as `v0.0.2`** (Zak: "this is a good release").
   - Baseline for parity stays 01.41; 01.43 differs only in quartz/l3codecx and version stamps.
-  - The CI cache still has the old host-Wine install; re-run `scripts/ci/sync-cache.sh --abi4-only` before the next CI build.
+  - CI cache resynced afterwards; see the 2026-11-08 update below.
 - **Open: the fork's Wine series has two `0740` patches** (since `661e3ad`), so `tools/build_wine_ps5.sh --check-patches`, and with it `build_host_wine.sh`, refuses to build a fresh host Wine from fork `main`.

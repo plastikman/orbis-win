@@ -42,7 +42,12 @@ WOW64NATIVE_ABI4_PRX_SHA256=20eee436ae5856f06d39b9f9fa57720806612f15e1ebea4ab15b
 
 # mesa-zink/ holds the artifacts of prospero-win tools/build_mesa_zink.sh (pinned
 # Mesa + llvm-mingw): the WGL/Zink OpenGL provider for graphics = opengl games.
-for p in "$PW/.deps/wine-host/build" "$PW/.deps/wine-host/install/usr/lib/wine" \
+# PW_HOST_WINE: the host Wine work directory (build/, install/) for the PE side;
+# default the synced tree. A tree built by prospero-win tools/build_host_wine.sh
+# from the patch series alone can be named here instead.
+HOST_WINE=${PW_HOST_WINE:-$PW/.deps/wine-host}
+export PW_HOST_WINE=$HOST_WINE
+for p in "$HOST_WINE/build" "$HOST_WINE/install/usr/lib/wine" \
          "$PW/.deps/wine-ps5/build" "$WOW64NATIVE_DLL" "$BASELINE/eboot.bin" \
          "$ABI4/mesa-zink/i386-windows/opengl32.dll" "$ABI4/mesa-zink/x86_64-windows/opengl32.dll"; do
   [[ -e $p ]] || { echo "missing ABI-v4 build input: $p" >&2; exit 1; }
@@ -53,9 +58,9 @@ log() { printf '\n== %s\n' "$*"; }
 log "32-bit kernelbase.dll with the PW_EXCEPTION32 guest-fault diagnostics"
 # The wine-host tree carries series 1037-1043 (archive 0962-0965, 0973, 1013 and
 # the 1007 fault-page record). Strip exactly as `make install` does.
-make -C "$PW/.deps/wine-host/build" -j4 dlls/kernelbase/i386-windows/kernelbase.dll
+make -C "$HOST_WINE/build" -j4 dlls/kernelbase/i386-windows/kernelbase.dll
 mkdir -p "$OUT/pe"
-( cd "$PW/.deps/wine-host/build" && tools/install -m 644 -s \
+( cd "$HOST_WINE/build" && tools/install -m 644 -s \
     --strip-program="tools/winebuild/winebuild --builtin --strip-cmd=i686-w64-mingw32-strip" \
     -t "$OUT/pe" dlls/kernelbase/i386-windows/kernelbase.dll )
 
@@ -104,6 +109,7 @@ log "provenance"
   echo "root_commit=$(git -C "$ROOT" rev-parse HEAD)"
   echo "prospero_win_abi4_commit=$(git -C "$PW" rev-parse HEAD)"
   echo "prospero_win_abi4_diff_sha256=$(git -C "$PW" diff --binary | sha256sum | cut -d' ' -f1)"
+  echo "host_wine=$HOST_WINE"
   echo "mesa_commit=$(git -C "$ROOT/mesa-build/mesa-ps4" rev-parse HEAD)"
   # No dev.conf, no app log (see build-app-ps4.sh). Record which way it went.
   if [[ -f $STAGE/dev.conf ]]; then
