@@ -295,5 +295,13 @@ all died when DXVK's next allocation failed:
   (661 + 1322 MiB for a 992 MiB window) and its usage counted twice.
 
 On 01.41 L4D2 ran 7 min 45 s with nothing left waiting, and Fallout 3, New
-Vegas, GTA IV and Bloodlines passed. The same fix is prepared for Max's ps4-wine as
-`patches/mesa-ps4/0004` (branch `orbis-gpu-window-retire`, not yet pushed).
+Vegas, GTA IV and Bloodlines passed. The same fix is offered to the driver's own
+repository as [orbis-ports/mesa-ps4#1](https://github.com/orbis-ports/mesa-ps4/pull/1).
+
+0043 keeps the hung-submit report from crashing the title (2026-11-08, 01.46).
+Under heavy load the watchdog reports a submit as hung (four times in the 01.41
+L4D2 run, harmlessly) and dumps the shaders that were running. One loop checked
+only that a shader was inside the window, not that it was mapped; in L4D2 a VS
+ended 256 bytes before an unmapped page, and the dump faulted inside
+`vkQueueSubmit2`. It now skips a shader that is not fully mapped, as the draw
+dump already did.

@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: orbis-win <orbis-win@invalid>
+Subject: [PATCH] orbis: the hang dump reads only shaders that are mapped
+
+The hung-submit report dumps the first 128 dwords of each shader stage that
+was running. That loop checked only that the program address was inside
+RADV's window, not that the 512 bytes behind it were mapped; the draw dump
+above it checks both. On 2026-11-08 (GLDS10043 01.46) Left 4 Dead 2 died of
+the difference: the watchdog's report fired under heavy load (as it did four
+times in the 01.41 run, harmlessly), the VS it named, 0x213bcff00, ends 256
+bytes before an unmapped page, and reading it faulted inside vkQueueSubmit2
+(libvulkan.so+0xf9c104, address 0x213bd0000). Skip a program that is not
+fully mapped and say so, as the draw dump does.
+---
+diff --git a/src/amd/common/ac_orbis_drm.c b/src/amd/common/ac_orbis_drm.c
+--- a/src/amd/common/ac_orbis_drm.c
++++ b/src/amd/common/ac_orbis_drm.c
+@@ -10344,6 +10344,17 @@
+                             stages[st].name, pgm, orbis_va_base, orbis_va_end);
+                   continue;
+                }
++               /* ⚠ INSIDE THE WINDOW IS NOT MAPPED. The draw dump above checks both; this one checked only the
++                * window, and on 2026-11-08 Left 4 Dead 2 died of it: the watchdog's false alarm under load
++                * dumped a VS at 0x213bcff00 that ends 256 bytes before an unmapped page, and reading its 128
++                * dwords faulted inside vkQueueSubmit2 (libvulkan.so+0xf9c104, address 0x213bd0000). A
++                * diagnostic must never be what kills the title. */
++               if (!orbis_va_is_mapped(pgm, 512)) {
++                  mesa_logw("orbis-drm: submit #%" PRIu64 " was running %s at 0x%" PRIx64
++                            " where it stopped - not fully inside a live mapping; not dumping shader bytes",
++                            hung, stages[st].name, pgm);
++                  continue;
++               }
+                mesa_logi("orbis-drm: submit #%" PRIu64 " was running %s at 0x%" PRIx64
+                          " where it stopped - its first 128 dwords follow",
+                          hung, stages[st].name, pgm);
+-- 
+2.47.3
