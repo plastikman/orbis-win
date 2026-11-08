@@ -21,6 +21,11 @@ cross = space
 l1 = z
 r1 = slash
 options = f2
+; The touchpad is a mouse, for the menu bar (Game > Exit, Options): slide to
+; move the pointer, click to left-click. The flipper and launch keys stay.
+mouse = touchpad
+mouse_speed = 400
+touchpad = mouse_left
 
 [runtime]
 cpu = translator
