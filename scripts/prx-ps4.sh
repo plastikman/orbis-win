@@ -112,6 +112,10 @@ else
     server_exports=""
     grep -q "pw_wineserver_guest_exit_pending" "$work/source/server/request.c" &&
         server_exports="pw_wineserver_guest_exit_pending"
+    # ntdll hands the server its output sink with this (wine series 1074), so
+    # the server's stderr reaches the title's log; exported when defined.
+    grep -q "pw_wineserver_set_output_sink" "$work/source/server/main.c" &&
+        server_exports="$server_exports pw_wineserver_set_output_sink"
     echo "   wineserver extra exports: ${server_exports:-none}"
     gen "$prx/obj/wineserver_desc.c" \
         pw_wineserver_connect pw_wine_thread_register pw_wine_thread_unregister \
