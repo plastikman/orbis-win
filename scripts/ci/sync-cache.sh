@@ -35,11 +35,28 @@ kubectl -n "$NAMESPACE" exec "$POD" -- mkdir -p \
   "$DEST/prospero-win" "$DEST/mesa-build" "$DEST/sdk" "$DEST/build" \
   "$DEST/openssl11/lib"
 
+# ⚠ REPLACE, NEVER UNPACK OVER. Unpacking onto the cached tree kept every file
+# deleted or renamed since the last sync: on 2026-11-08 the cached fork still
+# held the old 0740-server-pass-prefix-explicitly.patch beside its renamed 1071,
+# and CI's series check refused the duplicate. Each tree is unpacked into a
+# staging directory and swapped in only once the copy is complete, so a dropped
+# connection (kubectl i/o timeout, 2026-11-07) leaves the previous tree whole.
+replace_into() {   # replace_into <dest dir> <path>... ; tar stream on stdin
+  local dest=$1; shift
+  kubectl -n "$NAMESPACE" exec -i "$POD" -- sh -c '
+    set -e; dest=$1; shift
+    stage=$dest/.incoming; rm -rf "$stage"; mkdir -p "$stage"
+    tar -C "$stage" -xf -
+    for p in "$@"; do
+      mkdir -p "$(dirname "$dest/$p")"; rm -rf "$dest/$p"; mv "$stage/$p" "$dest/$p"
+    done
+    rm -rf "$stage"' sh "$dest" "$@"
+}
 copy_tree() {
   local source=$1 target=$2
   echo "sync $source -> $target"
-  tar -C "$ROOT/$source" -cf - . |
-    kubectl -n "$NAMESPACE" exec -i "$POD" -- tar -C "$DEST/$target" -xf -
+  tar -C "$ROOT" -cf - --transform "s|^${source}|${target##*/}|" "$source" |
+    replace_into "$DEST/$(dirname "$target")" "${target##*/}"
 }
 
 if [[ $SCOPE == all ]]; then
@@ -81,7 +98,7 @@ done
 kubectl -n "$NAMESPACE" exec "$POD" -- mkdir -p "$DEST/abi4/build" "$DEST/baseline"
 echo "sync $ABI4/{source,build/wine-ps5,native,mesa-zink} -> $DEST/abi4"
 tar -C "$ABI4" -cf - source build/wine-ps5 native mesa-zink |
-  kubectl -n "$NAMESPACE" exec -i "$POD" -- tar -C "$DEST/abi4" -xf -
+  replace_into "$DEST/abi4" source build/wine-ps5 native mesa-zink
 # The hardware-validated baseline the parity gate compares every build against.
 # pkgout/baseline is a symlink to the promoted stage (2026-11-05: GLDS10043
 # 01.21, abi4-0121-baseline; before that falloutnv-no-relro-kept-data-1090).
