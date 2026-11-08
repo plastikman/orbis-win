@@ -16,8 +16,12 @@ on:
           which build is installed (01.07 = local CI-recipe test, 2026-11-05).
         required: true
   push:
+    # Package-version tags (v1.08). Release tags (v0.0.3) are published from a
+    # hardware-tested local build, so they start no run (it could not derive a
+    # package version from them and failed).
     tags:
       - "v*"
+      - "!v*.*.*"
 
 permissions:
   contents: read
@@ -88,6 +92,12 @@ jobs:
 
       - name: Check build prerequisites
         run: scripts/prereqs.sh
+
+      # The fork's Wine patch series must apply to clean Wine and give exactly
+      # the host Wine source the cached PE runtime was built from
+      # (scripts/ci/check-wine-series.sh). It did neither before 2026-11-08.
+      - name: Check the Wine patch series builds the shipped Wine
+        run: scripts/ci/check-wine-series.sh
 
       # ⚠ Without /app0/dev.conf the title sends its app log nowhere: ps5log
       # reads it before /data is readable, so the copy in /data/homebrew is not
