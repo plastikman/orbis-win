@@ -1,0 +1,68 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: orbis-win <orbis-win@invalid>
+Subject: [PATCH] orbis: the hung-submit report is opt-in
+
+The report copied every submitted stream into a ring and, whenever the fence
+fell four submissions behind, wrote the stream, its IB2s and the running
+shaders to the log on the submitting thread. Under a heavy title that is a
+false alarm the GPU recovers from: Left 4 Dead 2 fired it three or four times
+a session, each a visible stutter and megabytes of log (2026-11-08), and once
+its shader dump killed the game (0043).
+
+ORBIS_DUMP_HUNG now defaults to off and is turned on by any value but "0"
+(the orbis-win shim sets it from DEV_GPU_HANG_REPORT=1 in
+/data/prospero-win/dev.conf). Off, the first stall of a session leaves one
+line saying how far behind the GPU fell and how to get the full report, and
+the fatal path's fence-slot error is still logged.
+---
+diff --git a/src/amd/common/ac_orbis_drm.c b/src/amd/common/ac_orbis_drm.c
+--- a/src/amd/common/ac_orbis_drm.c
++++ b/src/amd/common/ac_orbis_drm.c
+@@ -3249,13 +3249,20 @@
+ uint64_t orbis_dispatch_groups;
+ extern uint64_t orbis_idle_waits;
+ 
++/* ⚠ OFF UNLESS ASKED FOR (2026-11-08). The hung-submit report keeps a copy of every submitted stream and, when
++ * the fence falls four submissions behind, writes the stream, its IB2s and the running shaders to the log - on
++ * the submitting thread, mid-frame. Under a heavy title that is a false alarm the GPU recovers from: Left 4
++ * Dead 2 fired it three or four times a session, each a visible stutter and a few MB of log, and once its
++ * shader dump killed the game (0043). It is a bring-up tool, so it is now opt-in: ORBIS_DUMP_HUNG=1 (set by
++ * DEV_GPU_HANG_REPORT=1 in /data/prospero-win/dev.conf, or in radv.env, or a profile's [debug] env). Off, a
++ * stall still leaves one line in the log, and a fatal one still logs its fence-slot error. */
+ static bool
+ orbis_dump_hung_enabled(void)
+ {
+    static int cached = -1;
+    if (cached < 0) {
+       const char *const e = getenv("ORBIS_DUMP_HUNG");
+-      cached = (e != NULL && e[0] == '0' && e[1] == '\0') ? 0 : 1;
++      cached = (e != NULL && e[0] != '\0' && !(e[0] == '0' && e[1] == '\0')) ? 1 : 0;
+    }
+    return cached == 1;
+ }
+@@ -10022,6 +10029,23 @@
+     *
+     * Then `label + 1` names the submission that never wrote its end-of-pipe, the ring holds its bytes, and the
+     * dump is everything four runs of guessing from PM4 headers could not produce: that draw's own registers. */
++   /* With the report off, say once that the GPU fell behind, and how to get the full report. */
++   if (!orbis_dump_hung_enabled() && queued > 2) {
++      static uint32_t quiet_last_label;
++      static unsigned quiet_stall;
++      static bool     quiet_noted;
++      const uint32_t  label = *orbis_fence_label;
++
++      quiet_stall = label == quiet_last_label ? quiet_stall + 1 : 0;
++      quiet_last_label = label;
++      if (quiet_stall >= 4 && !quiet_noted) {
++         quiet_noted = true;
++         mesa_logw("orbis-drm: the GPU fell %u submissions behind at submit #%" PRIu64 " (fence label %u); "
++                   "usually load, not a hang. Not reported again this session. DEV_GPU_HANG_REPORT=1 in "
++                   "/data/prospero-win/dev.conf turns on the full hung-submit report.",
++                   quiet_stall, (uint64_t)label + 1, label);
++      }
++   }
+    if (orbis_dump_hung_enabled() && queued > 2) {
+       static uint32_t last_label;
+       static unsigned stall;
+-- 
+2.47.3

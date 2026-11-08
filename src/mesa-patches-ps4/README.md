@@ -305,3 +305,10 @@ only that a shader was inside the window, not that it was mapped; in L4D2 a VS
 ended 256 bytes before an unmapped page, and the dump faulted inside
 `vkQueueSubmit2`. It now skips a shader that is not fully mapped, as the draw
 dump already did.
+
+0044 makes that report opt-in (2026-11-08). It fired three or four times a
+Left 4 Dead 2 session as a false alarm under load, each a visible stutter and
+megabytes of log, and it copied every submitted stream to keep one to dump.
+`ORBIS_DUMP_HUNG=1` turns it back on; the orbis-win shim sets that from
+`DEV_GPU_HANG_REPORT=1` in `/data/prospero-win/dev.conf`. Off, the first stall
+of a session still leaves one line in `radv.log`.

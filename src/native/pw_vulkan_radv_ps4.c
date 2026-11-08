@@ -373,6 +373,23 @@ static void pw_radv_load_env(void)
      * failed title run. Explicit values in radv.env still take precedence. */
     pw_ps4_setenv("MESA_LOG_FILE", "/data/prospero-win/radv.log");
     pw_ps4_setenv("MESA_LOG_LEVEL", "info");
+    /* The developer switch file, /data/prospero-win/dev.conf, can turn on the
+     * driver's hung-submit report (off by default since Mesa patch 0044: it
+     * stuttered heavy titles):
+     *
+     *     DEV_GPU_HANG_REPORT=1   ->  ORBIS_DUMP_HUNG=1
+     *
+     * radv.env, read after it, still has the last word. */
+    if ((file = fopen("/data/prospero-win/dev.conf", "r"))) {
+        while (fgets(line, sizeof(line), file)) {
+            const char *value;
+
+            if (strncmp(line, "DEV_GPU_HANG_REPORT=", 20)) continue;
+            value = line + 20;
+            pw_ps4_setenv("ORBIS_DUMP_HUNG", value[0] == '1' ? "1" : "0");
+        }
+        fclose(file);
+    }
     if (!(file = fopen("/data/prospero-win/radv.env", "r"))) return;
     while (fgets(line, sizeof(line), file)) {
         char *equals, *end;
