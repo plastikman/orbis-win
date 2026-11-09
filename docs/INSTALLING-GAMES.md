@@ -25,7 +25,7 @@ storage under `/data/prospero-win/`:
     drive_c/users/prospero/  the Windows user's folders (AppData, Documents)
     drive_c/Games/<game>/    the game itself
   logs/                      the app's own logs (see Troubleshooting)
-  dev.conf                   optional: streams the log to a PC
+  settings.conf              the launcher's Settings card: log to a PC, debug switches
 ```
 
 **The most important point:** a game needs a complete Wine prefix, not only its
@@ -440,24 +440,29 @@ python3 scripts/ftp-get.py <PS4 IP> 2121 /data/prospero-win/logs/session-3.log s
 The repository's `scripts/pull-ps5log.py` fetches them all at once, but it
 logs in to FTP (see the warning in Step 3), so prefer `ftp-get.py`.
 
-**Live, on a PC.** To watch the log as it happens, put a
-`/data/prospero-win/dev.conf` on the console:
+**Live, on a PC.** To watch the log as it happens, run
+`python3 scripts/ps5logd.py 9300` on the PC, then in the launcher open
+**Settings** (the last tile, or Triangle): set **PC address** to the PC's IP
+(Cross opens the console's keyboard) and turn **Send log to PC** on. The log
+starts as soon as you leave Settings, and every later launch logs too. The
+same switches live in `/data/prospero-win/settings.conf`:
 
 ```text
-DEV_ENABLED=1
-DEV_SERVER=<your PC's IP>
-DEV_PORT=9300
+log=1
+log_server=<your PC's IP>
+log_port=9300
 ```
 
-Then run `python3 scripts/ps5logd.py 9300` on that PC before starting the app.
-It prints each line and saves it under `build-ps4-logs/`. When it works, the
-first lines include `--- connected from ... ---` and
-`PW_WINE64 log enabled by /data/prospero-win/dev.conf after the /data grant`.
+`ps5logd.py` prints each line and saves it under `build-ps4-logs/`. When it
+works, the first lines include `--- connected from ... ---` and
+`PW_WINE64 log enabled by /data/prospero-win/settings.conf after the /data grant`.
 
-- **A wrong IP fails silently.** The app can't connect, carries on as
-  normal and sends nothing. If nothing arrives, check `DEV_SERVER` and the
-  PC's firewall first.
-- Delete `dev.conf` when you're done. While it exists, every launch logs.
+- **A wrong IP fails quietly.** The app can't connect, carries on as normal and
+  sends nothing; Settings shows "On - no PC". Check the address and the PC's
+  firewall first.
+- Turn **Send log to PC** off when you're done.
+- An older `/data/prospero-win/dev.conf` is carried into `settings.conf` the
+  first time, then ignored.
 - Neither log can be written until the app has access to `/data`, a fraction
   of a second after it starts. Lines logged before that are held and written
   once it has access. Only a crash in that first moment leaves no log at all.

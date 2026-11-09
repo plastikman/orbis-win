@@ -129,19 +129,33 @@ Console-specific addresses belong in an ignored `config.env`, never in a
 committed profile or build script. `config.env.example` shows the supported
 settings.
 
-**App log.** A package sends its app log to a `ps5logd` host if it contains
-a `dev.conf` (local builds take `build/devconf/dev.conf`; CI uses the
-`PS4_LOG_SERVER` repository variable). Release packages have none, so they are
-silent unless one is put on the console: copy a `dev.conf` to
-`/data/prospero-win/dev.conf` to turn logging on for every launch, and delete
-it to turn it off. A minimal `dev.conf`, received by `scripts/ps5logd.py 9300`
-on your PC:
+**Settings and the app log.** The launcher's **Settings** card (the last
+tile, or Triangle) turns the console's switches on and off: sending the app
+log to a PC, that PC's address, Wine's log level, the wait watchdog, the GPU
+hang report and the update check. It keeps them in
+`/data/prospero-win/settings.conf`, the one switch file on the console:
 
 ```
-DEV_ENABLED=1
-DEV_SERVER=<your PC's IP address>
-DEV_PORT=9300
+log=1
+log_server=<your PC's IP address>
+log_port=9300
+wine_log=profile          # profile | quiet | detailed
+wait_watchdog=0
+gpu_hang_report=0
+update_check=1
 ```
+
+Run `scripts/ps5logd.py 9300` on that PC to receive the log. A console that
+still has an older `/data/prospero-win/dev.conf` has it carried into
+`settings.conf` once; after that `dev.conf` is ignored. Developer packages can
+also carry their own `/app0/dev.conf` (local builds take
+`build/devconf/dev.conf`; CI uses the `PS4_LOG_SERVER` repository variable),
+which logs from the first line of start-up.
+
+**Updates.** When a newer stable release is on GitHub, the launcher says so
+in its title bar, and **Settings › Download update** saves its package to
+`/data/pkg`. It is kept only if its size and SHA-256 match what GitHub
+publishes; install it with GoldHEN's package installer as usual.
 
 ## What is in this repository
 

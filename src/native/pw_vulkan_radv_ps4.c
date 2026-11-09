@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <stdint.h>
+#include <sys/stat.h>
 #include <stdio.h>      /* snprintf, for the stack-size note below */
 
 extern int wsi_orbis_cursor_update(const uint32_t *argb, uint32_t width, uint32_t height,
@@ -349,10 +350,11 @@ int __wrap_scePthreadCreate(pthread_t *thread, const pthread_attr_t *attr,
  *
  * RADV's messages normally go to stderr, which the console doesn't capture for
  * this PRX. Give the next diagnostic run a retrievable log by default, then
- * let /data/prospero-win/radv.env override either value. The runtime config is
+ * let radv.env in the title's data folder (pw_radv_data_root) override either
+ * value. The runtime config is
  * loaded after these defaults, before Mesa's first option lookup:
  *
- *     MESA_LOG_FILE=/data/prospero-win/radv.log
+ *     MESA_LOG_FILE=<data folder>/radv.log
  *     MESA_LOG_LEVEL=info
  *
  * ⚠ A file rather than the title's environment on purpose. Nothing can hand a
@@ -361,36 +363,88 @@ int __wrap_scePthreadCreate(pthread_t *thread, const pthread_attr_t *attr,
  * pw_sched, pw_image_view_fd_release). */
 int pw_ps4_setenv(const char *name, const char *value);
 
+/* The running title's data folder: /data/<TITLE_ID> when the title keeps one
+ * (Playden: /data/PLDN10001), else orbis-win's /data/prospero-win. The title
+ * ID is read from the package's own param.sfo, so the same driver serves
+ * every title that ships it. */
+static void pw_radv_data_root(char *root, size_t capacity)
+{
+    unsigned char sfo[4096];
+    struct stat info;
+    size_t length = 0;
+    FILE *file;
+
+    snprintf(root, capacity, "/data/prospero-win");
+    if (!(file = fopen("/app0/sce_sys/param.sfo", "rb"))) return;
+    length = fread(sfo, 1, sizeof(sfo), file);
+    fclose(file);
+    /* PSF: magic "\0PSF", key table at 0x08, data table at 0x0c, entry count
+     * at 0x10, then 16-byte entries (key offset u16, format u16, length u32,
+     * max u32, data offset u32). */
+    if (length < 20 || memcmp(sfo, "\0PSF", 4)) return;
+    uint32_t keys, data, count;
+    memcpy(&keys, sfo + 8, 4);
+    memcpy(&data, sfo + 12, 4);
+    memcpy(&count, sfo + 16, 4);
+    for (uint32_t i = 0; i < count && 20 + (i + 1) * 16 <= length; i++) {
+        const unsigned char *entry = sfo + 20 + i * 16;
+        uint16_t key;
+        uint32_t size, offset;
+        char title[16], path[64];
+
+        memcpy(&key, entry, 2);
+        memcpy(&size, entry + 4, 4);
+        memcpy(&offset, entry + 12, 4);
+        if (keys + key + 9 > length || memcmp(sfo + keys + key, "TITLE_ID", 9)) continue;
+        if (size < 2 || size > sizeof(title) || data + offset + size > length) return;
+        memcpy(title, sfo + data + offset, size);
+        title[size - 1] = 0;
+        for (const char *c = title; *c; c++)
+            if (!((*c >= 'A' && *c <= 'Z') || (*c >= '0' && *c <= '9'))) return;
+        snprintf(path, sizeof(path), "/data/%s", title);
+        if (stat(path, &info) == 0 && S_ISDIR(info.st_mode)) snprintf(root, capacity, "%s", path);
+        return;
+    }
+}
+
 static void pw_radv_load_env(void)
 {
     static int loaded;
-    char line[256];
+    char line[256], root[64], path[96];
     FILE *file;
 
     if (loaded++) return;
+    pw_radv_data_root(root, sizeof(root));
     /* Mesa's default logger sends PRX stderr to a sink. Keep the diagnostics
-     * from this OOM investigation in a file that can be retrieved after a
-     * failed title run. Explicit values in radv.env still take precedence. */
-    pw_ps4_setenv("MESA_LOG_FILE", "/data/prospero-win/radv.log");
+     * in a file that can be retrieved after a failed title run. Explicit
+     * values in radv.env still take precedence. */
+    snprintf(path, sizeof(path), "%s/radv.log", root);
+    pw_ps4_setenv("MESA_LOG_FILE", path);
     pw_ps4_setenv("MESA_LOG_LEVEL", "info");
-    /* The developer switch file, /data/prospero-win/dev.conf, can turn on the
-     * driver's hung-submit report (off by default since Mesa patch 0044: it
-     * stuttered heavy titles):
+    /* The title's settings.conf, which the launcher's Settings card writes
+     * (fork src/pw_settings.h), can turn on the driver's hung-submit report
+     * (off by default since Mesa patch 0044: it stuttered heavy titles):
      *
-     *     DEV_GPU_HANG_REPORT=1   ->  ORBIS_DUMP_HUNG=1
+     *     gpu_hang_report=1   ->  ORBIS_DUMP_HUNG=1
      *
      * radv.env, read after it, still has the last word. */
-    if ((file = fopen("/data/prospero-win/dev.conf", "r"))) {
+    snprintf(path, sizeof(path), "%s/settings.conf", root);
+    if ((file = fopen(path, "r"))) {
         while (fgets(line, sizeof(line), file)) {
-            const char *value;
+            char *value;
 
-            if (strncmp(line, "DEV_GPU_HANG_REPORT=", 20)) continue;
-            value = line + 20;
-            pw_ps4_setenv("ORBIS_DUMP_HUNG", value[0] == '1' ? "1" : "0");
+            if (strncmp(line, "gpu_hang_report=", 16)) continue;
+            value = line + 16;
+            value[strcspn(value, " \t\r\n#")] = 0;
+            if (!strcmp(value, "1") || !strcmp(value, "on") || !strcmp(value, "yes") || !strcmp(value, "true"))
+                pw_ps4_setenv("ORBIS_DUMP_HUNG", "1");
+            else if (!strcmp(value, "0") || !strcmp(value, "off") || !strcmp(value, "no") || !strcmp(value, "false"))
+                pw_ps4_setenv("ORBIS_DUMP_HUNG", "0");
         }
         fclose(file);
     }
-    if (!(file = fopen("/data/prospero-win/radv.env", "r"))) return;
+    snprintf(path, sizeof(path), "%s/radv.env", root);
+    if (!(file = fopen(path, "r"))) return;
     while (fgets(line, sizeof(line), file)) {
         char *equals, *end;
         char *name = line;

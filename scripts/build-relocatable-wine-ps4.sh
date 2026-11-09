@@ -103,20 +103,38 @@ for object in "$APP_OBJ"/*.o; do
   APP_OBJECTS+=("$object")
 done
 APP_OBJECTS+=("$PRX_BUILD/native_wine64_main_reloc.o")
-"$CC" -shared -Wl,-Bsymbolic -Wl,-soname,relocated_wine_app.prx \
-  -Wl,--warn-unresolved-symbols -o "$PRX_BUILD/app.shared.elf" \
-  "${APP_OBJECTS[@]}" "$PRX_BUILD/app_entry.o" "$PRX_BUILD/descriptor.o" \
-  -lSceNet -lSceNetCtl -lSceAudioOut -lSceSystemService -lSceSysmodule -lSceGnmDriver \
-  -lSceVideoOut -lScePad -lSceUserService
-"$ROOT/scripts/create-fself-repro.sh" "$OO/bin/linux/create-fself" -in "$PRX_BUILD/app.shared.elf" \
-  -out "$PRX_BUILD/app.oelf" -lib "$PRX_BUILD/relocated_wine_app.prx" \
-  -libname relocated_wine_app.prx -ptype fake \
-  -library-path "$PRX_BUILD:$ROOT/build/ps4-wine-sdk:$OO/lib" \
-  >"$PRX_BUILD/create-fself.log" 2>&1 || {
-    cat "$PRX_BUILD/create-fself.log" >&2
-    echo "could not convert Wine app into a PRX" >&2
+# ⚠ create-fself can leave the end of .bss unmapped (scripts/bss-tail-pad.py),
+# and rtld then refuses the module: "reloc_non_plt ... ref=relocated_wine_app.prx",
+# a black screen before the log starts (01.55, 2026-11-09). Check every link
+# and, when needed, relink once with .bss padded; an unaffected module is
+# linked once and stays byte-identical.
+APP_BSS_PAD=()
+while :; do
+  "$CC" -shared -Wl,-Bsymbolic -Wl,-soname,relocated_wine_app.prx \
+    -Wl,--warn-unresolved-symbols -o "$PRX_BUILD/app.shared.elf" \
+    "${APP_OBJECTS[@]}" "$PRX_BUILD/app_entry.o" "$PRX_BUILD/descriptor.o" "${APP_BSS_PAD[@]}" \
+    -lSceNet -lSceNetCtl -lSceAudioOut -lSceSystemService -lSceSysmodule -lSceGnmDriver \
+    -lSceVideoOut -lScePad -lSceUserService
+  "$ROOT/scripts/create-fself-repro.sh" "$OO/bin/linux/create-fself" -in "$PRX_BUILD/app.shared.elf" \
+    -out "$PRX_BUILD/app.oelf" -lib "$PRX_BUILD/relocated_wine_app.prx" \
+    -libname relocated_wine_app.prx -ptype fake \
+    -library-path "$PRX_BUILD:$ROOT/build/ps4-wine-sdk:$OO/lib" \
+    >"$PRX_BUILD/create-fself.log" 2>&1 || {
+      cat "$PRX_BUILD/create-fself.log" >&2
+      echo "could not convert Wine app into a PRX" >&2
+      exit 1
+    }
+  pad=$(python3 "$ROOT/scripts/bss-tail-pad.py" "$PRX_BUILD/app.shared.elf" "$PRX_BUILD/app.oelf")
+  [ "$pad" = 0 ] && break
+  if (( ${#APP_BSS_PAD[@]} )); then
+    echo "relocated_wine_app: end of .bss still unmapped after the .bss pad" >&2
     exit 1
-  }
+  fi
+  printf '__attribute__((used, aligned(16))) char pw_app_bss_pad[%s];\n' "$pad" > "$PRX_BUILD/app_bss_pad.c"
+  "$CC" -std=gnu11 -O2 -fPIC -fno-common -c "$PRX_BUILD/app_bss_pad.c" -o "$PRX_BUILD/app_bss_pad.o"
+  echo "  ! relocated_wine_app: create-fself would leave the end of .bss unmapped; relinking with a $pad-byte .bss pad"
+  APP_BSS_PAD=("$PRX_BUILD/app_bss_pad.o")
+done
 
 echo "== build the low-address handoff eboot"
 mkdir -p "$BUILD"
