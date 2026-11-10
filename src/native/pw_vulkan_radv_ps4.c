@@ -367,14 +367,41 @@ int pw_ps4_setenv(const char *name, const char *value);
  * (Playden: /data/PLDN10001), else orbis-win's /data/prospero-win. The title
  * ID is read from the package's own param.sfo, so the same driver serves
  * every title that ships it. */
+int32_t sceKernelGetAppInfo(int pid, void *info);
+int getpid(void);
+
+/* /data/<title> if it is a folder, else leaves root as it is. */
+static void pw_radv_use_title(const char *title, char *root, size_t capacity)
+{
+    struct stat info;
+    char path[64];
+
+    for (const char *c = title; *c; c++)
+        if (!((*c >= 'A' && *c <= 'Z') || (*c >= '0' && *c <= '9'))) return;
+    if (!*title) return;
+    snprintf(path, sizeof(path), "/data/%s", title);
+    if (stat(path, &info) == 0 && S_ISDIR(info.st_mode)) snprintf(root, capacity, "%s", path);
+}
+
 static void pw_radv_data_root(char *root, size_t capacity)
 {
-    unsigned char sfo[4096];
+    unsigned char sfo[4096], app[0x100];
     struct stat info;
     size_t length = 0;
     FILE *file;
 
     snprintf(root, capacity, "/data/prospero-win");
+    /* The kernel's record of this app first (OrbisAppInfo: TitleId[10] at
+     * 0x10): a PS4 title could not open its param.sfo (01.60). The runtime
+     * (fork src/pw_title.h, wine64_main.c) picks its folder the same way. */
+    memset(app, 0, sizeof(app));
+    if (sceKernelGetAppInfo(getpid(), app) == 0 && app[0x10]) {
+        char title[11];
+        memcpy(title, app + 0x10, 10);
+        title[10] = 0;
+        pw_radv_use_title(title, root, capacity);
+        return;
+    }
     if (!(file = fopen("/app0/sce_sys/param.sfo", "rb"))) return;
     length = fread(sfo, 1, sizeof(sfo), file);
     fclose(file);
