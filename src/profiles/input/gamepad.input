@@ -1,0 +1,5 @@
+; The game reads the DualSense as an Xbox controller; no stick moves the
+; pointer. For games with controller support.
+[input]
+mode = xinput
+mouse = none

@@ -194,6 +194,11 @@ while IFS= read -r -d '' file; do
   fi
   EXTRA+=(--extra "$file:$rel")
 done < <(find "$STAGE" -type f -print0)
+# Controller presets for the launcher's game card; it copies any missing one to
+# <data>/input/, where profiles name them ([input] preset = <name>).
+for preset in "$ROOT"/src/profiles/input/*.input; do
+  EXTRA+=(--extra "$preset:input/${preset##*/}")
+done
 # The home-screen icon: upstream prospero-win's mark (assets/prospero-win-logo.svg),
 # rendered to 512x512 by scripts/render-logo-icon.py. Without it the title shows
 # a blank tile on the PS4 home screen (2026-11-06).
@@ -212,6 +217,9 @@ echo "== verify built image types and package contents"
 llvm-readelf -h "$PRX_BUILD/app.shared.elf" | grep -F 'Type:                              DYN'
 llvm-readelf -h "$BUILD/stub.elf" | grep -F 'Type:                              DYN'
 test -s "$OUT/pkg-stage/sce_module/relocated_wine_app.prx"
+for preset in "$ROOT"/src/profiles/input/*.input; do
+  cmp -s "$preset" "$OUT/pkg-stage/input/${preset##*/}" || { echo "package is missing preset ${preset##*/}" >&2; exit 1; }
+done
 cmp -s "$PRX_BUILD/relocated_wine_app.prx" "$OUT/pkg-stage/sce_module/relocated_wine_app.prx" || {
   echo "package staged a stale relocated_wine_app.prx" >&2; exit 1;
 }

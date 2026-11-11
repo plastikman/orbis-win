@@ -1,0 +1,15 @@
+; A keyboard game moved with the arrow keys: the d-pad sends the arrows,
+; Cross Z, Circle X, Triangle C, Square Shift and Options Enter. Escape is
+; left off: some games quit when it is held.
+[input]
+mode = keyboard
+mouse = none
+up = up
+down = down
+left = left
+right = right
+cross = z
+circle = x
+triangle = c
+square = shift
+options = enter

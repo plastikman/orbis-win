@@ -1,0 +1,13 @@
+; A game played with the mouse alone: the left stick moves the pointer, Cross
+; clicks, Circle right-clicks, Square middle-clicks, R2/L2 click and
+; right-click, Options sends Enter (many launchers' first dialog).
+[input]
+mode = keyboard
+mouse = left_stick
+mouse_speed = 900
+cross = mouse_left
+circle = mouse_right
+square = mouse_middle
+r2 = mouse_left
+l2 = mouse_right
+options = enter
