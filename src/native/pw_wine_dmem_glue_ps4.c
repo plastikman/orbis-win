@@ -33,6 +33,8 @@
 #include "pw_wine_dmem.h"
 #include "pw_wine_heap.h"
 #include <errno.h>
+#include <signal.h>
+#include <sys/time.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -1906,6 +1908,175 @@ static void watch_oblivion_rx_pages(unsigned int sample)
  * address outside those areas: the console does not back a bare reservation
  * when it is protected, so committing one would leave it without memory.
  * Such a region is dropped again when it is unmapped. */
+/* ⚠ A SILENT hang needs a sampler, not another event log. Hollow Knight (2026-11-12) brings the
+ * GPU up, compiles two pipelines, starts 41 threads and migrates 17 executable ranges, all without
+ * an error -- and then every layer goes quiet for minutes. Nothing in this file logs on a thread
+ * that is simply blocked, so there was nothing to read.
+ *
+ * This thread says, once every two seconds, whether the title is still alive and what the exec
+ * machinery is holding. A heartbeat that stops tells you when the process died; one that continues
+ * with active=0 says the block is somewhere else entirely; one stuck with active>0 names a
+ * migration that never finished. Costs one line per two seconds. */
+/* ---- 64-bit guest thread sampler --------------------------------------
+ *
+ * Hollow Knight, the first 64-bit title here, wedges with every host-side layer provably
+ * healthy: Wine's loop ticks at 60 Hz, 353 migrations succeeded with none active, 320 MB
+ * flexible memory free, the GPU compiled its pipelines -- and the guest's own counters
+ * (mmap=281 mprotect=1782 images=48) are FROZEN with frames_put=0. The guest is spinning in
+ * user code, making no syscalls and taking no faults, so nothing in this port ever sees it.
+ *
+ * PW_EXCEPTION32 answers this for 32-bit guests, but it is #ifdef __i386__ and fault-driven;
+ * a thread that never faults produces nothing. So interrupt it instead: ITIMER_PROF charges
+ * CPU time, so SIGPROF lands on whichever thread is actually burning it -- exactly the one
+ * worth sampling -- and the handler reads mc_rip/mc_rsp out of the ucontext.
+ *
+ * ⚠ The sample count is reported by the heartbeat on purpose. If it stays 0 the console did
+ * not deliver the timer signal, and the absence of samples says nothing about the guest.
+ * Measure the instrument before trusting its silence. */
+#include "../freebsd-compat/machine/fbsd_mcontext.h"
+
+#define PW_GUEST_SAMPLE_OFFSET 64        /* mcontext within ucontext, measured (fault_probe) */
+#define PW_GUEST_SAMPLE_MAX    400       /* bounded: a wedge would otherwise log forever */
+
+static volatile unsigned int guest_samples;
+static volatile unsigned int guest_sample_logged;
+
+static void guest_sample_handler(int sig, siginfo_t *info, void *uc)
+{
+    const struct pw_fbsd_mcontext *mc;
+    char line[160];
+    unsigned int n;
+
+    (void)sig; (void)info;
+    if (!uc) return;
+    n = __atomic_add_fetch(&guest_samples, 1, __ATOMIC_RELEASE);
+    if (n > PW_GUEST_SAMPLE_MAX) return;
+    mc = (const struct pw_fbsd_mcontext *)((const char *)uc + PW_GUEST_SAMPLE_OFFSET);
+    /* mc_len is the console's 1152, not FreeBSD 9's 800: it validates the offset is right. */
+    if (mc->mc_len != 1152) {
+        if (__atomic_fetch_add(&guest_sample_logged, 1, __ATOMIC_RELEASE)) return;
+        snprintf(line, sizeof(line), "wine-ps4: guest-sample bad mcontext len=%lld at uc+%d\n",
+                 (long long)mc->mc_len, PW_GUEST_SAMPLE_OFFSET);
+        sceKernelDebugOutText(0, line);
+        return;
+    }
+    snprintf(line, sizeof(line),
+             "wine-ps4: guest-sample %u tid=%lu rip=%llx rsp=%llx rbp=%llx trapno=%u cs=%llx\n",
+             n, glue_tid(), (unsigned long long)mc->mc_rip, (unsigned long long)mc->mc_rsp,
+             (unsigned long long)mc->mc_rbp, (unsigned)mc->mc_trapno,
+             (unsigned long long)mc->mc_cs);
+    sceKernelDebugOutText(0, line);
+
+    /* libkernel is Sony's and carries no symbols, so a RIP inside it names nothing. The return
+     * addresses above it do: they point back into ntdll/the app PRX, which this port builds and
+     * can symbolize. Walk a bounded window of the stack and print the words -- one caller is
+     * enough to say WHICH wait the thread is parked in. Only for the first few samples: a wedged
+     * thread repeats the same stack forever and flooding klog buys nothing. */
+    if (n <= 3) {
+        const uint64_t *sp = (const uint64_t *)(uintptr_t)mc->mc_rsp;
+        char words[200];
+        int used = 0, i;
+
+        for (i = 0; i < 12 && used < (int)sizeof(words) - 24; i++) {
+            /* Only plausible code pointers: the PRX text range starts at 0x800000000 here. */
+            uint64_t w = sp[i];
+            if (w < 0x800000000ull || w > 0x900000000ull) continue;
+            used += snprintf(words + used, sizeof(words) - used, " %llx", (unsigned long long)w);
+        }
+        snprintf(line, sizeof(line), "wine-ps4: guest-stack %u tid=%lu callers:%s\n",
+                 n, glue_tid(), used ? words : " none");
+        sceKernelDebugOutText(0, line);
+    }
+}
+
+/* The sampler's RIPs mean nothing without knowing which module each address is in, and the
+ * module list is only printed by the console's fatal handler -- which never runs for a hang.
+ * Print it once at startup instead. Offsets, not the SDK struct, because pw_wine_dl_ps4.c
+ * already measured the layout and declaring our own shape collides with libkernel.h:
+ *     size_t size 0x00 | char name[256] 0x08 | segmentInfo[4] 0x108 (16B each) | count 0x148 */
+typedef int32_t PwOrbisModule;
+extern int32_t sceKernelGetModuleList(PwOrbisModule *array, size_t size, size_t *available);
+extern int32_t sceKernelGetModuleInfo(PwOrbisModule handle, void *info);
+
+static void guest_log_module_map(void)
+{
+    PwOrbisModule handles[128];
+    size_t count = 0, i;
+    char line[320];
+
+    if (sceKernelGetModuleList(handles, sizeof(handles) / sizeof(handles[0]), &count)) return;
+    for (i = 0; i < count; i++) {
+        unsigned char info[0x160];
+        uint64_t base;
+        uint32_t size;
+
+        memset(info, 0, sizeof(info));
+        *(size_t *)(void *)info = sizeof(info);
+        if (sceKernelGetModuleInfo(handles[i], info)) continue;
+        memcpy(&base, info + 0x108, sizeof(base));
+        memcpy(&size, info + 0x110, sizeof(size));
+        snprintf(line, sizeof(line), "wine-ps4: module %.72s base=%llx size=%x\n",
+                 (const char *)(info + 0x08), (unsigned long long)base, size);
+        sceKernelDebugOutText(0, line);
+    }
+}
+
+/* Returns 0 when both the handler and the timer were accepted. */
+static int guest_sampler_start(void)
+{
+    struct sigaction sa;
+    struct itimerval it;
+    char line[160];
+    int act_rc, timer_rc;
+
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = guest_sample_handler;
+    sa.sa_flags = SA_SIGINFO | SA_RESTART | SA_ONSTACK;
+    sigemptyset(&sa.sa_mask);
+    act_rc = sigaction(SIGALRM, &sa, NULL);
+
+    /* ⚠ ITIMER_REAL, not ITIMER_PROF. PROF charges CPU time, so it only ever lands on the
+     * busiest thread -- with Hollow Knight that was this port's own pw_present_scale loop
+     * running at 60 Hz on frames_put=0, while the thread we actually wanted sat BLOCKED and
+     * burned nothing. Wall clock delivers regardless of who is running. tid= on each sample
+     * says which thread answered, so "one thread, never moving" is distinguishable from
+     * "every thread, busy". */
+    it.it_interval.tv_sec = 0; it.it_interval.tv_usec = 100000;   /* 10 Hz */
+    it.it_value = it.it_interval;
+    timer_rc = setitimer(ITIMER_REAL, &it, NULL);
+
+    snprintf(line, sizeof(line), "wine-ps4: guest-sampler sigaction=%d setitimer=%d errno=%d\n",
+             act_rc, timer_rc, errno);
+    sceKernelDebugOutText(0, line);
+    guest_log_module_map();
+    return act_rc || timer_rc;
+}
+
+static void *exec_heartbeat(void *unused)
+{
+    unsigned long long beat = 0;
+    char line[240];
+
+    (void)unused;
+    for (;;) {
+        struct timespec nap = { 2, 0 };
+        nanosleep(&nap, NULL);
+        snprintf(line, sizeof(line),
+                 "wine-ps4: heartbeat %llu guest_samples=%u migrations_active=%u migrate_ok=%llu "
+                 "migrate_fail=%llu map_fail=%llu scratch_fail=%llu release_fail=%llu adopt_fail=%llu\n",
+                 ++beat, __atomic_load_n(&guest_samples, __ATOMIC_ACQUIRE),
+                 __atomic_load_n(&exec_migration_active_count, __ATOMIC_ACQUIRE),
+                 (unsigned long long)__atomic_load_n(&exec_rx_metrics.migrate_ok, __ATOMIC_ACQUIRE),
+                 (unsigned long long)__atomic_load_n(&exec_rx_metrics.migrate_fail, __ATOMIC_ACQUIRE),
+                 (unsigned long long)__atomic_load_n(&exec_rx_metrics.map_fail, __ATOMIC_ACQUIRE),
+                 (unsigned long long)__atomic_load_n(&exec_rx_metrics.scratch_fail, __ATOMIC_ACQUIRE),
+                 (unsigned long long)__atomic_load_n(&exec_rx_metrics.release_fail, __ATOMIC_ACQUIRE),
+                 (unsigned long long)__atomic_load_n(&exec_rx_metrics.adopt_fail, __ATOMIC_ACQUIRE));
+        sceKernelDebugOutText(0, line);
+    }
+    return NULL;
+}
+
 void __wine_ps5_dmem_region(void *base, size_t size)
 {
     int add_rc;
@@ -1922,7 +2093,20 @@ void __wine_ps5_dmem_region(void *base, size_t size)
         state = self_check((uintptr_t)base) ? 1 : -1;
         fprintf(stderr, "wine-ps5: direct memory %s for anonymous memory (region %p, %zu MiB)\n",
                 state > 0 ? "in use" : "refused", base, size >> 20);
-        if (state > 0) heap_use_direct_memory();
+        if (state > 0) {
+            static int beating;
+            heap_use_direct_memory();
+            if (!beating) {
+                pthread_t beat;
+                pthread_attr_t attr;
+                if (!pthread_attr_init(&attr)) {
+                    (void)pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+                    beating = !pthread_create(&beat, &attr, exec_heartbeat, NULL);
+                    if (beating) (void)guest_sampler_start();
+                    pthread_attr_destroy(&attr);
+                }
+            }
+        }
     }
 }
 
