@@ -1399,6 +1399,10 @@ static void thaw_exec_range(uintptr_t address, size_t bytes)
 /* A direct-memory RX request can return success without changing the effective
  * permission. Move that allocation granule to flexible memory, preserving its
  * contents, only when the kernel query confirms RX did not take. */
+/* Defined with __wine_ps5_mmap below; the migrations place the same kind of large fixed
+ * anonymous mapping and hit the same shadow-memory limit. */
+static void *mmap_fixed_anon_chunked(void *address, size_t bytes, int protection, int flags);
+
 static int migrate_exec_page_to_flex_impl(uintptr_t page)
 {
     /* ⚠ NOT ON THE STACK. This runs inside the SIGSEGV handler, on the
@@ -1689,6 +1693,25 @@ static int protect_exec_page(unsigned int call, uintptr_t page, int protection)
 #define PW_PS4_EXEC_MIGRATE_PER_PAGE_ONLY 0
 #endif
 
+/* ⚠ The console's debug runtime shadows flexible memory from a pool this
+ * title cannot grow, and the pool is exhausted by TOTAL bytes, not by the
+ * size of one request. Measured 2026-11-12 with Hollow Knight, the first
+ * 64-bit game to run here: a 5.5 MiB image marked executable migrates as one
+ * range, and the replacement mapping dies with
+ * 0xa0020327 (SYSTEM_DEBUG_RUNTIME_SHADOW_MEMORY_ALLOC_ERROR). Splitting that
+ * request into 256 KiB pieces did not help -- seven pieces (1.75 MiB) landed
+ * and the eighth failed, which is what proves the limit is cumulative.
+ *
+ * 32-bit games never reached this: WoW64 maps their images low and in smaller
+ * pieces. The PS5 has no such limit, so this is a PS4-only constraint.
+ *
+ * So do not migrate a large range eagerly. Above this size the range falls to
+ * the per-page path below, which migrates a page at a time and leaves any
+ * page that never needs PROT_EXEC in direct memory. */
+#ifndef PW_PS4_EXEC_MIGRATE_RANGE_MAX
+#define PW_PS4_EXEC_MIGRATE_RANGE_MAX (256u * 1024u)
+#endif
+
 static uintptr_t page_down(const void *address) { return (uintptr_t)address & ~(uintptr_t)(PAGE - 1); }
 static size_t page_span(const void *address, size_t bytes)
 {
@@ -1736,7 +1759,8 @@ static int protect_exec_range(unsigned int call, uintptr_t address, size_t bytes
         }
 
         backed = pw_wine_dmem_backed(&dmem, at, span);
-        if (!query_rc && backed == span && !PW_PS4_EXEC_MIGRATE_PER_PAGE_ONLY)
+        if (!query_rc && backed == span && !PW_PS4_EXEC_MIGRATE_PER_PAGE_ONLY &&
+            span <= PW_PS4_EXEC_MIGRATE_RANGE_MAX)
         {
             int migrate_rc = migrate_exec_range_to_flex(at, span);
             int retry_rc = migrate_rc ? -1 :
@@ -1751,6 +1775,14 @@ static int protect_exec_range(unsigned int call, uintptr_t address, size_t bytes
                 return -1;
             at = next;
             continue;
+        }
+
+        if (span > PW_PS4_EXEC_MIGRATE_RANGE_MAX) {
+            char line[180];
+            snprintf(line, sizeof(line),
+                     "wine-ps4: exec-range-per-page addr=%p span=%#zx prot=%#x backed=%#zx\n",
+                     (void *)at, span, protection, backed);
+            sceKernelDebugOutText(0, line);
         }
 
         /* A query failure or a mixture of direct and caller-backed pages
@@ -1894,6 +1926,57 @@ void __wine_ps5_dmem_region(void *base, size_t size)
     }
 }
 
+/* ⚠ A fixed anonymous mapping large enough to need a big shadow-memory block
+ * kills the process inside libkernel's mmap with
+ * 0xa0020327 (SYSTEM_DEBUG_RUNTIME_SHADOW_MEMORY_ALLOC_ERROR). Hollow Knight
+ * dies about eight seconds into launch on a 0x570000 request at
+ * 0x6ffffb404000 with flags 0x1012, and 1062 died the same way on 0xc0000 at
+ * 0x6ffffff30000 (docs/HANDOFF-2026-10-26.md, recorded there as "the full
+ * flexible-mapping fallback is not viable on this PS4 runtime"). Per-page
+ * (16 KiB) flexible mappings do work, so the limit is per request, not a
+ * global pool.
+ *
+ * Two things follow. First, trace_vm_api only fills a ring buffer that a
+ * fault handler later dumps, so a request that never returns is never
+ * recorded: say it to klog BEFORE the call, or the next crash is as blind as
+ * the last. Second, ask for it in pieces the runtime can shadow. */
+enum { PW_SHADOW_SAFE_CHUNK = 0x40000 };   /* 256 KiB: 16x the page that is known to work */
+
+static void trace_big_fixed_anon(const char *stage, uintptr_t address, size_t bytes,
+                                 int protection, int flags, uintptr_t caller, int rc)
+{
+    char line[200];
+    snprintf(line, sizeof(line),
+             "wine-ps4: big-fixed-anon %s addr=%p bytes=%#zx prot=%#x flags=%#x caller=%p rc=%d\n",
+             stage, (void *)address, bytes, protection, flags, (void *)caller, rc);
+    sceKernelDebugOutText(0, line);
+}
+
+/* mmap a large fixed anonymous range in shadow-sized pieces. All or nothing:
+ * a failed piece unmaps the ones already placed, so the caller still sees a
+ * single failed mapping rather than a half-built one. */
+static void *mmap_fixed_anon_chunked(void *address, size_t bytes, int protection, int flags)
+{
+    uintptr_t at = (uintptr_t)address, end = at + bytes;
+    uintptr_t cursor = at;
+
+    while (cursor < end) {
+        size_t piece = end - cursor;
+        void *mapped;
+
+        if (piece > PW_SHADOW_SAFE_CHUNK) piece = PW_SHADOW_SAFE_CHUNK;
+        mapped = mmap((void *)cursor, piece, protection, flags, -1, 0);
+        if (mapped == MAP_FAILED || mapped != (void *)cursor) {
+            if (mapped != MAP_FAILED) (void)munmap(mapped, piece);
+            if (cursor > at) (void)munmap((void *)at, cursor - at);
+            errno = ENOMEM;
+            return MAP_FAILED;
+        }
+        cursor += piece;
+    }
+    return address;
+}
+
 void *__wine_ps5_mmap(void *address, size_t bytes, int protection, int flags, int fd, off_t offset)
 {
     uintptr_t caller = (uintptr_t)__builtin_return_address(0);
@@ -1904,7 +1987,18 @@ void *__wine_ps5_mmap(void *address, size_t bytes, int protection, int flags, in
     if (state <= 0 || !(flags & MAP_FIXED) || (uintptr_t)address != at ||
         (!pw_wine_dmem_split(&dmem, at, end - at, &piece) && piece == end - at))
     {
-        void *mapped = mmap(address, bytes, protection, flags, fd, offset);
+        const int big_fixed_anon = (flags & MAP_FIXED) && (flags & MAP_ANON) &&
+                                   fd < 0 && bytes > PW_SHADOW_SAFE_CHUNK;
+        void *mapped;
+
+        if (big_fixed_anon) {
+            trace_big_fixed_anon("begin", (uintptr_t)address, bytes, protection, flags, caller, 0);
+            mapped = mmap_fixed_anon_chunked(address, bytes, protection, flags);
+            trace_big_fixed_anon("end", (uintptr_t)address, bytes, protection, flags, caller,
+                                 mapped == MAP_FAILED ? -1 : 0);
+        } else {
+            mapped = mmap(address, bytes, protection, flags, fd, offset);
+        }
         trace_object_mapping("mmap", (uintptr_t)address, bytes, protection,
                              mapped == MAP_FAILED ? -1 : 0, "host-pass");
         trace_vm_api("api-mmap", (uintptr_t)address, bytes, protection, flags,
