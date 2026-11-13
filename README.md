@@ -41,17 +41,18 @@ server on, a Linux PC or VM on the same network, and your own copy of a game.
    from the [latest release](https://github.com/plastikman/orbis-win/releases/latest)
    and install it with GoldHEN's package installer. Start it once: it creates
    `/data/prospero-win/`.
-2. **Add a game.** The console can't make a Wine prefix itself, so you make one
-   on the PC with the same Wine the package runs and send it over with the
-   game's profile. [Half-Life 2, start to finish](docs/INSTALLING-GAMES.md#quick-start-half-life-2-from-start-to-finish)
-   has every command; the last one is the push:
+2. **Add a game (on a Linux PC).** The PS4 can't set up a game's Wine prefix
+   itself, so you prepare each game on a Linux PC or VM and send it over the
+   network.
+   - *Once:* clone prospero-win and orbis-win and build the same Wine the app
+     uses (26 minutes on the test VM).
+   - *Per game:* make a Wine prefix (a small Windows install for that game),
+     copy the game into it (plus DXVK for Direct3D games), add the game's
+     profile, and push both to the PS4 over GoldHEN's FTP.
 
-   ```sh
-   # in your prospero-win checkout
-   python3 tools/pw_prefix.py push half-life-2 --library ~/prospero-library \
-       --host <PS4 IP> --port 2121 \
-       --cpu-dll .deps/wine-host/build/dlls/wowprospero/x86_64-windows/wowprospero.dll
-   ```
+   [Half-Life 2, step by step](docs/INSTALLING-GAMES.md#quick-start-half-life-2-from-start-to-finish)
+   has every command. On the test VM, Half-Life 2's 5.23 GiB push took under
+   6 minutes.
 
 3. **Play.** Start the app and pick the game (Half-Life 2's first start takes
    about a minute). Quitting the game returns to the launcher; holding
