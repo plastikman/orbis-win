@@ -10,16 +10,15 @@ Individual SPDX identifiers and copyright notices take precedence for the
 files that carry them. For example, `src/gfx-hang-probe/main.c` is MIT-licensed;
 the corresponding MIT license text is in [`LICENSES/MIT.txt`](LICENSES/MIT.txt).
 
-`assets/prospero-win-logo.svg` is the `prospero-win` mark, copied unchanged
-from that project's `assets/`; `assets/icon0.png` (the package's home-screen
-icon) is rendered from it by `scripts/render-logo-icon.py`. Both remain
-`prospero-win`'s, under its license.
+`assets/orbis-win-mark.svg`, the OW mark, was drawn for this project. It
+reuses the `prospero-win` mark's frame, colours and underline, with new O and
+W letterforms, and is covered by this repository's license.
+`assets/icon0.png` (the package's home-screen icon) is rendered from it by
+`scripts/render-logo-icon.py`.
 
-`assets/orbis-win-mark.svg` (the OW mark at the top of the README) was drawn
-for this project. It reuses the `prospero-win` mark's frame, colours and
-underline, with new O and W letterforms. It is covered by this repository's
-license, and `scripts/render-logo-icon.py` can rasterise it like the
-`prospero-win` mark.
+`assets/prospero-win-logo.svg` is the `prospero-win` mark, copied unchanged
+from that project's `assets/`. It remains `prospero-win`'s, under its license.
+Packages up to v0.0.5 used it as their home-screen icon.
 
 Patch files under `src/wine-patches-ps4/`, `src/prospero-win-patches-ps4/`,
 `src/mesa-patches-ps4/` and `patches/` are intended to be applied to their
