@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/icon0.png" width="96" height="96" alt="orbis-win's home-screen icon, the prospero-win mark">
+  <img src="assets/orbis-win-mark.svg" width="112" height="112" alt="orbis-win mark: a cyan O and a white W">
 </p>
 
 <h1 align="center">orbis-win</h1>
@@ -323,7 +323,7 @@ core, is the limit. GTA IV isn't a performance target.
 | [`patches/`](patches) | Mesa (RADV) and DXVK patches, mostly diagnostics. |
 | [`scripts/`](scripts) | SDK setup, build, packaging, deployment and log capture. |
 | [`docs/`](docs) | Build guide, hardware status, design notes and chronological handoffs. |
-| [`assets/`](assets) | The package's home-screen icon and the mark it is rendered from. |
+| [`assets/`](assets) | The OW mark at the top of this README, the package's home-screen icon, and the prospero-win mark that icon is rendered from. |
 
 ## Documentation
 
@@ -368,8 +368,9 @@ reports can only be answered with "send the log".
 
 Project-authored code is licensed under [LGPL-2.1-or-later](LICENSE), in line
 with `prospero-win`. See [LICENSING.md](LICENSING.md) for file-level exceptions
-and third-party boundaries. The home-screen icon is `prospero-win`'s mark and
-remains under that project's license.
+and third-party boundaries. The package's home-screen icon is `prospero-win`'s
+mark and remains under that project's license; the OW mark above was drawn
+for orbis-win.
 
 All game data, console firmware modules, SDK payloads and generated packages
 remain external and are not included in this repository.

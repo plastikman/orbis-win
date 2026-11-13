@@ -15,6 +15,12 @@ from that project's `assets/`; `assets/icon0.png` (the package's home-screen
 icon) is rendered from it by `scripts/render-logo-icon.py`. Both remain
 `prospero-win`'s, under its license.
 
+`assets/orbis-win-mark.svg` (the OW mark at the top of the README) was drawn
+for this project. It reuses the `prospero-win` mark's frame, colours and
+underline, with new O and W letterforms. It is covered by this repository's
+license, and `scripts/render-logo-icon.py` can rasterise it like the
+`prospero-win` mark.
+
 Patch files under `src/wine-patches-ps4/`, `src/prospero-win-patches-ps4/`,
 `src/mesa-patches-ps4/` and `patches/` are intended to be applied to their
 respective upstream projects. They do not replace the copyright notices or
