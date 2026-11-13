@@ -7,6 +7,17 @@
   `scripts/check-ps4-package-parity.py <baseline stage> <candidate stage> --elf-dir
   <prx build dir> --upstream-root <source>` exits 0.
 
+- **Wine-tree and patch-porting work happens on a branch, never on a working
+  tree you cannot revert.** Before applying any upstream/Leo patch to
+  `.deps/wine-ps5/source` (or to our patch series), confirm `git status` works
+  in that tree, commit or stash what is there, and cut a new branch for the
+  port. Apply patches **one at a time, compiling between each** — never
+  `git apply --reject` across a batch: a half-applied batch is not reversible
+  by a reverse pass, and on 2026-11-12 that destroyed five files with no
+  recoverable history (see `docs/WINE-TREE-REPAIR-2026-11-12.md`). If the
+  tree's git is broken, repair it first; "I'll be careful" is not a substitute
+  for being able to revert.
+
 - PS4 `.sorbisdmp` crash dumps must be analyzed with the local dump/debugging
   tools available on this workstation. Do not conclude that a dump is
   undecodable based only on its `FACECS` header, `file` output, or readable

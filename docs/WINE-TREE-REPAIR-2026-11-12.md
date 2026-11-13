@@ -1,4 +1,4 @@
-# Wine source tree repair — in progress (2026-11-12)
+# Wine source tree repair — complete (2026-11-12)
 
 ## What happened
 
@@ -26,32 +26,65 @@ files (same inodes). There is no other copy of this state:
 HEAD's objects are gone. (I emptied that file; the backup is
 `/tmp/claude-1000/alternates.bak`. That breakage predates this session.)
 
-## Repaired so far
+## Repaired — complete
+
+All five damaged files compile, and none is missing a definition the
+pre-damage reference has. Every file is now larger than the reference, i.e.
+forward progress with no net deletion.
 
 - `server/fd.c` — removed a duplicate plain `realpath_dup`, kept ours with the
   `__PROSPERO__` arm (a directory fd keeps a name when libc cannot canonicalize)
 - `dlls/ntdll/unix/virtual.c` — removed duplicate `virtual_host_page_size`, the
-  second `get_host_page_unix_prot` (kept OURS, the larger one with the PS4 union
-  protection), Leo's intruding subpage-stepping block, and a duplicate
-  `virtual_subpage_step_done`
+  second `get_host_page_unix_prot` (kept OURS, with the PS4 union protection),
+  Leo's intruding subpage-stepping block, and a duplicate
+  `virtual_subpage_step_done`; **restored `virtual_handle_fault`**, see below
+- `dlls/ntdll/unix/signal_x86_64.c` — removed Leo's duplicate `__PROSPERO__`
+  block (kept ours, with the `PW_NATIVE_RESOLVE`/`ERR_(seh)` diagnostics),
+  reverse-applied `0883`, restored the missing `#endif`, and **re-added the
+  `FSBASE_sig` macro** that the reverse of `0883` had taken with it
+- `dlls/win32u/vulkan.c` and `dlls/win32u/ps5drv.c` — reverted `0740`/`0950`/
+  `0995`; **restored our cursor region**, see below
 
-Both compile.
+## What compiling did NOT catch
 
-## Still broken (3 files)
+Two losses survived a clean compile of every object. Both were found only by
+diffing against the pre-damage copy in the kvm04 CI cache
+(`/srv/nfs4/pvcs/actions-runner-orbis-win-build-cache/deps/abi4/build/wine-ps5/source`).
 
-1. `dlls/ntdll/unix/signal_x86_64.c` — **one `#endif` missing somewhere in the
-   middle**; the trailing `#endif /* __x86_64__ */` is present but gets consumed
-   by an inner block, so line 25 reports "unterminated conditional". Leo's `0883`
-   (13 hunks) was applied and then reverse-applied here. Its duplicated
-   `__PROSPERO__` block was removed by hand first (ours is the one WITH the
-   `PW_NATIVE_RESOLVE` diagnostics; his is the plainer one).
-2. `dlls/win32u/ps5drv.c` — `PS5_CURSOR_KEEP` undeclared, from `0950` partially
-   applying (its enum never landed).
-3. `dlls/win32u/vulkan.c` — `ps5drv_vulkan_cursor` conflicting types, from
-   `0740` changing the signature in one place only.
+1. **`virtual_handle_fault` had been deleted outright** from `virtual.c` — 159
+   lines, the page-fault handler. It is not `static`, so deleting the
+   definition breaks only the *link*, and we had compiled objects without ever
+   linking. `virtual.c` was the one file *shorter* than the reference (-11
+   lines); that shrink was the tell.
+2. **`ps5drv.c` kept Leo's `ps5drv_vulkan_cursor` and deleted ours**, taking
+   `visible_box()` and the `cursor_box = box` assignment with it. `cursor_box`
+   stayed declared and read in `draw_cursor`, so the edge clamp silently read
+   an all-zero rect — patch `0440` (keep the cursor whole at the frame edge),
+   which the content audit flagged at 0.25. No warning, no error, wrong
+   behaviour. Our side is restored, which also brings back the `PW_VK_CURSOR`
+   diagnostics; Leo's duplicate is gone.
 
-For 2 and 3, fully reverting `0740` and `0950` is likely cleaner than hand-fixing;
-both are cursor patches and can be re-ported properly later.
+And the link would not have caught it either: the PRX links as a shared
+object and tolerates undefined symbols — `nm -u ntdll.shared.elf` counts 250.
+A missing `virtual_handle_fault` would have become a *runtime* failure in the
+page-fault path, not a build error.
+
+**The lesson: "it compiles" is not a repair check.** Compare definitions
+against a known-good copy, and link before believing a tree. A file that got
+*shorter* deserves immediate suspicion.
+
+## The tree now has working git again
+
+The old `.git` was unusable (`objects/info/alternates` pointed at a deleted
+path, so HEAD `490f6d5` had no objects). It is kept as `.git.broken-20261112`.
+A fresh repo was initialised on 2026-11-12:
+
+- `39fe076` on `baseline-repaired-20261112` — the hand-repaired state
+- `aec1166` on `repair/restore-virtual-handle-fault` — the two restorations
+
+**Standing rule (Zak, 2026-11-12): port patches only on a branch, one at a
+time, compiling between each.** Recorded in `AGENTS.md`. Never
+`git apply --reject` across a batch.
 
 ## Not affected
 

@@ -64,11 +64,24 @@ def main():
     eboot = os.path.join(cand, 'eboot.bin')
     app = module(cand, 'relocated_wine_app')
     eb = read(eboot)
-    if b'/app0/sce_module/relocated_wine_app.prx' in eb and len(eb) < 200_000:
+    wine_stub = b'/app0/sce_module/relocated_wine_app.prx' in eb
+    playden_stub = (b'/app0/sce_module/playden_ui.prx' in eb and
+                    b'playden_ps4_start' in eb)
+    playden_ui = module(cand, 'playden_ui')
+    if playden_stub:
+        ui_strings = strings(playden_ui) if os.path.isfile(playden_ui) else set()
+        handoff = {'/app0/sce_module/relocated_wine_app.prx', 'pw_relocated_wine_start'}
+        missing_handoff = sorted(handoff - ui_strings)
+        report('PASS' if len(eb) < 200_000 and not missing_handoff else 'FAIL',
+               f"eboot.bin is the Playden relocation stub ({len(eb)} bytes); playden_ui.prx hands off to Wine"
+               if len(eb) < 200_000 and not missing_handoff else
+               f"Playden relocation chain incomplete: eboot size={len(eb)}, "
+               f"playden_ui.prx missing {missing_handoff}")
+    elif wine_stub and len(eb) < 200_000:
         report('PASS', f"eboot.bin is the relocation stub ({len(eb)} bytes, loads relocated_wine_app.prx)")
     else:
-        report('FAIL', f"eboot.bin ({len(eb)} bytes) does not load relocated_wine_app.prx: "
-                       "the full app at 0x400000 was packaged instead of the no-RELRO stub")
+        report('FAIL', f"eboot.bin ({len(eb)} bytes) does not load a verified relocation chain: "
+                       "the full app at 0x400000 may have been packaged instead of the no-RELRO stub")
     if os.path.isfile(app):
         s = strings(app)
         need = {'pw_relocated_wine_start', 'pw_relocated_wine_release_eboot',

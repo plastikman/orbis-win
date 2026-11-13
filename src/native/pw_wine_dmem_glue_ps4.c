@@ -1655,14 +1655,28 @@ static int protect_exec_page(unsigned int call, uintptr_t page, int protection)
         }
     }
 
-    if (protect_rc || query_rc || !(effective & PROT_EXEC) || migrate_rc != -2 ||
-        host_retry_rc != -2)
+    /* Every executable page of a large range migrates direct -> flexible, so
+     * migrate_rc == 0 is the ordinary case, not an anomaly: logging it costs a
+     * synchronous sceKernelDebugOutText per 16 KiB page and dominated startup
+     * (5708 such lines in one Fallout: New Vegas launch). Report anomalies
+     * always, and sample the first few ordinary migrations so the path stays
+     * visible; exec_rx_metrics still counts every one. */
     {
-        snprintf(line, sizeof(line),
-                 "wine-ps4: exec-protect-verify build=0975 call=%u page=%p dmem-before=%zu protect=%d query=%d effective=%#x host-retry=%d migrate=%d retry=%d\n",
-                 call, (void *)page, dmem_bytes, protect_rc, query_rc,
-                 effective, host_retry_rc, migrate_rc, retry_rc);
-        sceKernelDebugOutText(0, line);
+        static unsigned int migrate_sampled;
+        int anomaly = protect_rc || query_rc || !(effective & PROT_EXEC) ||
+                      host_retry_rc != -2 ||
+                      (migrate_rc != -2 && migrate_rc != 0);
+        int sample = migrate_rc == 0 &&
+                     __atomic_add_fetch(&migrate_sampled, 1, __ATOMIC_RELAXED) <= 16;
+
+        if (anomaly || sample)
+        {
+            snprintf(line, sizeof(line),
+                     "wine-ps4: exec-protect-verify build=0975 call=%u page=%p dmem-before=%zu protect=%d query=%d effective=%#x host-retry=%d migrate=%d retry=%d\n",
+                     call, (void *)page, dmem_bytes, protect_rc, query_rc,
+                     effective, host_retry_rc, migrate_rc, retry_rc);
+            sceKernelDebugOutText(0, line);
+        }
     }
 
     if ((protect_rc && retry_rc) || query_rc || !(effective & PROT_EXEC))
@@ -1714,6 +1728,45 @@ static int protect_exec_page(unsigned int call, uintptr_t page, int protection)
 #define PW_PS4_EXEC_MIGRATE_RANGE_MAX (256u * 1024u)
 #endif
 
+/* The threshold is a per-title tuning question, not a constant: the per-page
+ * path costs a protect plus two sceKernelVirtualQuery calls for every 16 KiB,
+ * which a game that maps executable code while it runs pays per frame. Hollow
+ * Knight needs the low threshold; a 32-bit game that never approaches the
+ * shadow pool does not. PW_PS4_EXEC_MIGRATE_RANGE_MAX in the environment
+ * overrides the built-in default, so an A/B needs no rebuild:
+ *   unset  -> the built-in default (256 KiB)
+ *   0      -> no limit; always migrate a dmem-backed span as one range
+ *   N      -> that many bytes (strtoull, so 0x... and decimal both work)
+ * Read once, on the first protect; getenv is not called per range. */
+static size_t exec_migrate_range_max(void)
+{
+    static size_t cached;
+    static int looked;
+
+    if (!looked)
+    {
+        const char *text = getenv("PW_PS4_EXEC_MIGRATE_RANGE_MAX");
+        char *end = NULL;
+        unsigned long long value;
+
+        looked = 1;
+        cached = PW_PS4_EXEC_MIGRATE_RANGE_MAX;
+        if (text && *text)
+        {
+            value = strtoull(text, &end, 0);
+            if (end && !*end) cached = value ? (size_t)value : (size_t)-1;
+        }
+        {
+            char line[160];
+            snprintf(line, sizeof(line),
+                     "wine-ps4: exec-migrate-range-max bytes=%#zx source=%s\n",
+                     cached, (text && *text) ? "env" : "default");
+            sceKernelDebugOutText(0, line);
+        }
+    }
+    return cached;
+}
+
 static uintptr_t page_down(const void *address) { return (uintptr_t)address & ~(uintptr_t)(PAGE - 1); }
 static size_t page_span(const void *address, size_t bytes)
 {
@@ -1762,7 +1815,7 @@ static int protect_exec_range(unsigned int call, uintptr_t address, size_t bytes
 
         backed = pw_wine_dmem_backed(&dmem, at, span);
         if (!query_rc && backed == span && !PW_PS4_EXEC_MIGRATE_PER_PAGE_ONLY &&
-            span <= PW_PS4_EXEC_MIGRATE_RANGE_MAX)
+            span <= exec_migrate_range_max())
         {
             int migrate_rc = migrate_exec_range_to_flex(at, span);
             int retry_rc = migrate_rc ? -1 :
@@ -1779,7 +1832,7 @@ static int protect_exec_range(unsigned int call, uintptr_t address, size_t bytes
             continue;
         }
 
-        if (span > PW_PS4_EXEC_MIGRATE_RANGE_MAX) {
+        if (span > exec_migrate_range_max()) {
             char line[180];
             snprintf(line, sizeof(line),
                      "wine-ps4: exec-range-per-page addr=%p span=%#zx prot=%#x backed=%#zx\n",
