@@ -12,7 +12,22 @@
 > 01.66 measured 30.5–38.1. So the 5x gap does not reproduce once the package
 > is built on a working host.
 >
-> **What was actually wrong:** packages built on **linux-install**
+> **SECOND CORRECTION, 16:45 — the build host was NOT the cause either.**
+> 0194 (slackian, today's source) crashed at the same ; 0195 (slackian,
+>  reverted to v0.0.5) runs at **37.8 in-world**. The cause is our
+> own ** Migrate large executable ranges a page at a time**. It
+> correlates perfectly across all six builds; the build host correlates with
+> nothing. 0193 succeeded because it was built from v0.0.5 *source*, and I
+> credited the host it happened to be built on — two variables moved at once.
+> The 0192 "glue reverted" test only reverted to HEAD, which still contained
+> , so it never removed the suspect.
+>
+>  was written for Hollow Knight (shadow-memory alloc error) and
+> assumed "32-bit games never reached this". They do: FNV emits
+>  records. It is reverted; Hollow Knight is expected to
+> be covered by Leo's memory patches instead.
+>
+> ~~**What was actually wrong:** packages built on **linux-install**
 > (10.168.2.188, the build host only since 2026-11-11) are defective. Four of
 > them crashed FNV ~5 s in at an identical signature — fault address `0x1f88`,
 > `rip 0x80000c742` in `libkernel.sprx`, CE-34878-0 — across *two unrelated
