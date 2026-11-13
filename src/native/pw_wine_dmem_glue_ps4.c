@@ -2143,7 +2143,10 @@ void __wine_ps5_dmem_region(void *base, size_t size)
                 if (!pthread_attr_init(&attr)) {
                     (void)pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
                     beating = !pthread_create(&beat, &attr, exec_heartbeat, NULL);
-                    if (beating) (void)guest_sampler_start();
+                    /* Sampling sends asynchronous signals to guest threads. */
+                    const char *sample = getenv("PW_PS4_GUEST_SAMPLER");
+                    if (beating && sample && !strcmp(sample, "1"))
+                        (void)guest_sampler_start();
                     pthread_attr_destroy(&attr);
                 }
             }
