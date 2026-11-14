@@ -77,6 +77,13 @@ runtime for PlayStation consoles. orbis-win is its PS4 port:
   prospero-win generation without losing it. The current one is ABI-v4
   (upstream `main` at `18115ce`, 2026-11-01), with every functional PS4 patch
   from the earlier port carried forward.
+- **It shares PS4 fixes with Playden.** Playden uses the Orbis-Win runtime.
+  PS4 integration changes developed while bringing that runtime into Playden
+  are carried back here when they benefit both launch paths, including the
+  title-aware data root, launch descriptor and session handoff.
+- **It contributes tools upstream.** The Windows installed-game importer for
+  the prospero-win workflow was submitted upstream in
+  [prospero-win PR #748](https://github.com/mpereiraesaa/prospero-win/pull/748).
 - **Packages are checked before they ship.** A package is published only if
   every parity gate against the last hardware-tested baseline passes, and the
   release notes say which games were played on the test console before
