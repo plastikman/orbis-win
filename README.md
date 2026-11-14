@@ -109,8 +109,9 @@ over an earlier one.
    [Installing games](docs/INSTALLING-GAMES.md) walks through it and covers
    troubleshooting.
 3. Start the title. The launcher lists the installed profiles; pick a game.
-   Quitting the game returns to the launcher. Holding Options + Create asks
-   the game to close.
+   Quitting through the game's own Quit / Exit returns to the launcher. On the
+   test PS4, holding Options + Create opens the GoldHEN cheat menu; it does
+   not ask the game to close.
 
 ## Build and package
 

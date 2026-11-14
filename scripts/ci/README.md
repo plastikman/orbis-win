@@ -1,8 +1,10 @@
 # GitHub Actions PS4 package build
 
 The `orbis-win-build` ARC runner is restricted to `worker4` and `worker5`. The
-workflow is manual or tag-triggered (`v*`) and does not run for pull requests.
-It builds one complete ABI-v4 relocatable package with
+workflow is manual or package-version-tag triggered (`v*`) and does not run for
+pull requests. Manual runs can either build a complete ABI-v4 relocatable
+package from the pinned source cache or repackage the exact hardware-tested
+02.14 stage for the v0.0.6 release. The source build uses
 `scripts/ci/build-abi4-package.sh`, the same script used on the build
 workstation. The recipe is the one validated on hardware as GLDS10043 01.06 on
 2026-11-05 (GTA IV, FNV, FO3, Oblivion native; MDK translator). The job fails
@@ -19,12 +21,25 @@ Package numbering:
   baseline (01.21's tree as GLDS10044 01.01 since 2026-11-05; the 1090
   package before that); build for it only when deliberately promoting a
   fully validated build to replace the control.
-- `version` (APP_VER, `NN.NN`) is required on manual runs and has no default.
+- `version` (APP_VER, `NN.NN`) is required on manual runs and defaults to
+  `02.15` for the v0.0.6 tested-stage build.
   Tag runs derive it from the tag (`v1.08` or `v1.8` → `01.08`); other tag
   shapes fail the job. Use a number never used before for that title ID, and
   always increase it. It is how a console install is matched to a build.
   01.01–01.14 were used by local GLDS10043 builds on 2026-11-05, so the first
   CI build is 01.15. Local and CI builds share one sequence per title ID.
+
+The v0.0.6 tested-stage run uses release version `0.0.6` from `VERSION` and
+console `APP_VER` **02.15**. Its runtime files come byte-for-byte from the
+02.14 stage that passed the user's game run; it changes only `param.sfo` and
+the home-screen icon. Before dispatching that mode, run
+`scripts/ci/sync-tested-stage.sh` on the build workstation after setting the
+tested stage, matching PRX build directory, runtime source and Wine source to
+the paths recorded in the handoff. The script runs the parity gate before it
+atomically places the stage and its matching symbols/source under
+`/orbis-cache/deps/tested-0214/`. The CI stage builder checks the 02.14 runtime
+marker, compares every runtime file byte-for-byte, runs package parity again,
+and validates the resulting installer with `PkgTool.Core`.
 
 This repository is public, so anyone with repository access can download that
 package. The CI build uses tracked

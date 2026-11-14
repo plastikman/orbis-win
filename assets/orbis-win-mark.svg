@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">orbis-win mark</title>
+  <rect x="4" y="4" width="120" height="120" rx="27" fill="#101827" stroke="#26364b" stroke-width="4"/>
+  <path d="M14 63C14 48.09 26.09 36 41 36C55.91 36 68 48.09 68 63L68 63C68 77.91 55.91 90 41 90C26.09 90 14 77.91 14 63ZM27 63C27 55.27 33.27 49 41 49C48.73 49 55 55.27 55 63L55 63C55 70.73 48.73 77 41 77C33.27 77 27 70.73 27 63Z" fill="#59d5ff" fill-rule="evenodd"/>
+  <path d="M66.13 59L82.65 59L82.03 66.74L79.54 70L94.22 70L93.93 67.18L98.67 59L116.11 59L95.23 95L80.3 95L80.08 92.91L78.48 95L63.25 95Z" fill="#101827"/>
+  <path d="M68.9 62L79.4 62L78.23 76.65L81.02 73L91.52 73L91.9 76.65L100.4 62L110.9 62L93.5 92L83 92L82.28 85.09L77 92L66.5 92Z" fill="#f2f6ff"/>
+  <path d="M29 106h70" stroke="#6784ff" stroke-width="5" stroke-linecap="round"/>
+</svg>

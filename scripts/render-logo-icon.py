@@ -1,6 +1,6 @@
-"""Rasterise assets/prospero-win-logo.svg (128x128 viewBox) to a 512x512 icon0.png.
+"""Rasterise a 128x128-viewBox mark to a 512x512 icon0.png (the package's home-screen icon).
 
-  python3 -I scripts/render-logo-icon.py assets/prospero-win-logo.svg assets/icon0.png
+  python3 -I scripts/render-logo-icon.py assets/orbis-win-mark.svg assets/icon0.png
 """
 
 import re, sys
