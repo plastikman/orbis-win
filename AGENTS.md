@@ -7,6 +7,46 @@
   `scripts/check-ps4-package-parity.py <baseline stage> <candidate stage> --elf-dir
   <prx build dir> --upstream-root <source>` exits 0.
 
+- **Wine-tree and patch-porting work happens on a branch, never on a working
+  tree you cannot revert.** Before applying any upstream/Leo patch to
+  `.deps/wine-ps5/source` (or to our patch series), confirm `git status` works
+  in that tree, commit or stash what is there, and cut a new branch for the
+  port. Apply patches **one at a time, compiling between each** — never
+  `git apply --reject` across a batch: a half-applied batch is not reversible
+  by a reverse pass, and on 2026-11-12 that destroyed five files with no
+  recoverable history (see `docs/WINE-TREE-REPAIR-2026-11-12.md`). If the
+  tree's git is broken, repair it first; "I'll be careful" is not a substitute
+  for being able to revert.
+
+- **Prefer upstream's implementation; a divergence must justify itself.**
+  When a Leo/upstream patch conflicts because we already do the same thing our
+  own way, the default is to take theirs and delete ours. Keeping our variant
+  requires a PS4-specific reason written down in the code. Divergence that
+  exists only because we wrote it independently is a permanent tax: it is paid
+  on every sync, it makes `scripts/audit-patch-presence.py` lie in both
+  directions (2026-11-12: Leo's `0510` scored `frac 0.00` while we had it in
+  full, because our form differed), and on 2026-11-12 it made a day of FNV
+  debugging read "ten files differ in dlls/ntdll/unix" as a regression when
+  much of that was our own divergence. Convert one subsystem at a time with a
+  console test -- the pieces are not independently swappable (reverting all
+  eleven ntdll/unix files at once crashed with CE-34878-0).
+  Documented exceptions today: the dmem glue, direct/flexible migration and the
+  in-process wineserver (PS5 has no direct/flexible split and no shadow-memory
+  limit), and `0510`'s `__x86_64__` + `WINE_HOST_PAGE_SIZE` test override.
+
+- **The build does not recompile changed Wine sources. Force it, then verify
+  the binary.** `scripts/prx-ps4.sh` and `build-relocatable-wine-ps4.sh` link
+  existing objects; editing a `.c` in the Wine tree does NOT reach the package.
+  Measured 2026-11-12: after applying three win32u patches, the staged
+  `win32u.prx` and both `win32u.dll` carried **zero** of the change, with
+  objects dated the previous day against source edited minutes earlier. The
+  same trap produced a package from a stale `dlls/ntdll/unix/process.o`.
+  So: `rm` the objects for every file a patch touches, `make` each one, and
+  then confirm a string only that patch introduces is present in the shipped
+  binary (`strings <module> | grep -c <marker>`). A passing console test on a
+  package that does not contain the change proves nothing. Rebuilding is cheap
+  compared to a wrong conclusion.
+
 - PS4 `.sorbisdmp` crash dumps must be analyzed with the local dump/debugging
   tools available on this workstation. Do not conclude that a dump is
   undecodable based only on its `FACECS` header, `file` output, or readable

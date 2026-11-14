@@ -55,8 +55,9 @@ server on, a Linux PC or VM on the same network, and your own copy of a game.
    6 minutes.
 
 3. **Play.** Start the app and pick the game (Half-Life 2's first start takes
-   about a minute). Quitting the game returns to the launcher; holding
-   Options + Create asks the game to close.
+   about a minute). Quitting through the game's own Quit / Exit returns to the
+   launcher. On the test PS4, holding Options + Create opens the GoldHEN cheat
+   menu; it does not ask the game to close.
 
 **Check it worked:** the launcher lists the game. If it doesn't, the
 launcher's session log in `/data/prospero-win/logs/` says why
@@ -103,6 +104,9 @@ On v0.0.4's full run (01.58), all eleven titles were played with no crash,
 GPU memory failure or other error, and each one's own Quit / Exit returned to
 the launcher (about 3–7 s after the game ends). v0.0.5's package (01.66) was
 played on the nine titles marked above, again with no crash or error.
+v0.0.6, the latest release, carries the hardware-tested 02.14 runtime (packaged
+as 02.15) with 39 upstream Wine patch ports; its release notes don't list
+results per game.
 
 These results come from one test console. They are hardware and game-version
 specific, not a blanket compatibility claim. See
@@ -254,9 +258,12 @@ Start with [`docs/BUILDING.md`](docs/BUILDING.md) and the
 workstation or in the [`Build PS4 package`](.github/workflows/build-ps4-package.yml)
 workflow, which runs on a self-hosted runner from a private build cache, on
 manual runs and package-version tags only (see
-[`scripts/ci/README.md`](scripts/ci/README.md)). Releases are built locally
-from clean checkouts of this repository and the prospero-win fork. A package
-is published only if every parity gate against the baseline passes.
+[`scripts/ci/README.md`](scripts/ci/README.md)). The workflow can instead
+repackage an exact hardware-tested runtime stage without rebuilding it,
+changing only the version and the home-screen icon; v0.0.6's installer was
+made that way. v0.0.4 was built locally from clean checkouts of this
+repository and the prospero-win fork. A package is published only if every
+parity gate against the baseline passes.
 
 <details>
 <summary>What the gates check</summary>

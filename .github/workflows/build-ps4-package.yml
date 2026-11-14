@@ -8,12 +8,19 @@ on:
         default: GLDS10043
       title:
         description: Title shown on the console
-        default: Orbis Wine ABI-v4
+        default: orbis-win 0.0.6
+      build_mode:
+        description: Source rebuild or package the exact, hardware-tested 02.14 runtime stage
+        type: choice
+        options:
+          - source-build
+          - tested-stage
+        default: source-build
       version:
         description: >-
-          APP_VER as NN.NN (e.g. 01.08). Required, no default: use a number never
-          used before for this title ID, always increasing, so the console shows
-          which build is installed (01.07 = local CI-recipe test, 2026-11-05).
+          Console APP_VER as NN.NN. For the tested v0.0.6 stage use 02.15; the
+          tested 02.14 package remains the source runtime baseline.
+        default: 02.15
         required: true
   push:
     # Package-version tags (v1.08). Release tags (v0.0.3) are published from a
@@ -91,12 +98,14 @@ jobs:
         run: scripts/ci/prepare-runner.sh
 
       - name: Check build prerequisites
+        if: ${{ inputs.build_mode != 'tested-stage' }}
         run: scripts/prereqs.sh
 
       # The fork's Wine patch series must apply to clean Wine and give exactly
       # the host Wine source the cached PE runtime was built from
       # (scripts/ci/check-wine-series.sh). It did neither before 2026-11-08.
       - name: Check the Wine patch series builds the shipped Wine
+        if: ${{ inputs.build_mode != 'tested-stage' }}
         run: scripts/ci/check-wine-series.sh
 
       # ⚠ Without /app0/dev.conf the title sends its app log nowhere: ps5log
@@ -106,6 +115,7 @@ jobs:
       # variable PS4_LOG_SERVER (the ps5logd host). CI 01.15 had none, so its
       # Half-Life and FNV quit crashes on 2026-11-05 left no app log.
       - name: Point the title's app log at the log host
+        if: ${{ inputs.build_mode != 'tested-stage' }}
         env:
           PS4_LOG_SERVER: ${{ vars.PS4_LOG_SERVER }}
         run: |
@@ -126,6 +136,7 @@ jobs:
       # Do not set PW_SHARED_LIBC here: the validated stub and app link libc
       # statically. See docs/UPSTREAM-SYNC-PLAYBOOK.md.
       - name: Build and gate the ABI-v4 relocatable package
+        if: ${{ inputs.build_mode != 'tested-stage' }}
         env:
           TITLE_ID: ${{ inputs.title_id || 'GLDS10043' }}
           TITLE: ${{ inputs.title || 'Orbis Wine ABI-v4' }}
@@ -139,8 +150,28 @@ jobs:
           scripts/build-openorbis-module-stubs.sh
           scripts/ci/build-abi4-package.sh
 
+      # The user-tested 02.14 stage is kept separately in the private cache.
+      # Repackage it byte-for-byte, changing only APP_VER and the repository's
+      # OW icon. The script checks the stage marker, parity, payload hashes and
+      # PkgTool validation before this artifact can be uploaded.
+      - name: Package the hardware-tested v0.0.6 runtime
+        if: ${{ inputs.build_mode == 'tested-stage' }}
+        env:
+          TITLE: ${{ inputs.title || 'orbis-win 0.0.6' }}
+          PKG_VERSION: ${{ inputs.version }}
+          PS4_TESTED_STAGE_ROOT: /orbis-cache/deps/tested-0214
+          PS4_PKGTOOL_OPENSSL_LIB: /orbis-cache/deps/openssl11/lib
+          OUT: ${{ runner.temp }}/orbis-win-abi4
+        run: |
+          set -euo pipefail
+          [[ "${{ inputs.title_id || 'GLDS10043' }}" == GLDS10043 ]] || {
+            echo "tested 02.14 stage is for GLDS10043 only" >&2; exit 1;
+          }
+          scripts/ci/build-tested-stage.sh
+
       - name: Collect package, gate reports and provenance
         env:
+          BUILD_MODE: ${{ inputs.build_mode }}
           PW_MODULE_STUBS_DIR: ${{ github.workspace }}/build/openorbis-module-stubs
           OUT: ${{ runner.temp }}/orbis-win-abi4
         run: |
@@ -149,16 +180,24 @@ jobs:
           app_pkg=$(find "$OUT/app" -maxdepth 1 -type f -name '*.pkg' -print -quit)
           test -s "$app_pkg"
           cp "$app_pkg" "$OUT/parity.txt" "$OUT/pkg_validate.txt" "$RUNNER_TEMP/orbis-win-artifacts/"
-          {
-            cat "$OUT/BUILD-MANIFEST.txt"
-            echo "root_ref=${GITHUB_REF}"
-            echo "run_id=${GITHUB_RUN_ID}"
-            echo "module_stub_source=OpenOrbis-PS4-Toolchain@0a1aaf9dd4a92695538bdeb09fb056d06dd11725 (GPL-3.0)"
-            echo "libc_stub_sha256=$(sha256sum "$PW_MODULE_STUBS_DIR/libc.prx" | cut -d' ' -f1)"
-            echo "fios2_stub_sha256=$(sha256sum "$PW_MODULE_STUBS_DIR/libSceFios2.prx" | cut -d' ' -f1)"
-            echo "mesa_dirty_diff_sha256=$(git -C mesa-build/mesa-ps4 diff --binary | sha256sum | cut -d' ' -f1)"
-            echo "cache_manifest:"; sed 's/^/  /' /orbis-cache/deps/manifest.txt
-          } > "$RUNNER_TEMP/orbis-win-artifacts/BUILD-MANIFEST.txt"
+          if [[ $BUILD_MODE == tested-stage ]]; then
+            cat "$OUT/BUILD-MANIFEST.txt" > "$RUNNER_TEMP/orbis-win-artifacts/BUILD-MANIFEST.txt"
+            {
+              echo "root_ref=${GITHUB_REF}"
+              echo "run_id=${GITHUB_RUN_ID}"
+            } >> "$RUNNER_TEMP/orbis-win-artifacts/BUILD-MANIFEST.txt"
+          else
+            {
+              cat "$OUT/BUILD-MANIFEST.txt"
+              echo "root_ref=${GITHUB_REF}"
+              echo "run_id=${GITHUB_RUN_ID}"
+              echo "module_stub_source=OpenOrbis-PS4-Toolchain@0a1aaf9dd4a92695538bdeb09fb056d06dd11725 (GPL-3.0)"
+              echo "libc_stub_sha256=$(sha256sum "$PW_MODULE_STUBS_DIR/libc.prx" | cut -d' ' -f1)"
+              echo "fios2_stub_sha256=$(sha256sum "$PW_MODULE_STUBS_DIR/libSceFios2.prx" | cut -d' ' -f1)"
+              echo "mesa_dirty_diff_sha256=$(git -C mesa-build/mesa-ps4 diff --binary | sha256sum | cut -d' ' -f1)"
+              echo "cache_manifest:"; sed 's/^/  /' /orbis-cache/deps/manifest.txt
+            } > "$RUNNER_TEMP/orbis-win-artifacts/BUILD-MANIFEST.txt"
+          fi
           cat "$RUNNER_TEMP/orbis-win-artifacts/BUILD-MANIFEST.txt"
 
       - uses: actions/upload-artifact@v4

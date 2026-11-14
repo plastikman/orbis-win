@@ -10,10 +10,10 @@ Individual SPDX identifiers and copyright notices take precedence for the
 files that carry them. For example, `src/gfx-hang-probe/main.c` is MIT-licensed;
 the corresponding MIT license text is in [`LICENSES/MIT.txt`](LICENSES/MIT.txt).
 
-`assets/orbis-win-mark.svg`, the OW mark, was drawn for this project. It
-reuses the `prospero-win` mark's frame, colours and underline, with new O and
-W letterforms, and is covered by this repository's license.
-`assets/icon0.png` (the package's home-screen icon) is rendered from it by
+`assets/orbis-win-mark.svg` is the OW mark, drawn for this project. It reuses
+the `prospero-win` mark's frame, colours and underline, with new O and W
+letterforms, and is covered by this repository's license. `assets/icon0.png`
+(the package's home-screen icon) is rendered from it by
 `scripts/render-logo-icon.py`.
 
 `assets/prospero-win-logo.svg` is the `prospero-win` mark, copied unchanged
