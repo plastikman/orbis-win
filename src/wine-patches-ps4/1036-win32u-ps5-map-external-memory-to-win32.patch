@@ -1,0 +1,28 @@
+--- a/dlls/win32u/ps5drv.c
++++ b/dlls/win32u/ps5drv.c
+@@ -1133,6 +1133,25 @@
+ 
+ static void ps5_map_device_extensions( struct vulkan_device_extensions *extensions )
+ {
++    /* Without this the win32 halves are never set, and win32u only advertises
++     * VK_KHR_external_memory_win32 when has_VK_KHR_external_memory_win32 is on
++     * (dlls/win32u/vulkan.c). DXVK then reports khrExternalMemoryWin32 0 and
++     * refuses every shared resource -- "Failed to create shared resource:
++     * VK_KHR_EXTERNAL_MEMORY_WIN32 not supported". Unity asks for one as soon as
++     * it has made its second D3D11 device, waits for it for good, and no 64-bit
++     * title ever reaches a frame: measured identically on Hollow Knight and Risk
++     * of Rain 2 on 2026-11-16, both stuck with frames_put=0.
++     *
++     * RADV does advertise the fd extensions here (+vulkan traces list
++     * VK_KHR_external_memory_fd, _semaphore_fd, _fence_fd and
++     * VK_EXT_external_memory_dma_buf under init_physical_device), so only the
++     * mapping was missing. The same pairs as nulldrv_map_device_extensions. */
++    if (extensions->has_VK_KHR_external_memory_win32) extensions->has_VK_KHR_external_memory_fd = 1;
++    if (extensions->has_VK_KHR_external_memory_fd) extensions->has_VK_KHR_external_memory_win32 = 1;
++    if (extensions->has_VK_KHR_external_semaphore_win32) extensions->has_VK_KHR_external_semaphore_fd = 1;
++    if (extensions->has_VK_KHR_external_semaphore_fd) extensions->has_VK_KHR_external_semaphore_win32 = 1;
++    if (extensions->has_VK_KHR_external_fence_win32) extensions->has_VK_KHR_external_fence_fd = 1;
++    if (extensions->has_VK_KHR_external_fence_fd) extensions->has_VK_KHR_external_fence_win32 = 1;
+ }
+ 
+ static const struct vulkan_driver_funcs ps5_vulkan_driver_funcs =

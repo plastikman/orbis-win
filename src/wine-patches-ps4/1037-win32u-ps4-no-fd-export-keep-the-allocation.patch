@@ -1,0 +1,83 @@
+--- a/dlls/win32u/vulkan.c
++++ b/dlls/win32u/vulkan.c
+@@ -259,6 +259,13 @@
+     return VK_SUCCESS;
+ }
+ 
++static int pw_vk_alloc_log(void)
++{
++    static int pw_log = -1;
++    if (pw_log < 0) { const char *t = getenv( "PW_PS4_GUEST_SAMPLER" ); pw_log = t && t[0] == '1'; }
++    return pw_log;
++}
++
+ static VkExternalMemoryHandleTypeFlagBits get_host_external_memory_type(void)
+ {
+     struct vulkan_device_extensions extensions = {.has_VK_KHR_external_memory_win32 = 1};
+@@ -1018,22 +1025,55 @@
+             VkMemoryGetFdInfoKHR get_fd_info = {.sType = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR, .memory = host_device_memory};
+             int fd = -1;
+ 
+-            switch ((get_fd_info.handleType = get_host_external_memory_type()))
++            get_fd_info.handleType = get_host_external_memory_type();
++            if (pw_vk_alloc_log())
++                ERR( "PW_VK_ALLOC export handleType=%#x getfd=%p nt_shared=%d\n",
++                     get_fd_info.handleType, device->p_vkGetMemoryFdKHR, nt_shared );
++            switch (get_fd_info.handleType)
+             {
+             case VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT:
+-                if ((res = device->p_vkGetMemoryFdKHR( device->host.device, &get_fd_info, &fd ))) goto failed;
++                res = device->p_vkGetMemoryFdKHR( device->host.device, &get_fd_info, &fd );
++                if (pw_vk_alloc_log()) ERR( "PW_VK_ALLOC getfd res=%d fd=%d\n", res, fd );
++                /* ⚠ This console cannot export memory as an opaque fd: RADV answers
++                 * VK_ERROR_OUT_OF_DEVICE_MEMORY (-2) for every exported allocation
++                 * (measured 2026-11-16, Risk of Rain 2). Failing here returned an
++                 * error for each one, and the guest then faulted reading +0x10.
++                 *
++                 * An fd is not actually needed. The wineserver is a thread of this
++                 * same process (see request.c: descriptors are handed over, never
++                 * duplicated, because this console refuses dup for every kind of
++                 * descriptor), so a "shared" resource never crosses a process
++                 * boundary here. d3dkmt_create_resource takes fd -1: object_create
++                 * only sends an fd when fd >= 0, and the server only builds one
++                 * when req->fd >= 0. Keep the allocation and carry on without it.
++                 */
++                if (res)
++                {
++                    fd = -1;
++                    res = VK_SUCCESS;
++                }
+                 break;
+             default:
++                if (pw_vk_alloc_log()) ERR( "PW_VK_ALLOC getfd UNSUPPORTED type=%#x\n", get_fd_info.handleType );
+                 FIXME( "Unsupported handle type %#x\n", get_fd_info.handleType );
+                 break;
+             }
+ 
+             memory->local = d3dkmt_create_resource( fd, nt_shared ? NULL : &memory->global );
++            if (pw_vk_alloc_log())
++                ERR( "PW_VK_ALLOC d3dkmt_create_resource fd=%d -> local=%#x global=%#x\n",
++                     fd, memory->local, memory->global );
+             close( fd );
+ 
+             if (!memory->local) goto failed;
+         }
+-        if (nt_shared && !(memory->shared = create_shared_resource_handle( memory->local, &export_win32 ))) goto failed;
++        if (nt_shared)
++        {
++            memory->shared = create_shared_resource_handle( memory->local, &export_win32 );
++            if (pw_vk_alloc_log())
++                ERR( "PW_VK_ALLOC share local=%#x -> shared=%p\n", memory->local, memory->shared );
++            if (!memory->shared) goto failed;
++        }
+     }
+ 
+     vulkan_object_init( &memory->obj.obj, host_device_memory );
+@@ -1045,6 +1085,7 @@
+     return VK_SUCCESS;
+ 
+ failed:
++    if (pw_vk_alloc_log()) ERR( "PW_VK_ALLOC FAILED res=%d local=%#x shared=%p\n", res, memory->local, memory->shared );
+     WARN( "Failed to allocate memory, res %d\n", res );
+     if (host_device_memory) device->p_vkFreeMemory( device->host.device, host_device_memory, NULL );
+     if (memory->semaphore) device->p_vkDestroySemaphore( device->host.device, memory->semaphore, NULL );
