@@ -1,0 +1,70 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: prospero-win <prospero-win@invalid>
+Date: Sun, 16 Nov 2026 16:00:00 +0100
+Subject: [PATCH] win32u: Say every Vulkan memory allocation on PS5.
+
+With 1080 in, DXVK gets past the shared resource and then refuses its first
+buffer allocation: 256 bytes, alignment 256, type mask 0x2d, both heaps at
+zero allocated. Nothing below says anything -- not RADV's own allocation
+log, not this file's "Failed to allocate memory" WARN -- so from outside,
+two very different cases look the same: DXVK never called vkAllocateMemory
+because its type mask came out empty, or it called and the refusal was
+silent.
+
+Reading DXVK 2.6.2's allocator narrows it to exactly those two.
+allocateMemory() iterates
+  requirements.memoryTypeBits & getMemoryTypeMask(properties)
+and returns null without a Vulkan call when that is empty; otherwise
+allocateChunkInPool() calls vkAllocateMemory repeatedly, halving the size,
+so a genuine host refusal would be hit many times over.
+
+So log the call itself, on entry, and the host's result. Silence then means
+"never called" instead of "failed quietly". Behind PW_PS4_GUEST_SAMPLER:
+every allocation a title makes would otherwise be logged.
+---
+ dlls/win32u/vulkan.c | 29 ++++++++++++++++++++++++++---
+ 1 file changed, 26 insertions(+), 3 deletions(-)
+
+diff --git a/dlls/win32u/vulkan.c b/dlls/win32u/vulkan.c
+index 1111111..2222222 100644
+--- a/dlls/win32u/vulkan.c
++++ b/dlls/win32u/vulkan.c
+@@ -925,8 +925,20 @@
+         }
+     }
+ 
+-    /* For host visible memory, we try to use VK_EXT_external_memory_host on wow64 to ensure that mapped pointer is 32-bit. */
++    /* PW_VK_ALLOC: on entry, not on failure. DXVK reported "Memory allocation failed"
++     * for a 256 byte buffer with both heaps empty while nothing below logged anything,
++     * which leaves two cases that look identical from outside: DXVK never called this
++     * at all because its type mask came out empty, or it called and the refusal was
++     * silent. Logging the call itself tells them apart. */
+     mem_flags = physical_device->memory_properties.memoryTypes[alloc_info->memoryTypeIndex].propertyFlags;
++    {
++        static int pw_log = -1;
++        if (pw_log < 0) { const char *pw_t = getenv( "PW_PS4_GUEST_SAMPLER" ); pw_log = pw_t && pw_t[0] == '1'; }
++        if (pw_log)
++            ERR( "PW_VK_ALLOC enter size=%llu type=%u flags=%#x export=%d import=%d\n",
++                 (unsigned long long)alloc_info->allocationSize, alloc_info->memoryTypeIndex,
++                 mem_flags, export_info != NULL, import_win32 != NULL );
++    }
+     if (physical_device->external_memory_align && (mem_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) && !pointer_info &&
+         (res = allocate_external_host_memory( device, alloc_info, mem_flags, &host_pointer_info )))
+         return res;
+@@ -989,7 +1001,15 @@
+         alloc_info->pNext = &fd_info;
+     }
+ 
+-    if ((res = device->p_vkAllocateMemory( device->host.device, alloc_info, NULL, &host_device_memory ))) goto failed;
++    res = device->p_vkAllocateMemory( device->host.device, alloc_info, NULL, &host_device_memory );
++    {
++        static int pw_log = -1;
++        if (pw_log < 0) { const char *pw_t = getenv( "PW_PS4_GUEST_SAMPLER" ); pw_log = pw_t && pw_t[0] == '1'; }
++        if (pw_log)
++            ERR( "PW_VK_ALLOC host size=%llu type=%u res=%d\n",
++                 (unsigned long long)alloc_info->allocationSize, alloc_info->memoryTypeIndex, res );
++    }
++    if (res) goto failed;
+ 
+     if (export_info)
+     {
