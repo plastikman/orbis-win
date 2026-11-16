@@ -18,11 +18,12 @@ waited and on which address, and every wake says who woke. An alert with
 no matching wake is a lost wakeup in 1075's mechanism. Waits with no
 alerts at all mean the game is blocked further up and 1075 is innocent.
 
-Only the waits that can hang are logged: the timed ones are far too hot.
-ERR because the verbose profile sets fixme-all.
+Only the waits that can hang are logged: the timed ones are far too hot, and
+the whole lot sits behind PW_PS4_GUEST_SAMPLER -- one Hollow Knight run logged
+4086 alerts from a single call. ERR because the verbose profile sets fixme-all.
 ---
- dlls/ntdll/unix/sync.c | 28 ++++++++++++++++++++++++++--
- 1 file changed, 26 insertions(+), 2 deletions(-)
+ dlls/ntdll/unix/sync.c | 31 ++++++++++++++++++++++++++++++
+ 1 file changed, 30 insertions(+), 1 deletions(-)
 
 diff --git a/dlls/ntdll/unix/sync.c b/dlls/ntdll/unix/sync.c
 index 1111111..2222222 100644
@@ -42,35 +43,50 @@ index 1111111..2222222 100644
          if ((fd = ps5_thread_alert_kqueue_locked( entry->owner )) >= 0)
          {
              status = kevent( fd, &signal_event, 1, NULL, 0, NULL ) == -1
-@@ -3687,6 +3689,11 @@
+@@ -3687,6 +3689,16 @@
          }
      }
      ps5_tid_alert_unlock( &previous );
-+    /* PW_ALERT: every alert sent, against PW_ALERT wait/woke below. An alert with no
-+     * matching wake is a lost wakeup in this mechanism; waits with no alert at all mean
-+     * the game is waiting on something upstream and this mechanism is not at fault. */
-+    ERR( "PW_ALERT send to=%04x owner=%d fd=%d status=%08x\n",
-+         (unsigned int)(ULONG_PTR)tid, owned, fd, (unsigned int)status );
++    /* PW_ALERT: pair these against the waits below -- an alert with no wake is a lost
++     * wakeup here, waits with no alerts mean the title is blocked further up. Behind the
++     * sampler switch: one Hollow Knight run logged 4086 of these from this one call. */
++    {
++        static int pw_log = -1;
++        if (pw_log < 0) { const char *pw_t = getenv( "PW_PS4_GUEST_SAMPLER" ); pw_log = pw_t && pw_t[0] == '1'; }
++        if (pw_log)
++            ERR( "PW_ALERT send to=%04x owner=%d fd=%d status=%08x\n",
++                 (unsigned int)(ULONG_PTR)tid, owned, fd, (unsigned int)status );
++    }
      return status;
  }
  #else
-@@ -3877,6 +3884,9 @@
+@@ -3877,6 +3889,14 @@
  
  #if defined(__PROSPERO__) && defined(HAVE_KQUEUE) && !defined(USE_FUTEX)
      if (ps5_kq < 0) return STATUS_INVALID_CID;
 +    if (!timeout || timeout->QuadPart == TIMEOUT_INFINITE)
-+        ERR( "PW_ALERT wait tid=%04x addr=%p kq=%d\n",
-+             (unsigned int)get_thread_data()->tid, address, ps5_kq );
++    {
++        static int pw_log = -1;
++        if (pw_log < 0) { const char *pw_t = getenv( "PW_PS4_GUEST_SAMPLER" ); pw_log = pw_t && pw_t[0] == '1'; }
++        if (pw_log)
++            ERR( "PW_ALERT wait tid=%04x addr=%p kq=%d\n",
++                 (unsigned int)get_thread_data()->tid, address, ps5_kq );
++    }
  #else
      if (!entry) return STATUS_INVALID_CID;
  #endif
-@@ -3949,6 +3959,10 @@
+@@ -3949,6 +3969,15 @@
          switch (ret)
          {
          case 1:
 +#ifdef __PROSPERO__
-+            ERR( "PW_ALERT woke tid=%04x addr=%p\n",
-+                 (unsigned int)get_thread_data()->tid, address );
++            {
++        static int pw_log = -1;
++        if (pw_log < 0) { const char *pw_t = getenv( "PW_PS4_GUEST_SAMPLER" ); pw_log = pw_t && pw_t[0] == '1'; }
++        if (pw_log)
++                    ERR( "PW_ALERT woke tid=%04x addr=%p\n",
++                         (unsigned int)get_thread_data()->tid, address );
++            }
 +#endif
              return STATUS_ALERTED;
          case 0:
