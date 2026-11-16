@@ -20,14 +20,14 @@ Guarded by PW_PS4_GUEST_SAMPLER=1, the same switch that installs the
 handler: without it nothing handles SIGALRM and the default action would
 end the game. Bounded to eight pokes, because a wedge does not end.
 ---
- server/thread.c | 35 +++++++++++++++++++++++++++++++++++
- 1 file changed, 35 insertions(+)
+ server/thread.c | 46 ++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 46 insertions(+)
 
 diff --git a/server/thread.c b/server/thread.c
 index 1111111..2222222 100644
 --- a/server/thread.c
 +++ b/server/thread.c
-@@ -1191,6 +1191,41 @@
+@@ -1191,6 +1191,49 @@
      }
  }
  
@@ -44,22 +44,30 @@ index 1111111..2222222 100644
 + * on Hollow Knight, not one of them the wedged thread. Send the signal to this exact
 + * thread; the handler the sampler already installed then runs on it.
 + *
++ * Once per thread, not a global budget: Hollow Knight has 32 threads outside any wait, and
++ * a budget of eight was spent on Unity's workers before the main thread -- the only one
++ * that matters -- was ever reached. Remembering ids costs nothing and samples each once.
++ *
 + * Only with PW_PS4_GUEST_SAMPLER=1: without the sampler nothing handles SIGALRM and the
-+ * default action would end the game. Bounded, because a wedge lasts for good. */
++ * default action would end the game. */
 +static void ps5_poke_silent_thread( struct thread *thread )
 +{
++    static unsigned int poked[512];
++    static unsigned int npoked;
 +    static int armed = -1;
-+    static int sent;
++    unsigned int i;
 +
 +    if (armed < 0)
 +    {
 +        const char *text = getenv( "PW_PS4_GUEST_SAMPLER" );
 +        armed = text && text[0] == '1';
 +    }
-+    if (!armed || sent >= 8 || thread->unix_pid == -1 || thread->unix_tid == -1) return;
-+    sent++;
-+    fprintf( stderr, "wine-ps5: poke silent tid=%04x unix_tid=%d n=%d rc=%d\n",
-+             thread->id, thread->unix_tid, sent,
++    if (!armed || thread->unix_pid == -1 || thread->unix_tid == -1) return;
++    for (i = 0; i < npoked; i++) if (poked[i] == thread->id) return;
++    if (npoked >= sizeof(poked) / sizeof(poked[0])) return;
++    poked[npoked++] = thread->id;
++    fprintf( stderr, "wine-ps5: poke silent tid=%04x unix_tid=%d n=%u rc=%d\n",
++             thread->id, thread->unix_tid, npoked,
 +             thr_kill2( thread->unix_pid, thread->unix_tid, SIGALRM ) );
 +}
 +#else
@@ -69,7 +77,7 @@ index 1111111..2222222 100644
  static void wait_watchdog( void *arg )
  {
      struct thread *thread;
-@@ -1207,7 +1242,10 @@
+@@ -1207,7 +1250,10 @@
           * from the WoW64 CPU area (TEB64 TlsSlots[WOW64_TLS_CPURESERVED]).
           * The server runs in the game's process, so it can read it. */
          if (!thread->wait && thread->teb && monotonic_time - thread->ps5_last_req_time > TICKS_PER_SEC)
