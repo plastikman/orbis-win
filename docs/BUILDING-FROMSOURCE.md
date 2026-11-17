@@ -178,6 +178,35 @@ The gate reports WARNs for PS4-specific `orbis_*` strings present in a baseline
 built against a locally-built orbis-compat but absent from one built against the
 bundle's. They need a written disposition, not a fix.
 
+## Iterating without rebuilding everything
+
+A cold build is hours. You almost never need one. **Wine is not rebuilt when you
+change this repository's code** — the PRX link is, and that is minutes.
+
+Measured on a 6-core laptop, 2026-11-17:
+
+| you changed | run | cost |
+|---|---|---|
+| `src/native/`, `src/reloc-wine-app/`, a PRX script | `prepare-ps4-toolchain.sh` + `prx-ps4.sh` + the package | **~13 min** |
+| nothing (repackage, e.g. to add `PS4_DEV_CONF`) | the package step | ~8 min |
+| a Mesa pin | `restore-mesa-tree.sh` + its build + `radv-prx-ps4.sh` | ~25 min |
+| a Wine pin | `build_wine_ps5.sh` (+ `build_host_wine.sh` for PE) | ~20 / ~40 min |
+| the SDK bundle | all of it | hours |
+
+So the normal loop is:
+
+    ./scripts/prepare-ps4-toolchain.sh && sh scripts/prx-ps4.sh && <package>
+
+`scripts/ci/prepare-from-source.sh` does this for you: each step is stamped on
+the pins and sources it depends on, so a warm runner skips what has not moved.
+The PRX link is never stamped — it is cheap, and a stale PRX is the failure this
+project has shipped most. Delete `.ci-from-source` to force a cold build.
+
+⚠ Do not widen that skipping casually. The stamp for the toolchain archives must
+cover `src/native/*.c` and prospero-win's `wine/ps5/*.c`, not just the shim; keyed
+too narrowly, a source change is silently skipped and the build ships the
+previous objects.
+
 ## Reproducible output
 
 The build embeds its own absolute path: Wine's `__FILE__` strings put the source

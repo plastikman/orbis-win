@@ -13,6 +13,7 @@ on:
         description: Source rebuild, tested stage, or isolated MMDevAPI audio candidate
         type: choice
         options:
+          - from-source
           - source-build
           - tested-stage
           - audio-candidate
@@ -95,8 +96,19 @@ jobs:
           echo "PKG_VERSION=$version" >> "$GITHUB_ENV"
           echo "package version: $version"
 
+      # The cache path. It assembles from a private 26 GB store and symlinks
+      # the checkout to one person's home directory, so a green run here proves
+      # nothing about whether anyone else can build. Kept until from-source has
+      # produced a hardware-tested package.
       - name: Attach private build cache
+        if: ${{ inputs.build_mode != 'from-source' }}
         run: scripts/ci/prepare-runner.sh
+
+      # The from-source path: every input built from the pins in this repo.
+      # Hours on a cold runner, minutes on a warm one (the steps are stamped).
+      - name: Build every input from source
+        if: ${{ inputs.build_mode == 'from-source' }}
+        run: scripts/ci/prepare-from-source.sh
 
       - name: Check build prerequisites
         if: ${{ inputs.build_mode != 'tested-stage' }}
@@ -105,8 +117,11 @@ jobs:
       # The fork's Wine patch series must apply to clean Wine and give exactly
       # the host Wine source the cached PE runtime was built from
       # (scripts/ci/check-wine-series.sh). It did neither before 2026-11-08.
+      # Skipped for from-source: that path builds the PINNED trees, and the
+      # series provably does not reproduce them (157 present / 112 absent /
+      # 40 partial of 310, and --check-patches does not start on it at all).
       - name: Check the Wine patch series builds the shipped Wine
-        if: ${{ inputs.build_mode != 'tested-stage' }}
+        if: ${{ inputs.build_mode != 'tested-stage' && inputs.build_mode != 'from-source' }}
         run: scripts/ci/check-wine-series.sh
 
       # ⚠ Without /app0/dev.conf the title sends its app log nowhere: ps5log
