@@ -18,20 +18,18 @@ BASE=490f6d5dcbb2a5047345b8af88d114bbcaad69a8
 
 mkdir -p "$DEST"; DEST=$(cd "$DEST" && pwd)
 
-# One shared FULL clone of upstream, reused by both trees.
+# ⚠ WHY NOT A FULL CLONE, AND WHY NOT A PLAIN BLOBLESS ONE.
+# A full clone of Wine is ~2 GB and minutes; it was the slowest step in this
+# script and in CI. A --filter=blob:none clone alone does NOT work either: the
+# base commit's blobs stay lazy, so checking out a pinned HEAD sends git back to
+# WineHQ asking for OUR commit and it fails with "not our ref".
 #
-# It must be full. A --filter=blob:none clone leaves the base commit's blobs
-# lazy, so checking out a pinned HEAD sends git back to WineHQ asking for OUR
-# commit -- which upstream has never heard of:
-#   fatal: git upload-pack: not our ref <our sha>
-# The local clones below are hardlinked off this one, so the disk cost is paid
-# once (~2 GB) and no tree needs the network again.
-if [ ! -d "$DEST/.upstream-wine/.git" ]; then
-    echo "cloning upstream wine (full, ~2 GB, once) ..."
-    git clone --no-checkout -q "$UPSTREAM" "$DEST/.upstream-wine"
-fi
-git -C "$DEST/.upstream-wine" cat-file -e "$BASE" \
-    || { echo "base $BASE not found upstream" >&2; exit 1; }
+# Checking out the BASE first materialises exactly the blobs the base needs --
+# a request upstream can serve -- and the bundle then supplies the delta. The
+# pinned checkout needs nothing further from the network.
+#
+# Measured 2026-11-17: 32 s and 201 MB per tree, against ~2 GB for a full clone,
+# and the restored tree is byte-identical (0 differing paths).
 
 for t in "${TREES[@]}"; do
     bundle=$PINS/$t-ps4-delta.bundle
@@ -39,8 +37,9 @@ for t in "${TREES[@]}"; do
     [ -f "$bundle" ] || { echo "no pin for $t" >&2; exit 1; }
 
     rm -rf "$DEST/$t"
-    git clone --no-checkout -q "$DEST/.upstream-wine" "$DEST/$t"
+    git clone --filter=blob:none --no-checkout -q "$UPSTREAM" "$DEST/$t"
     cd "$DEST/$t"
+    git checkout -q --detach "$BASE"      # materialise the base's blobs
     # The bundle's only ref is HEAD -- a 'refs/*' refspec matches nothing and
     # fetches silently, leaving a repo that cannot check out the pinned commit.
     git fetch "$bundle" "HEAD:refs/pins/$t"

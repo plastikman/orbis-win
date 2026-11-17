@@ -19,10 +19,14 @@ head=$(cat "$PIN/mesa-ps4-HEAD.txt")
 
 if [ ! -d "$DEST/mesa-ps4/.git" ]; then
     echo "cloning orbis-ports/mesa-ps4 ..."
-    git clone --no-checkout -q "$UPSTREAM" "$DEST/mesa-ps4"
+    # Blobless, then check the BASE out so its blobs are fetched in a request
+    # upstream can serve; the bundle supplies the delta. A plain blobless clone
+    # fails on the pinned checkout ("not our ref"), a full clone is far slower.
+    git clone --filter=blob:none --no-checkout -q "$UPSTREAM" "$DEST/mesa-ps4"
 fi
 cd "$DEST/mesa-ps4"
 git cat-file -e "$BASE" || { echo "base $BASE not found upstream" >&2; exit 1; }
+git checkout -q --detach "$BASE"
 # The bundle's only ref is HEAD; a 'refs/*' refspec matches nothing and fetches
 # silently, leaving a repo that cannot check out the pin.
 git fetch "$PIN/mesa-ps4-delta.bundle" "HEAD:refs/pins/mesa-ps4"
