@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # Create the PS4 support objects and archives used by the Wine title and PRXs.
 set -euo pipefail
+case ${1:-} in
+  -h|--help)
+    echo "usage: $0"
+    echo "Builds build/ps4-wine-sdk (shim, LLVM 19 links, libwineshim.a, libps4stubs.a, module_param.o)."
+    echo "PW_ROOT selects the prospero-win tree; PW_LLVM_BIN the LLVM 19 bin directory (scripts/link-llvm-ps4.sh)."
+    exit 0 ;;
+esac
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 PW="${PW_ROOT:-$ROOT/prospero-win}"
 BUNDLE="$ROOT/sdk/orbis-sdk-v1"
@@ -12,6 +19,8 @@ CC="$OUT/bin/prospero-clang"
 [[ -f "$PW/wine/ps5/pw_wine_dmem.c" ]] || { echo "missing patched prospero-win at $PW" >&2; exit 1; }
 mkdir -p "$OBJ" "$OUT/bin"
 "$ROOT/scripts/sync-toolchain.sh"
+"$ROOT/scripts/link-llvm-ps4.sh"
+PATH="$OUT/bin:$PATH"
 
 INC=( -I"$PW" -I"$PW/include" -I"$PW/src" -I"$PW/native" \
       -I"$PW/wine/ps5" -I"$ROOT/src/native" )
