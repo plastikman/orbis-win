@@ -1,0 +1,61 @@
+diff --git a/include/signal.h b/include/signal.h
+index 5647a5d..b134f75 100644
+--- a/include/signal.h
++++ b/include/signal.h
+@@ -35,6 +35,56 @@
+ 
+ #include_next <signal.h>
+ 
++/* The SDK exposes Linux's operation numbers, but libkernel implements the
++ * FreeBSD-derived PS4 signal ABI. Passing Linux SIG_UNBLOCK (1) to the kernel
++ * means SIG_BLOCK; this left Wine's native-frame probe pending forever. */
++#undef  SIG_BLOCK
++#define SIG_BLOCK   1
++#undef  SIG_UNBLOCK
++#define SIG_UNBLOCK 2
++#undef  SIG_SETMASK
++#define SIG_SETMASK 3
++
++/* The SDK's Linux signal numbers disagree with the FreeBSD-derived kernel ABI.
++ * Keep the POSIX names used by Wine aligned with the kernel numbers so a
++ * SIGBUS fault cannot be mistaken for Wine's SIGUSR1 suspend signal. */
++#undef  SIGEMT
++#define SIGEMT    7
++#undef  SIGBUS
++#define SIGBUS    10
++#undef  SIGSYS
++#define SIGSYS    12
++#undef  SIGURG
++#define SIGURG    16
++#undef  SIGSTOP
++#define SIGSTOP   17
++#undef  SIGTSTP
++#define SIGTSTP   18
++#undef  SIGCONT
++#define SIGCONT   19
++#undef  SIGCHLD
++#define SIGCHLD   20
++#undef  SIGIO
++#define SIGIO     23
++#undef  SIGWINCH
++#define SIGWINCH  28
++#undef  SIGINFO
++#define SIGINFO   29
++#undef  SIGUSR1
++#define SIGUSR1   30
++#undef  SIGUSR2
++#define SIGUSR2   31
++#undef  SIGPOLL
++#define SIGPOLL   SIGIO
++#undef  SIGSTKFLT
++#undef  SIGPWR
++#undef  SIGUNUSED
++#define SIGUNUSED SIGSYS
++#undef  SIGIOT
++#define SIGIOT    SIGABRT
++#undef  SIGCLD
++#define SIGCLD    SIGCHLD
++
+ /* ⚠ sa_sigaction DOES NOT COMPILE AS THE SDK DEFINES IT, and this is a typo rather than a design.
+    signal.h:136 names the union member `__sa_sigaction`; signal.h:142 defines the macro as
+    `__sa_handler.sa_sigaction` - one underscore pair short. Every caller that installs a SA_SIGINFO
