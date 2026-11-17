@@ -23,19 +23,26 @@ PATH="$TOOL_DIR:$PATH"; export PATH
 # This shim is copied from src/toolchain/ into build/ps4-wine-sdk/bin/. Walk
 # upward until the repository root is found, so it works in either location.
 # The ARC runner invokes the cached compiler through /orbis-cache/deps, which
-# also contains the SDK marker; prefer the workspace link created by
-# scripts/ci/prepare-runner.sh so linker scripts and sources come from checkout.
-# Self-locate by default: walk up from this shim until the SDK marker appears.
-# PW_PS4_ROOT is the explicit override. Previously this defaulted to one
-# workstation's absolute path, which on that workstation SHADOWED the walk-up
-# and linked another checkout's libwineshim.a into this build, and elsewhere
-# simply did not exist.
-ROOT=${PW_PS4_ROOT:-}
-if [ -z "$ROOT" ] || [ ! -f "$ROOT/sdk/orbis-sdk-v1/BUNDLE.txt" ]; then
-  ROOT=$TOOL_DIR
-  while [ "$ROOT" != / ] && [ ! -f "$ROOT/sdk/orbis-sdk-v1/BUNDLE.txt" ]; do
-    ROOT=$(dirname "$ROOT")
+# also contains the SDK marker; walk the path the shim was invoked by (not the
+# resolved one) first, so the workspace link created by
+# scripts/ci/prepare-runner.sh wins and linker scripts and sources come from
+# the checkout. PW_PS4_ROOT overrides both walks.
+#
+# Until 2026-11-17 this defaulted to one workstation's absolute path, which on
+# that workstation SHADOWED the walk and linked ANOTHER checkout's
+# libwineshim.a into the build, and elsewhere did not exist at all.
+find_root() {
+  r=$1
+  while [ "$r" != / ] && [ ! -f "$r/sdk/orbis-sdk-v1/BUNDLE.txt" ]; do
+    r=$(dirname "$r")
   done
+  echo "$r"
+}
+if [ -n "${PW_PS4_ROOT:-}" ]; then
+  ROOT=$PW_PS4_ROOT
+else
+  ROOT=$(find_root "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -L)")
+  [ -f "$ROOT/sdk/orbis-sdk-v1/BUNDLE.txt" ] || ROOT=$(find_root "$TOOL_DIR")
 fi
 [ -f "$ROOT/sdk/orbis-sdk-v1/BUNDLE.txt" ] || {
   echo "cannot locate orbis-win root; run scripts/fetch-sdk.sh first" >&2

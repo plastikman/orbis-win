@@ -32,6 +32,13 @@ CACHE=/orbis-cache/deps
 # the native WoW64 PE outputs. Their generated makefiles and the .deps/wine-ps5
 # symlink embed ABI4_PATH, so that exact path is linked to the cache below.
 ABI4_PATH=/home/zpeirce/codex_scratch/abi4-upstream-port-20261104
+# Later steps of this job inherit these: PW_ABI4_ROOT is the cache root the package
+# scripts use, PW_PS4_ROOT pins prospero-clang's root to this checkout even when
+# it is called through the cache (/orbis-cache/deps/build/ps4-wine-sdk/bin).
+if [[ -n ${GITHUB_ENV:-} ]]; then
+  echo "PW_ABI4_ROOT=$ABI4_PATH" >> "$GITHUB_ENV"
+  echo "PW_PS4_ROOT=$ROOT" >> "$GITHUB_ENV"
+fi
 for p in source/.deps/wine-host/build source/.deps/wine-host/install/usr/lib/wine \
          build/wine-ps5/build native/x86_64-windows/wow64native.dll \
          mesa-zink/i386-windows/opengl32.dll mesa-zink/x86_64-windows/opengl32.dll; do
