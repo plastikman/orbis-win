@@ -1,0 +1,182 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: orbis-win <orbis-win@invalid>
+Subject: [PATCH] server: dump a NATIVE 64-bit guest thread's stack
+
+dump_guest_stack() reads the WoW64 CPU area, which only a WoW64 process has,
+so for a 64-bit title it returned immediately and the one diagnostic that could
+locate a wedge emitted nothing (open since 2026-11-13).
+
+dump_guest_stack64() instead reads Wine's own saved PE context: the syscall
+frame at TEB+0x378, rip at +0x70 and rsp at +0x88. That is exact, where
+scanning blind cannot tell a live frame from a stale one -- a guess there put
+heap frames on top and was wrong. Resolve the hits against the
+'Loaded L"..." at <base>' lines in the same log.
+
+Also: obj=%p on each waited object so one Event can be told from another, a
+wake_up trace to pair against it, and PW_PS4_POKE_REPEAT=1 to poke every sweep.
+The repeat is a WORKAROUND -- it took Risk of Rain 2 from a hard wall at 2% to
+26% by letting EINTR free threads -- not a fix.
+
+--- a/server/thread.c
++++ b/server/thread.c
+@@ -1144,6 +1144,71 @@
+  * only after write() to a pipe accepts it, so a bad pointer is skipped,
+  * not a crash. Only a WoW64 process reserves the CPU area's TLS slot: a
+  * 64-bit one can allocate it and keep anything there. */
++/* The stack of a NATIVE 64-bit guest thread. dump_guest_stack() cannot help
++ * here: it reads the WoW64 CPU area, which only a WoW64 process reserves, so
++ * for a 64-bit title it returns immediately and the one diagnostic that would
++ * locate a wedge emits nothing (recorded against Hollow Knight 2026-11-13,
++ * and the same blind spot stopped Risk of Rain 2 being diagnosed 2026-11-16).
++ *
++ * A parked thread has no saved context to read, but the in-process server
++ * shares its address space and its TEB gives the stack bounds (NT_TIB
++ * StackBase at +0x08, StackLimit at +0x10 on x64). Scanning the committed
++ * stack for values that look like code and are not stack addresses recovers
++ * the return-address chain: enough to name the modules, which is what a wedge
++ * needs. Reads go through ps5_peek, so a bad address is skipped, not fatal. */
++static void dump_guest_stack64( struct thread *thread, int max_hits )
++{
++    static int probe[2] = { -1, -1 };
++    client_ptr_t base = 0, limit = 0, addr;
++    unsigned long long v;
++    int hits = 0, scanned = 0;
++
++    if (is_wow64_process( thread->process )) return;
++    if (!thread->teb) return;
++    if (probe[0] == -1 && pipe( probe )) probe[0] = probe[1] = -1;
++    if (probe[1] == -1) return;
++    if (!ps5_peek( probe, thread->teb + 0x08, &base, sizeof(base) )) return;
++    if (!ps5_peek( probe, thread->teb + 0x10, &limit, sizeof(limit) )) return;
++    if (!base || !limit || limit >= base || base - limit > 0x1000000) return;
++
++    /* Wine already saves the PE-side context at the PE->unix transition: the
++     * syscall frame, pointed to by TEB+0x378 (GdiTebBatch + teb_data.
++     * syscall_frame on x64), holds rip at +0x70 and rsp at +0x88. That is the
++     * exact guest instruction and stack pointer of a parked thread. Without it
++     * the scan cannot tell a live frame from a stale one: a capture taken in
++     * server_select() is useless because the unix side runs on its OWN stack,
++     * so its frame address is not even in this range (measured 2026-11-16). */
++    {
++        client_ptr_t frame = 0, rsp = 0, rip = 0;
++        if (ps5_peek( probe, thread->teb + 0x378, &frame, sizeof(frame) ) && frame)
++        {
++            ps5_peek( probe, frame + 0x70, &rip, sizeof(rip) );
++            if (ps5_peek( probe, frame + 0x88, &rsp, sizeof(rsp) ) && rsp > limit && rsp < base)
++            {
++                fprintf( stderr, "wine-ps5: guest64 tid=%04x rip=%016llx rsp=%016llx\n",
++                         thread->id, (unsigned long long)rip, (unsigned long long)rsp );
++                limit = rsp & ~(client_ptr_t)7;
++            }
++        }
++    }
++
++    fprintf( stderr, "wine-ps5: guest64 tid=%04x teb=%016llx live=%016llx..%016llx\n",
++             thread->id, (unsigned long long)thread->teb,
++             (unsigned long long)limit, (unsigned long long)base );
++
++    for (addr = limit; addr + 8 <= base && hits < max_hits; addr += 8)
++    {
++        if (++scanned > 65536) break;
++        if (!ps5_peek( probe, addr, &v, sizeof(v) )) continue;
++        /* Code, not data and not a pointer back into this stack. */
++        if (v < 0x10000 || v > 0x00007fffffffffffull) continue;
++        if (v >= limit && v < base) continue;
++        fprintf( stderr, "wine-ps5: guest64 tid=%04x +%06x %016llx\n",
++                 thread->id, (unsigned int)(addr - limit), (unsigned long long)v );
++        hits++;
++    }
++}
++
+ static void dump_guest_stack( struct thread *thread, int words, int scan )
+ {
+     static int probe[2] = { -1, -1 };
+@@ -1215,6 +1280,7 @@
+     static unsigned int poked[512];
+     static unsigned int npoked;
+     static int armed = -1;
++    static int repeat = -1;
+     unsigned int i;
+ 
+     if (armed < 0)
+@@ -1223,9 +1289,27 @@
+         armed = text && text[0] == '1';
+     }
+     if (!armed || thread->unix_pid == -1 || thread->unix_tid == -1) return;
+-    for (i = 0; i < npoked; i++) if (poked[i] == thread->id) return;
+-    if (npoked >= sizeof(poked) / sizeof(poked[0])) return;
+-    poked[npoked++] = thread->id;
++    /* PW_PS4_POKE_REPEAT=1: poke EVERY sweep, not once per thread.
++     *
++     * Measured 2026-11-16 on Risk of Rain 2: with the once-per-thread version
++     * the title broke through the 2% wall it had sat behind all day and went
++     * 2% -> 8% -> 26%, then stalled again. Each poke frees a thread exactly
++     * once, so progress resumes until the NEXT wakeup is lost. That is the
++     * signature of a lost wakeup in the native alert path, not a spin: an
++     * interrupting signal is enough for the thread to wake, re-check and go on.
++     * Repeating the poke is a WORKAROUND that keeps a title moving; the fix is
++     * to stop losing the wakeup. */
++    if (repeat < 0)
++    {
++        const char *text = getenv( "PW_PS4_POKE_REPEAT" );
++        repeat = text && text[0] == '1';
++    }
++    if (!repeat)
++    {
++        for (i = 0; i < npoked; i++) if (poked[i] == thread->id) return;
++        if (npoked >= sizeof(poked) / sizeof(poked[0])) return;
++        poked[npoked++] = thread->id;
++    }
+     fprintf( stderr, "wine-ps5: poke silent tid=%04x unix_tid=%d n=%u rc=%d\n",
+              thread->id, thread->unix_tid, npoked,
+              thr_kill2( thread->unix_pid, thread->unix_tid, SIGALRM ) );
+@@ -1283,9 +1367,23 @@
+                      wait->select, wait->flags, wait->count, (long long)wait->when );
+             for (i = 0; i < wait->count; i++)
+             {
+-                fprintf( stderr, "wine-ps5:   [%d] ", i );
++                fprintf( stderr, "wine-ps5:   [%d] obj=%p ", i, wait->queues[i].obj );
+                 wait->queues[i].obj->ops->dump( wait->queues[i].obj, 0 );
+             }
++            /* Parked over 20 s on something that never arrives: say where in
++             * the guest, once per thread, for a native 64-bit title. */
++            if ((monotonic_time - wait->start) / 10000 > 20000)
++            {
++                static unsigned int dumped[48];
++                static int ndumped;
++                int d, seen = 0;
++                for (d = 0; d < ndumped; d++) seen |= dumped[d] == thread->id;
++                if (!seen && ndumped < 48)
++                {
++                    dumped[ndumped++] = thread->id;
++                    dump_guest_stack64( thread, 600 );
++                }
++            }
+         }
+     }
+     add_timeout_user( -2 * TICKS_PER_SEC, wait_watchdog, NULL );
+@@ -1599,6 +1697,24 @@
+ /* attempt to wake threads sleeping on the object wait queue */
+ void wake_up( struct object *obj, int max )
+ {
++    /* PW: pair these against the "wine-ps5:   [n] obj=..." lines of the wait
++     * watchdog. Risk of Rain 2 parks every thread at 2% of its load with the
++     * main thread on an unsignalled Event; the question is whether that object
++     * is ever signalled at all, and by whom. */
++    {
++        static int pw_log = -1;
++        if (pw_log < 0)
++        {
++            /* Same pair start_wait_watchdog() uses -- gating on only one of
++             * them logged nothing while the dumps ran (2026-11-16). */
++            const char *t = getenv( "PW_WAIT_WATCHDOG" );
++            if (!t) t = getenv( "WINE_PS5_WAIT_WATCHDOG" );
++            pw_log = t && t[0] != '0';
++        }
++        if (pw_log)
++            fprintf( stderr, "wine-ps5: wake_up obj=%p max=%d by=%04x\n",
++                     obj, max, current ? current->id : 0 );
++    }
+     struct list *ptr;
+     int ret;
+ 

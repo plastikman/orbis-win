@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: orbis-win <orbis-win@invalid>
+Subject: [PATCH] ntdll: say which thread exited, from where, with what status
+
+PW_THREAD_EXIT with the thread's Win32 start address, so an exiting thread can
+be attributed to a module. Risk of Rain 2 creates four threads inside
+AkSoundEngine (Wwise) and none of them ever reaches this -- they do not exit.
+Thread exits are rare (86 creations in a whole run), so it is unconditional.
+
+--- a/dlls/ntdll/thread.c
++++ b/dlls/ntdll/thread.c
+@@ -237,6 +237,20 @@
+ {
+     ULONG last;
+ 
++    /* PW: which thread just died, where did it start, and with what status.
++     * Risk of Rain 2 creates 4 threads inside AkSoundEngine (Wwise) and by the
++     * time its main thread parks forever in WaitForSingleObject inside Wwise,
++     * NONE of them is left (2026-11-16). Thread exits are rare -- 86 creations
++     * in a whole run -- so this is unconditional. */
++    {
++        PVOID pw_start = NULL;
++        NtQueryInformationThread( GetCurrentThread(), ThreadQuerySetWin32StartAddress,
++                                  &pw_start, sizeof(pw_start), NULL );
++        ERR( "PW_THREAD_EXIT tid=%04x start=%p status=%08x\n",
++             (unsigned int)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueThread,
++             pw_start, (unsigned int)status );
++    }
++
+     NtQueryInformationThread( GetCurrentThread(), ThreadAmILastThread, &last, sizeof(last), NULL );
+     if (last) RtlExitUserProcess( status );
+     LdrShutdownThread();

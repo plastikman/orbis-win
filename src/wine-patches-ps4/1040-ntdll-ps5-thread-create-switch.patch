@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: orbis-win <orbis-win@invalid>
+Subject: [PATCH] ntdll: thread creation tracing on its own switch
+
+PW_PS4_THREAD_LOG=1 logs thread creation without the alert tracing that
+PW_PS4_GUEST_SAMPLER also enables. Pairs with PW_THREAD_EXIT on the PE side.
+
+--- a/dlls/ntdll/unix/thread.c
++++ b/dlls/ntdll/unix/thread.c
+@@ -1472,8 +1472,20 @@
+      * sampler switch, because every thread a title creates would otherwise be logged
+      * and Hollow Knight alone creates forty before it stops. */
+     {
++        /* PW_PS4_THREAD_LOG=1 gives thread creation WITHOUT the alert tracing
++         * PW_PS4_GUEST_SAMPLER also switches on (~2.8 MB per 3 minutes, enough
++         * to slow a title to a crawl). Pairs with PW_THREAD_EXIT in the PE-side
++         * RtlExitUserThread: Risk of Rain 2's main thread waits INFINITE on an
++         * event a Wwise worker should set (CreateEventW -> CreateThread ->
++         * WaitForSingleObject), and we need to know whether that worker is ever
++         * created at all. */
+         static int pw_log = -1;
+-        if (pw_log < 0) { const char *pw_t = getenv( "PW_PS4_GUEST_SAMPLER" ); pw_log = pw_t && pw_t[0] == '1'; }
++        if (pw_log < 0)
++        {
++            const char *pw_t = getenv( "PW_PS4_THREAD_LOG" );
++            if (!pw_t || pw_t[0] != '1') pw_t = getenv( "PW_PS4_GUEST_SAMPLER" );
++            pw_log = pw_t && pw_t[0] == '1';
++        }
+         if (pw_log)
+             ERR( "PW_THREAD_CREATE start=%p param=%p flags=%#x\n", start, param, (unsigned int)flags );
+     }

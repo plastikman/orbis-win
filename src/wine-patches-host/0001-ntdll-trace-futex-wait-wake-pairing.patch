@@ -1,0 +1,80 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: orbis-win <orbis-win@invalid>
+Subject: [PATCH] ntdll: pair every RtlWaitOnAddress against its wake
+
+PW_PS4_FUTEX_LOG=1 logs each wait, each wake, how many queue entries a wake
+matched, and the caller of each.
+
+This is what located the hang: at Risk of Rain 2's 2% stall every outstanding
+wait came from RtlSleepConditionVariableSRW, and every one of those addresses
+WAS woken. ret=00000101 is STATUS_TIMEOUT -- the threads loop on timed condvar
+waits, so a missing 'woke' is usually the capture window ending, not a wedge.
+The sync layer is behaving; the condition never becomes true.
+
+--- a/dlls/ntdll/sync.c
++++ b/dlls/ntdll/sync.c
+@@ -880,6 +880,29 @@
+     return FALSE;
+ }
+ 
++
++/* PW_PS4_FUTEX_LOG=1: pair every wait against every wake. The wedged threads sit
++ * in kevent() inside NtWaitForAlertByThreadId with the alert transport PROVEN
++ * working (2026-11-16 probes), so the only explanation left is that no alert is
++ * ever sent for them -- RtlWakeAddress* never matched their queue entry. */
++static int pw_futex_log(void)
++{
++    static int on = -1;
++    if (on < 0)
++    {
++        /* PE-side ntdll has no getenv; use ntdll's own environment query. */
++        UNICODE_STRING name, value;
++        WCHAR buf[8];
++        RtlInitUnicodeString( &name, L"PW_PS4_FUTEX_LOG" );
++        value.Buffer = buf;
++        value.Length = 0;
++        value.MaximumLength = sizeof(buf);
++        on = (!RtlQueryEnvironmentVariable_U( NULL, &name, &value ) &&
++              value.Length >= sizeof(WCHAR) && buf[0] == '1');
++    }
++    return on;
++}
++
+ /***********************************************************************
+  *           RtlWaitOnAddress   (NTDLL.@)
+  */
+@@ -914,7 +937,14 @@
+ 
+     spin_unlock( &queue->lock );
+ 
++    if (pw_futex_log())
++        ERR( "PW_FUTEX wait addr=%p tid=%04x size=%u from=%p\n", addr,
++             (unsigned int)(ULONG_PTR)entry.tid, (unsigned int)size,
++             __builtin_return_address(0) );
+     ret = NtWaitForAlertByThreadId( NULL, timeout );
++    if (pw_futex_log())
++        ERR( "PW_FUTEX woke addr=%p tid=%04x ret=%08x\n", addr,
++             (unsigned int)(ULONG_PTR)entry.tid, (unsigned int)ret );
+ 
+     /* We may have already been removed by a call to RtlWakeAddressSingle() or RtlWakeAddressAll(). */
+     if (entry.addr)
+@@ -968,6 +998,9 @@
+     /* Try not to make a system call while holding a spinlock (even if that can be responsible for spurious wake
+      * up scenario). */
+     spin_unlock( &queue->lock );
++    if (pw_futex_log())
++        ERR( "PW_FUTEX wake-all addr=%p matched=%u from=%p\n", addr, count,
++             __builtin_return_address(0) );
+     if (count)
+         NtAlertMultipleThreadByThreadId( tids, count, NULL, NULL );
+ }
+@@ -1009,6 +1042,9 @@
+ 
+     spin_unlock( &queue->lock );
+ 
++    if (pw_futex_log())
++        ERR( "PW_FUTEX wake-one addr=%p tid=%04x from=%p\n", addr, (unsigned int)tid,
++             __builtin_return_address(0) );
+     if (tid) NtAlertThreadByThreadId( (HANDLE)(DWORD_PTR)tid );
+ }
+ 

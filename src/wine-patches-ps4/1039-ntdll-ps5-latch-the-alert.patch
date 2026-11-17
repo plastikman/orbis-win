@@ -1,0 +1,106 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: orbis-win <orbis-win@invalid>
+Subject: [PATCH] ntdll: latch an alert so ordering cannot lose it
+
+ps5_alert_thread looked the target's slot up with create=FALSE and returned
+STATUS_INVALID_CID when it was absent, discarding the wake. Upstream's futex
+path latches one with InterlockedExchange(futex, 1); this is that latch.
+
+Measured 2026-11-16: PW_ALERT_DROPPED stayed ZERO, so this is NOT the cause of
+the 2% wedge in Risk of Rain 2 -- it closes a real race, nothing more. Also
+moves the alert tracing to its own PW_PS4_ALERT_LOG: on PW_PS4_GUEST_SAMPLER it
+cost ~2.8 MB per 3 minutes and made the sampler unusable in practice.
+
+--- a/dlls/ntdll/unix/sync.c
++++ b/dlls/ntdll/unix/sync.c
+@@ -3542,7 +3542,11 @@
+     LONG futex;
+ #elif defined(HAVE_KQUEUE)
+ #ifdef __PROSPERO__
+-    struct thread_data *owner;
++    /* pending: upstream's futex path latches an alert with
++     * InterlockedExchange(futex, 1) so ordering cannot lose it. This is that
++     * latch for the kqueue path. Measured 2026-11-16: it is NOT the cause of
++     * the wedge (PW_ALERT_DROPPED stayed 0), but it closes a real race. */
++    struct { struct thread_data *owner; LONG pending; } ps5;
+ #else
+     int kq;
+ #endif
+@@ -3608,7 +3612,7 @@
+     union tid_alert_entry *entry;
+     sigset_t previous;
+     ps5_tid_alert_lock( &previous );
+-    if ((entry = ps5_tid_alert_slot( ULongToHandle(data->tid), TRUE ))) entry->owner = data;
++    if ((entry = ps5_tid_alert_slot( ULongToHandle(data->tid), TRUE ))) entry->ps5.owner = data;
+     ps5_tid_alert_unlock( &previous );
+ }
+ 
+@@ -3617,8 +3621,11 @@
+     union tid_alert_entry *entry;
+     sigset_t previous;
+     ps5_tid_alert_lock( &previous );
+-    if ((entry = ps5_tid_alert_slot( ULongToHandle(data->tid), FALSE )) && entry->owner == data)
+-        entry->owner = NULL;
++    if ((entry = ps5_tid_alert_slot( ULongToHandle(data->tid), FALSE )) && entry->ps5.owner == data)
++    {
++        entry->ps5.owner = NULL;
++        entry->ps5.pending = 0;
++    }
+     /* FD+1 permits a valid descriptor zero and makes repeated cleanup safe. */
+     if (data->tid_alert_kqueue)
+     {
+@@ -3661,7 +3668,7 @@
+     union tid_alert_entry *entry;
+     ps5_tid_alert_lock( &previous );
+     entry = ps5_tid_alert_slot( ULongToHandle(data->tid), FALSE );
+-    fd = entry && entry->owner == data ? ps5_thread_alert_kqueue_locked( data ) : -1;
++    fd = entry && entry->ps5.owner == data ? ps5_thread_alert_kqueue_locked( data ) : -1;
+     ps5_tid_alert_unlock( &previous );
+     return fd;
+ }
+@@ -3679,14 +3686,19 @@
+     int fd = -1;
+     int owned = 0;
+     ps5_tid_alert_lock( &previous );
+-    if ((entry = ps5_tid_alert_slot( tid, FALSE )) && entry->owner)
++    if ((entry = ps5_tid_alert_slot( tid, TRUE )))
+     {
+-        owned = 1;
+-        if ((fd = ps5_thread_alert_kqueue_locked( entry->owner )) >= 0)
++        entry->ps5.pending = 1;
++        status = STATUS_SUCCESS;
++        if (entry->ps5.owner)
+         {
+-            status = kevent( fd, &signal_event, 1, NULL, 0, NULL ) == -1
+-                    ? STATUS_INVALID_HANDLE : STATUS_SUCCESS;
++            owned = 1;
++            if ((fd = ps5_thread_alert_kqueue_locked( entry->ps5.owner )) >= 0 &&
++                kevent( fd, &signal_event, 1, NULL, 0, NULL ) == -1)
++                status = STATUS_INVALID_HANDLE;
+         }
++        else ERR( "PW_ALERT_DROPPED tid=%04x had no owner; latched instead\n",
++                  (unsigned int)(ULONG_PTR)tid );
+     }
+     ps5_tid_alert_unlock( &previous );
+     /* PW_ALERT: pair these against the waits below -- an alert with no wake is a lost
+@@ -3892,6 +3904,20 @@
+ 
+ #if defined(__PROSPERO__) && defined(HAVE_KQUEUE) && !defined(USE_FUTEX)
+     if (ps5_kq < 0) return STATUS_INVALID_CID;
++    {
++        union tid_alert_entry *pw_entry;
++        sigset_t pw_prev;
++        int pw_had = 0;
++        ps5_tid_alert_lock( &pw_prev );
++        if ((pw_entry = ps5_tid_alert_slot( ULongToHandle(get_thread_data()->tid), FALSE )) &&
++            pw_entry->ps5.pending)
++        {
++            pw_entry->ps5.pending = 0;
++            pw_had = 1;
++        }
++        ps5_tid_alert_unlock( &pw_prev );
++        if (pw_had) return STATUS_ALERTED;
++    }
+     if (!timeout || timeout->QuadPart == TIMEOUT_INFINITE)
+     {
+         static int pw_log = -1;

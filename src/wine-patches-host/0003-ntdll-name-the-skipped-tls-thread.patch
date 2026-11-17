@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: orbis-win <orbis-win@invalid>
+Subject: [PATCH] ntdll: name the thread alloc_tls_slot skips
+
+The skip leaves a thread without a TLS block for a newly loaded module, which
+looked like a candidate for Wwise's threads dying. Measured 2026-11-16: it
+reports tid=00d8 teb=0000000000000000, i.e. a thread the loader has not set up
+yet, which allocates its own TLS later. The skip is BENIGN -- recorded so it is
+not chased again.
+
+--- a/dlls/ntdll/loader.c
++++ b/dlls/ntdll/loader.c
+@@ -1374,7 +1374,15 @@
+         thread = next;
+         if (NtQueryInformationThread( thread, ThreadBasicInformation, &tbi, sizeof(tbi), NULL ) || !tbi.TebBaseAddress)
+         {
+-            ERR( "NtQueryInformationThread failed.\n" );
++            /* PW: which thread, and was a TEB simply absent? A skip here leaves
++             * that thread WITHOUT a TLS block for this module. Risk of Rain 2
++             * loads AkSoundEngine (Wwise) as a plugin after its threads exist,
++             * starts 4 audio threads, and all 4 are gone by the time the main
++             * thread parks forever in WaitForSingleObject inside Wwise. The
++             * wineserver is a thread of this process, so a TEB-less skip may be
++             * benign -- this says which it is. */
++            ERR( "NtQueryInformationThread failed. tid=%04x teb=%p\n",
++                 (unsigned int)(ULONG_PTR)tbi.ClientId.UniqueThread, tbi.TebBaseAddress );
+             continue;
+         }
+         teb = tbi.TebBaseAddress;

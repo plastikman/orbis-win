@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: orbis-win <orbis-win@invalid>
+Subject: [PATCH] server: say when a fast sync cell adopts a value
+
+The only path by which a fast-path signal reaches the server. An object that
+never appears here with a non-zero snapshot and never appears in wake_up was
+never signalled by anybody.
+
+--- a/server/event.c
++++ b/server/event.c
+@@ -66,7 +66,22 @@
+     assert(cell->sync && *cell->binding == cell);
+     ps5_sync_queue_publish(cell);
+     if (pw_sync_word_freeze(&cell->word, &snapshot))
++    {
++        /* PW: the ONLY way a fast-path signal reaches the server. Pair with
++         * the watchdog's obj= lines: an object that never appears here with a
++         * non-zero snapshot and never appears in wake_up was never signalled
++         * by anybody. */
++        static int pw_log = -1;
++        if (pw_log < 0)
++        {
++            const char *t = getenv( "PW_WAIT_WATCHDOG" );
++            if (!t) t = getenv( "WINE_PS5_WAIT_WATCHDOG" );
++            pw_log = t && t[0] != '0';
++        }
++        if (pw_log)
++            fprintf( stderr, "wine-ps5: adopt obj=%p snapshot=%u\n", cell->sync, snapshot );
+         cell->adopt_value(cell->sync, snapshot);
++    }
+ }
+ 
+ struct ps5_sync_cell *ps5_sync_prepare(struct object *sync, struct ps5_sync_cell **binding, int *disabled,
