@@ -16,6 +16,12 @@ on:
     branches: [ci/build-from-source]
   workflow_dispatch:
 
+# One run at a time, and a new push cancels the one it supersedes. Without this
+# each push started another multi-hour cold build answering the same question.
+concurrency:
+  group: build-from-source
+  cancel-in-progress: true
+
 jobs:
   from-source:
     runs-on: ubuntu-latest
