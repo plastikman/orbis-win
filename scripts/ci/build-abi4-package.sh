@@ -27,7 +27,14 @@ PKG_VERSION=${PKG_VERSION:-01.00}
 # pkgout/baseline -> the promoted known-good build (GLDS10043 01.21 since
 # 2026-11-05; the 1090 stage before it stays in pkgout for history).
 BASELINE=${PS4_BASELINE_STAGE:-$ROOT/pkgout/baseline/pkg-stage}
-OPENSSL_LIB=${PS4_PKGTOOL_OPENSSL_LIB:-$HOME/.cache/orbis-ports/openssl11/lib}
+# One lookup for every package script (scripts/find-openssl11.sh). A hit is
+# exported, so the bundle's make-pkg.sh uses the same directory instead of
+# fetching a copy; on a miss the old default stays and make-pkg.sh fetches one.
+if OPENSSL_LIB=$("$ROOT/scripts/find-openssl11.sh"); then
+  export PS4_PKGTOOL_OPENSSL_LIB=$OPENSSL_LIB
+else
+  OPENSSL_LIB=${XDG_CACHE_HOME:-$HOME/.cache}/orbis-ports/openssl11/lib
+fi
 SDKBIN=$ROOT/sdk/orbis-sdk-v1/sdk/bin/linux
 
 # The matched ABI-v4 native WoW64 pair that 01.06 shipped. The PE side is built
