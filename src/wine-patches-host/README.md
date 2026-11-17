@@ -22,3 +22,9 @@ packages in a row whose shipped PE `ntdll.dll` was byte-identical and markerless
    assemble from whatever artifacts exist and do not fail when a compile fails.
 
 Note PE-side ntdll has no `getenv`; use `RtlQueryEnvironmentVariable_U`.
+
+## This series does not reproduce the tree
+
+It is for review and porting, not for rebuilding. The trees are pinned as git
+bundles in `src/wine-trees/` — see that README for the numbers and the restore
+recipe (`scripts/restore-wine-trees.sh`).
