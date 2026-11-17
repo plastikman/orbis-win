@@ -38,7 +38,11 @@ jobs:
           # fails and the only clue is "configure failed; see configure.log".
           sudo apt-get install -y -qq build-essential clang lld llvm cmake \
             ninja-build glslang-tools gcc-mingw-w64-x86-64 gcc-mingw-w64-i686 \
-            g++-mingw-w64-i686 bison flex perl pkg-config python3 curl lftp
+            g++-mingw-w64-i686 bison flex perl pkg-config python3 curl lftp \
+            libx11-dev libxext-dev libxrandr-dev libxi-dev libxcursor-dev \
+            libxcomposite-dev libxinerama-dev libxrender-dev libxfixes-dev \
+            libfreetype-dev libfontconfig1-dev libgnutls28-dev libvulkan-dev \
+            libasound2-dev
           clang --version | head -1
 
       - name: Nix (Mesa's build deps come from nix develop nixpkgs#mesa)
