@@ -25,8 +25,13 @@ PATH="$TOOL_DIR:$PATH"; export PATH
 # The ARC runner invokes the cached compiler through /orbis-cache/deps, which
 # also contains the SDK marker; prefer the workspace link created by
 # scripts/ci/prepare-runner.sh so linker scripts and sources come from checkout.
-ROOT=${PW_PS4_ROOT:-/home/zpeirce/ps4-gladius}
-if [ ! -f "$ROOT/sdk/orbis-sdk-v1/BUNDLE.txt" ]; then
+# Self-locate by default: walk up from this shim until the SDK marker appears.
+# PW_PS4_ROOT is the explicit override. Previously this defaulted to one
+# workstation's absolute path, which on that workstation SHADOWED the walk-up
+# and linked another checkout's libwineshim.a into this build, and elsewhere
+# simply did not exist.
+ROOT=${PW_PS4_ROOT:-}
+if [ -z "$ROOT" ] || [ ! -f "$ROOT/sdk/orbis-sdk-v1/BUNDLE.txt" ]; then
   ROOT=$TOOL_DIR
   while [ "$ROOT" != / ] && [ ! -f "$ROOT/sdk/orbis-sdk-v1/BUNDLE.txt" ]; do
     ROOT=$(dirname "$ROOT")
@@ -38,7 +43,11 @@ fi
 }
 SDK="$ROOT/sdk/orbis-sdk-v1/sdk"
 SDKLIB="$SDK/lib"
+# mesa-build/ is the CI cache layout (scripts/ci/prepare-runner.sh links it).
+# A from-source checkout has the same pieces inside the fetched SDK bundle, so
+# fall back to that instead of failing on a directory only the runner has.
 MESA_BUILD=${MESA_BUILD:-$ROOT/mesa-build}
+[ -d "$MESA_BUILD/orbis-compat" ] || MESA_BUILD="$ROOT/sdk/orbis-sdk-v1"
 # ⚠ EACH PRX LINKS ITS OWN libunwind, so each must define the four symbols it
 # finds unwind tables through. The executable linker script provides them;
 # a shared link does not, and create-fself refuses the undefined
@@ -81,7 +90,13 @@ STUBS="$ROOT/build/ps4-wine-sdk/libps4stubs.a"
 # binary: cmpl $0x0, 0x4(%rdi,%rax). Wine calls wcslen, wmemchr and wmemcmp.
 OCLIB="$ROOT/build/ps4-wine-sdk/liborbis-compat-16bit-wchar.a"
 
-CFLAGS="--target=x86_64-scei-ps4 -fPIC -funwind-tables
+# ⚠ THE BUILD EMBEDS ITS OWN ABSOLUTE PATH. Wine's __FILE__ strings put the
+# source directory into every module (10 in ntdll.prx), so two checkouts at
+# different paths cannot produce identical bytes from identical sources.
+# PW_FILE_PREFIX_MAP=<from>=<to> rewrites them.
+PREFIX_MAP="${PW_FILE_PREFIX_MAP:+-ffile-prefix-map=$PW_FILE_PREFIX_MAP}"
+
+CFLAGS="$PREFIX_MAP --target=x86_64-scei-ps4 -fPIC -funwind-tables
   -D__PS4__ -DPS4 -DORBIS -D__ORBIS__ -D__PROSPERO__ -D_BSD_SOURCE=1 -fno-visibility-from-dllstorageclass
   -isysroot $SDK -isystem $ROOT/src/freebsd-compat -isystem $MESA_BUILD/orbis-compat/include -isystem $SDK/include"
 
@@ -104,6 +119,9 @@ CFLAGS="--target=x86_64-scei-ps4 -fPIC -funwind-tables
 # relocations stripped has to live.
 if [ "${PW_NO_PIE:-}" = 1 ]; then PIE=""; else PIE="-pie"; fi
 EXE_LD_SCRIPT="${PW_EXECUTABLE_LD_SCRIPT:-$MESA_BUILD/orbis-porting-kit/cmake/orbis-tls.ld}"
+# The SDK bundle keeps the identical script under orbis-compat/ (verify.sh
+# checks the two copies are byte-identical).
+[ -f "$EXE_LD_SCRIPT" ] || EXE_LD_SCRIPT="$MESA_BUILD/orbis-compat/cmake/orbis-tls.ld"
 EXE_NO_RELRO=""
 if [ "${PW_EXECUTABLE_NO_RELRO:-0}" = 1 ]; then EXE_NO_RELRO="-Wl,-z,norelro"; fi
 EXE_COMPAT="-Wl,--whole-archive $MESA_BUILD/orbis-compat/build/liborbis-compat.a -Wl,--no-whole-archive"
