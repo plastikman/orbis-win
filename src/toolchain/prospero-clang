@@ -52,11 +52,15 @@ MESA_BUILD=${MESA_BUILD:-$ROOT/mesa-build}
 # finds unwind tables through. The executable linker script provides them;
 # a shared link does not, and create-fself refuses the undefined
 # __eh_frame_end. prospero-win ships exactly this script for its own PRX link.
-# ⚠ THE 28 WRAPS BELONG ON EVERY MODULE THAT LINKS THE cwd SHIM.
+# ⚠ THE 29 WRAPS BELONG ON EVERY MODULE THAT LINKS THE cwd SHIM.
 # pw_wine_cwd_libc.c defines __wrap_open and calls __real_open; lld creates
 # that pairing only when told to, per symbol. Without them the link leaves
 # __real_stat undefined — which a .so tolerates and create-fself does not.
-CWDWRAPS="-Wl,--wrap=access -Wl,--wrap=chdir -Wl,--wrap=chmod -Wl,--wrap=close -Wl,--wrap=fchdir -Wl,--wrap=fopen -Wl,--wrap=fstatat -Wl,--wrap=getcwd -Wl,--wrap=link -Wl,--wrap=lstat -Wl,--wrap=mkdir -Wl,--wrap=mkdirat -Wl,--wrap=open -Wl,--wrap=openat -Wl,--wrap=opendir -Wl,--wrap=readlink -Wl,--wrap=realpath -Wl,--wrap=rename -Wl,--wrap=renameat -Wl,--wrap=rmdir -Wl,--wrap=stat -Wl,--wrap=statfs -Wl,--wrap=symlink -Wl,--wrap=symlinkat -Wl,--wrap=truncate -Wl,--wrap=unlink -Wl,--wrap=unlinkat -Wl,--wrap=utimes"
+# dup joined the shim in prospero-win 8471db8 (__wrap_dup falls back to
+# sceKernelRdup); without --wrap=dup the app PRX link fails "missing library
+# for symbol (__real_dup)" (measured 2026-11-17, prospero-win fe5c8d1).
+# src/native/CMakeLists.txt wraps it for the same reason.
+CWDWRAPS="-Wl,--wrap=access -Wl,--wrap=chdir -Wl,--wrap=chmod -Wl,--wrap=close -Wl,--wrap=dup -Wl,--wrap=fchdir -Wl,--wrap=fopen -Wl,--wrap=fstatat -Wl,--wrap=getcwd -Wl,--wrap=link -Wl,--wrap=lstat -Wl,--wrap=mkdir -Wl,--wrap=mkdirat -Wl,--wrap=open -Wl,--wrap=openat -Wl,--wrap=opendir -Wl,--wrap=readlink -Wl,--wrap=realpath -Wl,--wrap=rename -Wl,--wrap=renameat -Wl,--wrap=rmdir -Wl,--wrap=stat -Wl,--wrap=statfs -Wl,--wrap=symlink -Wl,--wrap=symlinkat -Wl,--wrap=truncate -Wl,--wrap=unlink -Wl,--wrap=unlinkat -Wl,--wrap=utimes"
 # ⚠ crtlib.o, NOT crt1.o, FOR MODULES. create-fself needs a
 # .data.sce_module_param section and crashes without it:
 #   panic: nil pointer dereference in GenerateProgramHeaders
