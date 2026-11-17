@@ -37,7 +37,7 @@ were built as a pair. Do not assemble those three yourself.
 them (157/112/40 of 310 present/absent/partial, and `--check-patches` fails
 outright). Restore the pinned trees instead:
 
-    scripts/restore-wine-trees.sh <dir>          # from ps4-gladius/src/wine-trees
+    scripts/restore-wine-trees.sh <dir>          # pins in src/wine-trees/
     cp -a <dir>/wine-ps5  prospero-win/.deps/wine-ps5/source
     cp -a <dir>/wine-host prospero-win/.deps/wine-host/source
 
@@ -102,13 +102,11 @@ on the line, and every shim entry is defined twice.
 
 ## 6. Mesa / RADV
 
-    git clone https://github.com/orbis-ports/mesa-ps4.git mesa-build/mesa-ps4
-    git -C mesa-build/mesa-ps4 checkout --detach 1a59cc1
-
 The `src/mesa-patches-ps4` series does **not** reproduce the shipped tree either
 (35 of 45 apply; the failures include `0041`, which defines
-`wsi_orbis_cursor_update` — the symbol the RADV PRX link needs). Apply the
-pinned delta instead, as for Wine.
+`wsi_orbis_cursor_update` — the symbol the RADV PRX link needs). Use the pin:
+
+    scripts/restore-mesa-tree.sh "$PWD/mesa-build"   # pins in src/mesa-trees/
 
     ORBIS_COMPAT_DIR="$PWD/sdk/orbis-sdk-v1/orbis-compat" \
     OO_PS4_TOOLCHAIN="$PWD/sdk/orbis-sdk-v1/sdk" \
@@ -167,3 +165,30 @@ Exit 0 or do not install.
 The gate reports WARNs for PS4-specific `orbis_*` strings present in a baseline
 built against a locally-built orbis-compat but absent from one built against the
 bundle's. They need a written disposition, not a fix.
+
+## What you must supply yourself
+
+Everything else in this file is public and fetched by the steps above. Three
+things are not in this repository and cannot be:
+
+1. **`sce_module/libc.prx` and `libSceFios2.prx`** — Sony modules, from a
+   console you own (step 9). Not redistributable.
+2. **A known-good package stage** for the parity gate's baseline (step 11).
+   Unpack a published release, or use a stage you have already validated.
+3. **Host packages and nix** (step 0), which need root.
+
+Everything else — the SDK bundle, prospero-win, upstream Wine, mesa-ps4,
+PS5_Mesa, llvm-mingw — comes from a public URL pinned by commit or SHA-256.
+
+## What was verified, and what was not
+
+Verified 2026-11-17 on a Debian 13 laptop that is not the build host:
+every step above ran, and `check-ps4-package-parity.py` exited 0 (19 PASS,
+0 FAIL) on the resulting package, which was then uploaded to the GLDS10043
+test slot.
+
+**Not** verified: nobody has launched that package on a console, and nobody
+other than its author has followed this file end to end. The gate is evidence
+that the build is correct, not that the instructions are complete. The first
+person to follow this file should treat it as a validation run and fix what
+they trip over here.
