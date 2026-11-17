@@ -44,8 +44,15 @@ llvm-ar rcs "$OUT/libps4stubs.a" "$OBJ/stubs.o" "$OBJ/pw_wine_dmem_glue_ps4.o"
 
 # Wine uses 16-bit WCHAR on this target. The paired bundle's compatibility
 # archive contains the SDK-compatible routines; preserve that exact archive.
-cp "$BUNDLE/orbis-compat/build/liborbis-compat.a" "$OUT/liborbis-compat-16bit-wchar.a"
+# ⚠ AN UNPINNED BUILD INPUT until 2026-11-17. The bundle ships 114,252 bytes
+# defining NO orbis_jit_alloc/orbis_report; the archive GLDS10043 02.59 linked
+# is 190,196 bytes and defines them. PW_ORBIS_COMPAT names the one to use.
+ORBIS_COMPAT="${PW_ORBIS_COMPAT:-$BUNDLE/orbis-compat}"
+[[ -f "$ORBIS_COMPAT/build/liborbis-compat.a" ]] ||
+  { echo "no liborbis-compat.a under $ORBIS_COMPAT" >&2; exit 1; }
+echo "orbis-compat: $ORBIS_COMPAT ($(sha256sum "$ORBIS_COMPAT/build/liborbis-compat.a" | cut -c1-16))"
+cp "$ORBIS_COMPAT/build/liborbis-compat.a" "$OUT/liborbis-compat-16bit-wchar.a"
 llvm-objcopy --only-section=.data.sce_module_param \
-  "$BUNDLE/orbis-compat/build/crt/crtlib.o" "$OUT/module_param.o"
+  "$ORBIS_COMPAT/build/crt/crtlib.o" "$OUT/module_param.o"
 [[ -s "$OUT/module_param.o" ]] || { echo "failed to extract module parameter section" >&2; exit 1; }
 echo "PS4 toolchain support ready: $OUT"
