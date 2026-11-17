@@ -32,8 +32,13 @@ jobs:
       - name: Host packages
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq clang lld llvm cmake ninja-build \
-            glslang-tools gcc-mingw-w64-x86-64 gcc-mingw-w64-i686 lftp
+          # Wine's configure needs bison/flex/perl/pkg-config and a C++
+          # toolchain; the self-hosted runner installs these too
+          # (.github/workflows/build-ps4-package.yml). Without them configure
+          # fails and the only clue is "configure failed; see configure.log".
+          sudo apt-get install -y -qq build-essential clang lld llvm cmake \
+            ninja-build glslang-tools gcc-mingw-w64-x86-64 gcc-mingw-w64-i686 \
+            g++-mingw-w64-i686 bison flex perl pkg-config python3 curl lftp
           clang --version | head -1
 
       - name: Nix (Mesa's build deps come from nix develop nixpkgs#mesa)
@@ -100,6 +105,20 @@ jobs:
           echo "## ntdll carries the PS4 port" >> "$GITHUB_STEP_SUMMARY"
           strings prospero-win/.deps/wine-ps5/build/dlls/ntdll/ntdll.so \
             | grep -c 'PW_PS4\|pw_wine' | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Without these a failure says only "configure failed; see configure.log",
+      # and the log dies with the runner.
+      - name: Build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            prospero-win/.deps/wine/configure.log
+            prospero-win/.deps/wine/make.log
+            prospero-win/.deps/wine-ps5/configure.log
+            prospero-win/.deps/wine-ps5/make.log
+          if-no-files-found: warn
 
       - uses: actions/upload-artifact@v4
         with:
