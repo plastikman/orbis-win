@@ -82,7 +82,13 @@ prepare_toolchain() {
     src=$(command -v ld.lld-19 || command -v ld.lld)
     ln -sfn "$src" orbis-ld
 }
-stamped toolchain "$(sha256sum "$ROOT/src/toolchain/prospero-clang" | cut -c1-16)" \
+# ⚠ The stamp must cover everything the archives are built FROM, not just the
+# shim: libwineshim.a compiles src/native/*.c and prospero-win's wine/ps5 units.
+# Keyed on the shim alone, a change to src/native would be silently skipped and
+# the build would ship the previous objects -- this project's most common bug.
+stamped toolchain \
+    "$(pin_stamp "$ROOT/src/toolchain/prospero-clang" "$ROOT"/src/native/*.c \
+        "$PW"/wine/ps5/*.c 2>/dev/null)" \
     prepare_toolchain
 
 # ------------------------------------------------------------------- Wine
