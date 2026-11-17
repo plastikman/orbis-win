@@ -1,0 +1,102 @@
+# Build orbis-win from source on a GitHub-hosted runner.
+#
+# This exists because the existing CI (scripts/ci/) assembles from a private
+# 26 GB cache and then symlinks the repo to one person's home directory, so a
+# green run there says nothing about whether anyone else can build. This job
+# starts from nothing: a clone, public pins, and public downloads.
+#
+# It deliberately stops before packaging. eboot packaging needs
+# sce_module/libc.prx and libSceFios2.prx, which are Sony's and are not in this
+# repository. What it does prove is everything up to that point: the SDK, the
+# pinned Wine/Mesa trees, the toolchain, Wine itself and every PRX.
+name: build-from-source
+
+on:
+  push:
+    branches: [ci/build-from-source]
+  workflow_dispatch:
+
+jobs:
+  from-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Host packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang lld llvm cmake ninja-build \
+            glslang-tools gcc-mingw-w64-x86-64 gcc-mingw-w64-i686 lftp
+          clang --version | head -1
+
+      - name: Nix (Mesa's build deps come from nix develop nixpkgs#mesa)
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: prereqs.sh
+        run: bash scripts/prereqs.sh
+
+      - name: SDK bundle (public release, checksummed)
+        run: ./scripts/fetch-sdk.sh
+
+      - name: prospero-win
+        run: git clone -q https://github.com/plastikman/prospero-win.git prospero-win
+
+      - name: Restore the pinned Wine trees
+        run: |
+          ./scripts/restore-wine-trees.sh "$PWD/wine-trees"
+          mkdir -p prospero-win/.deps/wine-ps5 prospero-win/.deps/wine-host prospero-win/.deps/wine
+          cp -a wine-trees/wine-ps5  prospero-win/.deps/wine-ps5/source
+          cp -a wine-trees/wine-host prospero-win/.deps/wine-host/source
+          git clone -q --no-checkout https://gitlab.winehq.org/wine/wine.git prospero-win/.deps/wine/source
+          git -C prospero-win/.deps/wine/source checkout -q --detach \
+            490f6d5dcbb2a5047345b8af88d114bbcaad69a8
+
+      - name: Restore the pinned mesa-ps4 tree
+        run: ./scripts/restore-mesa-tree.sh "$PWD/mesa-build"
+
+      - name: Toolchain support archives
+        run: |
+          ./scripts/prepare-ps4-toolchain.sh
+          cd build/ps4-wine-sdk/bin
+          for t in llvm-ar llvm-ranlib llvm-nm llvm-objcopy llvm-readelf llvm-strip; do
+            ln -sfn "$(command -v $t || command -v $t-19)" $t
+          done
+          ln -sfn "$(command -v ld.lld || command -v ld.lld-19)" orbis-ld
+          ls -la
+
+      - name: Host Wine runtime
+        run: sh prospero-win/tools/build_wine_runtime.sh --jobs "$(nproc)"
+
+      - name: PS4 Wine (from the pinned tree)
+        run: |
+          PROSPERO_WINE_PREPATCHED=1 PW_PRX_LINK=1 \
+            sh prospero-win/tools/build_wine_ps5.sh --sdk "$PWD/build/ps4-wine-sdk"
+
+      - name: Mesa / RADV
+        run: |
+          ORBIS_COMPAT_DIR="$PWD/sdk/orbis-sdk-v1/orbis-compat" \
+          OO_PS4_TOOLCHAIN="$PWD/sdk/orbis-sdk-v1/sdk" \
+            bash mesa-build/mesa-ps4/ps4/build.sh
+
+      - name: PRX modules
+        run: |
+          sh scripts/prx-ps4.sh
+          sh scripts/freetype-prx-ps4.sh
+          M="$PWD/mesa-build/mesa-ps4"
+          PW_RADV_MESA_SRC="$M" PW_RADV_MESA_BUILD="$M/build-orbis" sh scripts/radv-prx-ps4.sh
+          sh scripts/wineps5-prx-ps4.sh
+
+      - name: What was built
+        run: |
+          echo "## PRX modules" >> "$GITHUB_STEP_SUMMARY"
+          ls -la prospero-win/.deps/wine-ps5/prx/sce_module/ | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "## ntdll carries the PS4 port" >> "$GITHUB_STEP_SUMMARY"
+          strings prospero-win/.deps/wine-ps5/build/dlls/ntdll/ntdll.so \
+            | grep -c 'PW_PS4\|pw_wine' | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prx-modules
+          path: prospero-win/.deps/wine-ps5/prx/sce_module/*.prx
+          if-no-files-found: error
