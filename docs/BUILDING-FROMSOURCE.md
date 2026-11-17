@@ -130,6 +130,18 @@ wow64native.
 "Mesa Zink OpenGL provider missing" and every `graphics = opengl` title is
 refused at startup.
 
+## 8b. orbis-compat (optional)
+
+Every PRX links `liborbis-compat-16bit-wchar.a`, which
+`prepare-ps4-toolchain.sh` takes from the fetched SDK bundle by default. A
+different copy changes the bytes of every module, so the script now prints its
+hash. To link the one older packages used, see `src/orbis-compat-pin/` and pass:
+
+    PW_ORBIS_COMPAT=/path/to/orbis-compat ./scripts/prepare-ps4-toolchain.sh
+
+The bundle's copy is fine for building — it passes the gate. Use the pin when
+you want the `orbis_*` diagnostics or are comparing two packages.
+
 ## 9. Console modules
 
 Copy `libc.prx` and `libSceFios2.prx` from a console you own into `sce_module/`.
@@ -165,6 +177,31 @@ Exit 0 or do not install.
 The gate reports WARNs for PS4-specific `orbis_*` strings present in a baseline
 built against a locally-built orbis-compat but absent from one built against the
 bundle's. They need a written disposition, not a fix.
+
+## Reproducible output
+
+The build embeds its own absolute path: Wine's `__FILE__` strings put the source
+directory into every module (10 of them in `ntdll.prx`). Two checkouts at
+different paths therefore produce different bytes from identical sources. Map
+the checkout to a fixed stand-in so output does not depend on where you built:
+
+    PW_FILE_PREFIX_MAP="$PWD/prospero-win/.deps/wine-ps5/source=/orbis-win"
+
+Measured: the toolchain is otherwise **deterministic** — two builds of identical
+input are byte-identical.
+
+## If you are picking this up to contribute
+
+The build does not need the original build host, and these are the places it
+will fight you, all of them already fixed on this branch:
+
+* Four inputs that no patch series reproduces — `wine-ps5`, `wine-host`,
+  `mesa-ps4` and `orbis-compat`. Pins and restore scripts are in `src/`.
+  **Re-pin after you change any of them**; a stale pin lies.
+* A green build proves nothing. `prx-ps4.sh` and friends assemble from whatever
+  objects exist. Verify content (`strings`, `sha256sum`) in `pkg-stage`.
+* The parity gate is the decision. Exit 0 or do not install. Its WARNs are not
+  cosmetic — one of them was an unpinned orbis-compat for weeks.
 
 ## What you must supply yourself
 
