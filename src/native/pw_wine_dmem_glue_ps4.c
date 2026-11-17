@@ -34,6 +34,8 @@
 #include "pw_wine_heap.h"
 #include <errno.h>
 #include <signal.h>
+#include <unistd.h>      /* pipe/read/write/close for the probe */
+#include <sys/event.h>   /* kqueue/kevent for the PW_PS4_KQ_PROBE self-test */
 #include <sys/time.h>
 #include <stdarg.h>
 #include <stddef.h>
@@ -1989,7 +1991,7 @@ static void watch_oblivion_rx_pages(unsigned int sample)
 #include "../freebsd-compat/machine/fbsd_mcontext.h"
 
 #define PW_GUEST_SAMPLE_OFFSET 64        /* mcontext within ucontext, measured (fault_probe) */
-#define PW_GUEST_SAMPLE_MAX    400       /* bounded: a wedge would otherwise log forever */
+#define PW_GUEST_SAMPLE_MAX    100000       /* bounded: a wedge would otherwise log forever */
 
 static volatile unsigned int guest_samples;
 static volatile unsigned int guest_sample_logged;
@@ -2000,10 +2002,18 @@ static void guest_sample_handler(int sig, siginfo_t *info, void *uc)
     char line[160];
     unsigned int n;
 
-    (void)sig; (void)info;
+    /* A poke from the wait watchdog is thr_kill2 -> si_code says a thread sent
+     * it, where the 10 Hz ITIMER says the kernel did. Only the poked samples
+     * are interesting: they are the WEDGED threads. Without this the budget is
+     * spent on timer ticks during startup (guest_samples=897 by the time a
+     * title hangs) and the hang itself reports nothing. */
+    int pw_poked;
+
+    (void)sig;
     if (!uc) return;
+    pw_poked = info && info->si_code <= 0;   /* SI_USER / SI_LWP are <= 0 */
     n = __atomic_add_fetch(&guest_samples, 1, __ATOMIC_RELEASE);
-    if (n > PW_GUEST_SAMPLE_MAX) return;
+    if (!pw_poked && n > PW_GUEST_SAMPLE_MAX) return;
     mc = (const struct pw_fbsd_mcontext *)((const char *)uc + PW_GUEST_SAMPLE_OFFSET);
     /* mc_len is the console's 1152, not FreeBSD 9's 800: it validates the offset is right. */
     if (mc->mc_len != 1152) {
@@ -2014,7 +2024,8 @@ static void guest_sample_handler(int sig, siginfo_t *info, void *uc)
         return;
     }
     snprintf(line, sizeof(line),
-             "wine-ps4: guest-sample %u tid=%lu rip=%llx rsp=%llx rbp=%llx trapno=%u cs=%llx\n",
+             "wine-ps4: guest-sample%s %u tid=%lu rip=%llx rsp=%llx rbp=%llx trapno=%u cs=%llx\n",
+             pw_poked ? "-POKED" : "",
              n, glue_tid(), (unsigned long long)mc->mc_rip, (unsigned long long)mc->mc_rsp,
              (unsigned long long)mc->mc_rbp, (unsigned)mc->mc_trapno,
              (unsigned long long)mc->mc_cs);
@@ -2025,7 +2036,7 @@ static void guest_sample_handler(int sig, siginfo_t *info, void *uc)
      * can symbolize. Walk a bounded window of the stack and print the words -- one caller is
      * enough to say WHICH wait the thread is parked in. Only for the first few samples: a wedged
      * thread repeats the same stack forever and flooding klog buys nothing. */
-    if (n <= 3) {
+    if (n <= 200 || pw_poked) {
         const uint64_t *sp = (const uint64_t *)(uintptr_t)mc->mc_rsp;
         char words[200];
         int used = 0, i;
@@ -2084,7 +2095,13 @@ static int guest_sampler_start(void)
 
     memset(&sa, 0, sizeof(sa));
     sa.sa_sigaction = guest_sample_handler;
-    sa.sa_flags = SA_SIGINFO | SA_RESTART | SA_ONSTACK;
+    /* ⚠ No SA_RESTART. The wait watchdog pokes a wedged thread with SIGALRM and
+     * what actually frees it is the syscall returning EINTR so the thread
+     * re-checks its condition -- measured 2026-11-16, Risk of Rain 2 went from a
+     * hard wall at 2% to live progress at 26% on exactly that. SA_RESTART would
+     * restart the syscall instead and undo it. The handler samples; the EINTR
+     * is the point. */
+    sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
     sigemptyset(&sa.sa_mask);
     act_rc = sigaction(SIGALRM, &sa, NULL);
 
@@ -2094,9 +2111,21 @@ static int guest_sampler_start(void)
      * burned nothing. Wall clock delivers regardless of who is running. tid= on each sample
      * says which thread answered, so "one thread, never moving" is distinguishable from
      * "every thread, busy". */
-    it.it_interval.tv_sec = 0; it.it_interval.tv_usec = 100000;   /* 10 Hz */
-    it.it_value = it.it_interval;
-    timer_rc = setitimer(ITIMER_REAL, &it, NULL);
+    /* ⚠ The free-running timer is OFF by default. Signal flags are per-signal,
+     * not per-sender: with SA_RESTART dropped (so a poke frees a wedged thread
+     * via EINTR) a 10 Hz ITIMER would also EINTR ten HEALTHY threads a second,
+     * forever. The watchdog's pokes already aim at exactly the wedged threads.
+     * PW_PS4_SAMPLE_TIMER=1 brings the free-running sampler back. */
+    {
+        const char *want = getenv("PW_PS4_SAMPLE_TIMER");
+        if (want && want[0] == '1')
+        {
+            it.it_interval.tv_sec = 0; it.it_interval.tv_usec = 100000;   /* 10 Hz */
+            it.it_value = it.it_interval;
+            timer_rc = setitimer(ITIMER_REAL, &it, NULL);
+        }
+        else timer_rc = 0;
+    }
 
     snprintf(line, sizeof(line), "wine-ps4: guest-sampler sigaction=%d setitimer=%d errno=%d\n",
              act_rc, timer_rc, errno);
@@ -2214,8 +2243,141 @@ static void *mmap_fixed_anon_chunked(void *address, size_t bytes, int protection
     return address;
 }
 
+
+/* ⚠ PROBE, PW_PS4_KQ_PROBE=1 only. Does EVFILT_USER/NOTE_TRIGGER actually wake a
+ * BLOCKED kevent() on this console? Every wedged thread in Risk of Rain 2 and
+ * Hollow Knight sits in kevent() inside NtWaitForAlertByThreadId while the
+ * sender reports success (2026-11-16), which points here -- but that was an
+ * inference, and a fix built on it made things worse. This answers it directly:
+ * one thread blocks, another triggers 200 ms later, and we print what happened.
+ * A pipe write is measured the same way, so the two are compared like for like. */
+struct pw_kq_probe { int kq; int pipe_w; };
+
+static void *pw_kq_probe_trigger(void *arg)
+{
+    struct pw_kq_probe *p = arg;
+    struct kevent ev;
+    struct timespec nap = { 0, 200 * 1000 * 1000 };
+    char byte = 1;
+    nanosleep(&nap, NULL);
+    EV_SET(&ev, 1, EVFILT_USER, 0, NOTE_TRIGGER, 0, NULL);
+    (void)kevent(p->kq, &ev, 1, NULL, 0, NULL);
+    nanosleep(&nap, NULL);
+    if (p->pipe_w >= 0) (void)write(p->pipe_w, &byte, 1);
+    return NULL;
+}
+
+/* Which libkernel wait is the wedge? Every wedged thread sampled at
+ * rip=libkernel+0x13bc, and NtWaitForAlertByThreadId calls BOTH kevent() and
+ * pthread_mutex_lock(). Park a thread in each on purpose, signal it, and let the
+ * sampler print its rip: whichever matches 0x13bc is the one they are stuck in. */
+static pthread_mutex_t pw_probe_mx = PTHREAD_MUTEX_INITIALIZER;
+
+static void *pw_probe_in_kevent(void *arg)
+{
+    int kq = *(int *)arg;
+    struct kevent got;
+    struct timespec limit = { 5, 0 };
+    sceKernelDebugOutText(0, "wine-ps4: kq-probe parking a thread in kevent\n");
+    (void)kevent(kq, NULL, 0, &got, 1, &limit);
+    return NULL;
+}
+
+static void *pw_probe_in_mutex(void *arg)
+{
+    (void)arg;
+    sceKernelDebugOutText(0, "wine-ps4: kq-probe parking a thread in pthread_mutex_lock\n");
+    pthread_mutex_lock(&pw_probe_mx);
+    pthread_mutex_unlock(&pw_probe_mx);
+    return NULL;
+}
+
+static void pw_kq_probe_where(void)
+{
+    pthread_t a, b;
+    struct timespec nap = { 0, 300 * 1000 * 1000 };
+    int kq = kqueue();
+    if (kq < 0) return;
+    pthread_mutex_lock(&pw_probe_mx);          /* so the second thread must block */
+    if (!pthread_create(&a, NULL, pw_probe_in_kevent, &kq)) {
+        nanosleep(&nap, NULL);
+        sceKernelDebugOutText(0, "wine-ps4: kq-probe sampling the kevent thread\n");
+        pthread_kill(a, SIGALRM);
+        nanosleep(&nap, NULL);
+    }
+    if (!pthread_create(&b, NULL, pw_probe_in_mutex, NULL)) {
+        nanosleep(&nap, NULL);
+        sceKernelDebugOutText(0, "wine-ps4: kq-probe sampling the mutex thread\n");
+        pthread_kill(b, SIGALRM);
+        nanosleep(&nap, NULL);
+    }
+    pthread_mutex_unlock(&pw_probe_mx);
+    pthread_join(b, NULL);
+    pthread_join(a, NULL);
+    close(kq);
+}
+
+static void pw_kq_probe_run(void)
+{
+    struct pw_kq_probe ctx;
+    struct kevent ev, got;
+    struct timespec limit = { 1, 0 };
+    pthread_t th;
+    char line[200];
+    int fds[2] = { -1, -1 }, user_rc, pipe_rc;
+
+    ctx.kq = kqueue();
+    if (ctx.kq < 0) { sceKernelDebugOutText(0, "wine-ps4: kq-probe kqueue failed\n"); return; }
+    EV_SET(&ev, 1, EVFILT_USER, EV_ADD | EV_CLEAR, 0, 0, NULL);
+    if (kevent(ctx.kq, &ev, 1, NULL, 0, NULL) < 0) {
+        sceKernelDebugOutText(0, "wine-ps4: kq-probe EVFILT_USER register failed\n");
+        close(ctx.kq); return;
+    }
+    ctx.pipe_w = -1;
+    if (pipe(fds) == 0) {
+        ctx.pipe_w = fds[1];
+        EV_SET(&ev, fds[0], EVFILT_READ, EV_ADD, 0, 0, NULL);
+        if (kevent(ctx.kq, &ev, 1, NULL, 0, NULL) < 0) ctx.pipe_w = -1;
+    }
+    if (pthread_create(&th, NULL, pw_kq_probe_trigger, &ctx)) {
+        sceKernelDebugOutText(0, "wine-ps4: kq-probe thread failed\n");
+        close(ctx.kq); return;
+    }
+    /* 1: woken. 0: timed out -- the trigger did NOT wake a blocked kevent. */
+    user_rc = kevent(ctx.kq, NULL, 0, &got, 1, &limit);
+    pipe_rc = kevent(ctx.kq, NULL, 0, &got, 1, &limit);
+    snprintf(line, sizeof(line),
+             "wine-ps4: kq-probe EVFILT_USER wake=%d (1=woke 0=TIMED OUT) then pipe wake=%d filter=%d errno=%d\n",
+             user_rc, pipe_rc, pipe_rc > 0 ? (int)got.filter : 0, errno);
+    sceKernelDebugOutText(0, line);
+    pthread_join(th, NULL);
+    if (fds[0] >= 0) close(fds[0]);
+    if (fds[1] >= 0) close(fds[1]);
+    close(ctx.kq);
+}
+
 void *__wine_ps5_mmap(void *address, size_t bytes, int protection, int flags, int fd, off_t offset)
 {
+    /* The sampler used to arm only as a side effect of the direct-memory path
+     * succeeding, so on a run where that did not happen SIGALRM had NO handler
+     * at all: the watchdog's pokes still freed threads (via EINTR) but reported
+     * nothing, leaving the wedged threads invisible. Arm it here, early and
+     * once, whenever the switch is on. */
+    {
+        static int pw_sampler_armed;
+        if (!pw_sampler_armed)
+        {
+            const char *pw_t = getenv("PW_PS4_GUEST_SAMPLER");
+            const char *pw_p = getenv("PW_PS4_KQ_PROBE");
+            pw_sampler_armed = 1;
+            if (pw_t && pw_t[0] == '1') (void)guest_sampler_start();
+            if (pw_p && pw_p[0] == '1') {
+                (void)guest_sampler_start();   /* the handler is what prints the rip */
+                pw_kq_probe_run();
+                pw_kq_probe_where();
+            }
+        }
+    }
     uintptr_t caller = (uintptr_t)__builtin_return_address(0);
     uintptr_t at = page_down(address), end = at + page_span(address, bytes);
     size_t piece;

@@ -1,0 +1,122 @@
+diff --git a/src/util/util_shared_res.cpp b/src/util/util_shared_res.cpp
+index 2a86da71..5b6350e7 100644
+--- a/src/util/util_shared_res.cpp
++++ b/src/util/util_shared_res.cpp
+@@ -5,15 +5,80 @@
+ #include <winioctl.h>
+ #endif
+ 
++#include <mutex>
++#include <unordered_map>
++#include <vector>
++#include <cstring>
++#include <algorithm>
++
+ namespace dxvk {
+ 
++  /* PS4 (Orbis-Win): \\.\SharedGpuResource is a Proton device. Upstream Wine
++   * does not provide it -- Wine 11 carries shared resources through D3DKMT,
++   * which gives DXVK the shared HANDLE but not this metadata sidecar. Without
++   * it ExportImageInfo warns "Failed to write shared resource info" and a
++   * second D3D11 device can never open the texture: Risk of Rain 2 renders,
++   * reaches 2% of its load and every thread parks for good (2026-11-16).
++   *
++   * The device exists to carry metadata BETWEEN PROCESSES. On this console
++   * everything -- both D3D11 devices, and the wineserver itself -- lives in
++   * one process, so a process-local store is an exact substitute. The real
++   * device is still tried first, so on Proton nothing below ever runs. */
++  namespace {
++    struct LocalSharedStore {
++      std::mutex                                            lock;
++      std::unordered_map<HANDLE, uintptr_t>                 handles;  // our handle -> kmt handle
++      std::unordered_map<uintptr_t, std::vector<uint8_t>>   meta;     // kmt handle -> metadata
++
++      static LocalSharedStore& get() { static LocalSharedStore s; return s; }
++    };
++
++    HANDLE localOpenKmtHandle(HANDLE kmt_handle) {
++      // A real kernel handle, so the caller's CloseHandle stays valid.
++      HANDLE h = ::CreateEventA(nullptr, FALSE, FALSE, nullptr);
++      if (!h || h == INVALID_HANDLE_VALUE)
++        return INVALID_HANDLE_VALUE;
++      auto& st = LocalSharedStore::get();
++      std::lock_guard<std::mutex> guard(st.lock);
++      st.handles[h] = reinterpret_cast<uintptr_t>(kmt_handle);
++      return h;
++    }
++
++    bool localSetMetadata(HANDLE handle, void* buf, uint32_t bufSize) {
++      auto& st = LocalSharedStore::get();
++      std::lock_guard<std::mutex> guard(st.lock);
++      auto it = st.handles.find(handle);
++      if (it == st.handles.end())
++        return false;
++      auto* src = reinterpret_cast<const uint8_t*>(buf);
++      st.meta[it->second].assign(src, src + bufSize);
++      return true;
++    }
++
++    bool localGetMetadata(HANDLE handle, void* buf, uint32_t bufSize, uint32_t* metadataSize) {
++      auto& st = LocalSharedStore::get();
++      std::lock_guard<std::mutex> guard(st.lock);
++      auto it = st.handles.find(handle);
++      if (it == st.handles.end())
++        return false;
++      auto blob = st.meta.find(it->second);
++      if (blob == st.meta.end())
++        return false;
++      const uint32_t size = std::min<uint32_t>(bufSize, uint32_t(blob->second.size()));
++      std::memcpy(buf, blob->second.data(), size);
++      if (metadataSize)
++        *metadataSize = size;
++      return true;
++    }
++  }
++
+ #ifdef _WIN32
+   #define IOCTL_SHARED_GPU_RESOURCE_OPEN             CTL_CODE(FILE_DEVICE_VIDEO, 1, METHOD_BUFFERED, FILE_WRITE_ACCESS)
+ 
+   HANDLE openKmtHandle(HANDLE kmt_handle) {
+     HANDLE handle = ::CreateFileA("\\\\.\\SharedGpuResource", GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+     if (handle == INVALID_HANDLE_VALUE)
+-      return handle;
++      return localOpenKmtHandle(kmt_handle);
+ 
+     struct
+     {
+@@ -25,7 +90,7 @@ namespace dxvk {
+     bool succeed = ::DeviceIoControl(handle, IOCTL_SHARED_GPU_RESOURCE_OPEN, &shared_resource_open, sizeof(shared_resource_open), NULL, 0, NULL, NULL);
+     if (!succeed) {
+       ::CloseHandle(handle);
+-      return INVALID_HANDLE_VALUE;
++      return localOpenKmtHandle(kmt_handle);
+     }
+     return handle; 
+   }
+@@ -34,7 +99,9 @@ namespace dxvk {
+ 
+   bool setSharedMetadata(HANDLE handle, void *buf, uint32_t bufSize) {
+     DWORD retSize;
+-    return ::DeviceIoControl(handle, IOCTL_SHARED_GPU_RESOURCE_SET_METADATA, buf, bufSize, NULL, 0, &retSize, NULL);
++    if (::DeviceIoControl(handle, IOCTL_SHARED_GPU_RESOURCE_SET_METADATA, buf, bufSize, NULL, 0, &retSize, NULL))
++      return true;
++    return localSetMetadata(handle, buf, bufSize);
+   }
+ 
+   #define IOCTL_SHARED_GPU_RESOURCE_GET_METADATA           CTL_CODE(FILE_DEVICE_VIDEO, 5, METHOD_BUFFERED, FILE_READ_ACCESS)
+@@ -42,9 +109,12 @@ namespace dxvk {
+   bool getSharedMetadata(HANDLE handle, void *buf, uint32_t bufSize, uint32_t *metadataSize) {
+     DWORD retSize;
+     bool ret = ::DeviceIoControl(handle, IOCTL_SHARED_GPU_RESOURCE_GET_METADATA, NULL, 0, buf, bufSize, &retSize, NULL);
+-    if (metadataSize)
+-      *metadataSize = retSize;
+-    return ret;
++    if (ret) {
++      if (metadataSize)
++        *metadataSize = retSize;
++      return true;
++    }
++    return localGetMetadata(handle, buf, bufSize, metadataSize);
+   }
+ #else
+   HANDLE openKmtHandle(HANDLE kmt_handle) {

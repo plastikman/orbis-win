@@ -1,0 +1,60 @@
+diff --git a/src/dxvk/dxvk_memory.cpp b/src/dxvk/dxvk_memory.cpp
+index b6a61c6..e18d5b9 100644
+--- a/src/dxvk/dxvk_memory.cpp
++++ b/src/dxvk/dxvk_memory.cpp
+@@ -601,6 +601,12 @@ namespace dxvk {
+     // Ensure the allocation size is also aligned
+     VkDeviceSize size = align(requirements.size, requirements.alignment);
+ 
++    Logger::debug(str::format("PW_ALLOC allocateMemory size=", size,
++      " typeBits=0x", std::hex, requirements.memoryTypeBits,
++      " props=0x", uint32_t(allocationInfo.properties),
++      " mask=0x", getMemoryTypeMask(allocationInfo.properties),
++      " -> 0x", (requirements.memoryTypeBits & getMemoryTypeMask(allocationInfo.properties)), std::dec));
++
+     for (auto typeIndex : bit::BitMask(requirements.memoryTypeBits & getMemoryTypeMask(allocationInfo.properties))) {
+       auto& type = m_memTypes[typeIndex];
+ 
+@@ -722,16 +728,29 @@ namespace dxvk {
+ 
+     DxvkDeviceMemory memory = { };
+ 
++    Logger::debug(str::format("PW_ALLOC dedicated size=", requirements.size,
++      " typeBits=0x", std::hex, requirements.memoryTypeBits,
++      " props=0x", uint32_t(allocationInfo.properties),
++      " -> 0x", (requirements.memoryTypeBits & getMemoryTypeMask(allocationInfo.properties)), std::dec,
++      " next=", next != nullptr));
++
+     for (auto typeIndex : bit::BitMask(requirements.memoryTypeBits & getMemoryTypeMask(allocationInfo.properties))) {
+       auto& type = m_memTypes[typeIndex];
+       memory = allocateDeviceMemory(type, requirements.size, next);
+ 
++      Logger::debug(str::format("PW_ALLOC dedicated type=", typeIndex,
++        " memory=", memory.memory != VK_NULL_HANDLE, " buffer=", memory.buffer != VK_NULL_HANDLE));
++
+       if (likely(memory.memory != VK_NULL_HANDLE)) {
+         mapDeviceMemory(memory, allocationInfo.properties);
+-        return createAllocation(type, memory, allocationInfo);
++        auto alloc = createAllocation(type, memory, allocationInfo);
++        Logger::debug(str::format("PW_ALLOC dedicated type=", typeIndex,
++          " createAllocation=", alloc != nullptr));
++        return alloc;
+       }
+     }
+ 
++    Logger::debug("PW_ALLOC dedicated: no type succeeded");
+     return nullptr;
+   }
+ 
+@@ -856,6 +875,11 @@ namespace dxvk {
+       }
+ 
+       if (!allocation && allocationInfo.mode.isClear()) {
++        Logger::debug(str::format("PW_ALLOC buffer gave up: props=0x", std::hex,
++          uint32_t(allocationInfo.properties), " typeBits=0x",
++          requirements.memoryRequirements.memoryTypeBits, std::dec,
++          " size=", requirements.memoryRequirements.size,
++          " align=", requirements.memoryRequirements.alignment));
+         logMemoryError(requirements.memoryRequirements);
+         logMemoryStats();
+       }
