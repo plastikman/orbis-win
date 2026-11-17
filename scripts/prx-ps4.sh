@@ -347,7 +347,12 @@ def loads(path):
     return out
 elf, oelf = loads(sys.argv[1]), loads(sys.argv[2])
 va, ms = max(elf, key=lambda s: s[0] + s[1])
-end = max((ov + om for ov, om in oelf if ov == va), default=0)
+# create-fself may MOVE the writable segment's start (measured: 0xf0000 ->
+# 0xec000 on a from-source ntdll), so an exact va match finds nothing and
+# end falls back to 0. That makes the shortfall look like the whole segment
+# and reports a bogus "end of .bss still unmapped". Match the writable
+# segment by its end instead.
+end = max((ov + om for ov, om in oelf), default=0)
 if ((end + 0x3fff) & ~0x3fff) >= va + ms:
     print(0)
 else:   # move the converted end to 0x100 into the next page
