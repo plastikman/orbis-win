@@ -312,3 +312,73 @@ megabytes of log, and it copied every submitted stream to keep one to dump.
 `ORBIS_DUMP_HUNG=1` turns it back on; the orbis-win shim sets that from
 `DEV_GPU_HANG_REPORT=1` in `/data/prospero-win/dev.conf`. Off, the first stall
 of a session still leaves one line in `radv.log`.
+
+0045 lets the display keep a 30 fps cadence (2026-11-17). With a 30 fps cap
+(`d3d9.maxFrameRate = 30` or `d3d9.presentInterval = 2`) Psychonauts showed
+90-92% of new frames two refreshes apart on HDMI and the rest in 3-then-1
+pairs. DXVK has no swap interval on Vulkan: it presents FIFO at sync interval 1
+and paces with a CPU timer at 30.000 Hz, while the output runs at 59.94 Hz.
+Each present was a VSYNC flip at the 60 Hz flip rate, shown at the first vblank
+after its submit, and the submit drifts across the vblank window with the timer
+and the frame's CPU time. `ORBIS_WSI_FLIP_RATE=30` (or 20) in `radv.env` sets
+video-out's flip rate for the swapchain's scan-out and allows one queued flip,
+so the display holds each frame for two refreshes and back-pressures the game.
+Unset, nothing changes; the title's own frames stay at 60 Hz.
+`ORBIS_WSI_FLIP_STATS=N` (1 = every 600 flips) logs the display's own cadence
+to `radv.log`: the intervals between shown flips in refreshes, the median raw
+interval, and how far past the last vblank each flip was submitted. With
+`ORBIS_WSI_FLIP_RATE=30` and `d3d9.maxFrameRate = 0` the same scenes showed
+99.7-99.9% at two refreshes and no 1-refresh frame.
+
+0046 lets more than one flip wait on video-out at that rate (2026-11-17). With
+one queued flip the present blocks until the previous flip is on screen, so a
+game-thread stall longer than about one 30 Hz period showed as a repeated
+frame (one ~100 ms stall, one 3-refresh interval). `ORBIS_WSI_FLIP_QUEUE=N`
+(1..3) in `radv.env` lets up to N flips queue before the present blocks; a
+stall of up to about N periods is then absorbed, at N-1 periods (33 ms each)
+more input latency once the queue is full. Unset or 1 is 0045's behaviour bit
+for bit, and it does nothing at 60 Hz. On the copy path the scan-out buffers
+are then taken in turn rather than by swapchain index, moving on only after a
+flip was submitted, and the depth is capped at buffers-1; on the zero-copy path
+it is capped at images-1-R as at 60 Hz. On both, the surface's `minImageCount`
+becomes N + 3: at N = 3 DXVK makes 7 images instead of 5, which on the copy
+path is also 7 scan-out buffers of 8 MiB at 1080p. One line per swapchain names the
+depth used (`ORBIS_WSI_FLIP_QUEUE=N - up to N flips queued (swapchain images
+M)`), and the `ORBIS_WSI_FLIP_STATS` cadence line ends with the flips still
+queued at each submit (min, max, histogram) and the limit. With
+`ORBIS_WSI_FLIP_QUEUE=3`, two Psychonauts scenes showed 3595 of 3595 new frames
+two refreshes apart and no gap over 50 ms for two minutes each, on two
+launches; a 97 ms game-thread stall in that run stayed off the screen.
+0047 makes 0036's per-submit trace opt-in (2026-11-17). `radv_queue_submit`
+wrote "queue submit enter" and "queue submit return" to radv.log on every
+submit: two fprintf+fflush to /data per submit, about six submits a frame, 99%
+of radv.log's lines, and the "enter" write sits inside `vkQueueSubmit2`. In
+Psychonauts one of those fflushes took 102 ms while the game streamed from the
+same HDD, a visible hitch. They now go out only with `ORBIS_TRACE_SUBMIT=1` in
+`radv.env`. The default is off, and one line at queue init says which
+(`ORBIS_TRACE_SUBMIT=0 - per-submit trace off`). A failed submit still logs its
+"return" line. A Psychonauts run's radv.log fell from about 214,000 lines to
+3,400.
+
+0048 writes radv.log from a thread of its own (2026-11-17). Every Mesa log line
+was an fprintf+fflush to radv.log on the thread that logged it: with 0047 on,
+Psychonauts' only hitch in two minutes indoors was one 155 ms frame, 121 ms of
+it one radv.log line written inside `vkQueuePresentKHR`. `logger_file` in
+`src/util/log.c` now copies each formatted line into a 64 KiB ring, and one
+writer thread (64 KiB stack, `scePthreadCreate` with an explicit attr, so
+neither orbis-compat's 16 MiB floor nor the libvulkan wrap raises it) writes
+the ring to the same FILE, so the file's bytes are unchanged. ERROR lines are
+still written on the logging thread, after it drains the ring under the same
+I/O lock, so the order holds and an error is on disk before a crash. A full
+ring drops lines and says how many in one warning line. A write of 50 ms or
+more on the writer is reported (at most once a second); runs since logged
+145-213 ms writes there, none on the present path. A crash that logs no ERROR
+line first can lose up to 64 KiB of the newest INFO and WARN lines.
+`ORBIS_LOG_ASYNC=0` in `radv.env` turns it off; `ORBIS_LOG_ASYNC=N` (16..4096)
+sets the ring in KiB. The hung-submit report (`ORBIS_DUMP_HUNG`, 0044) turns
+it off for the whole run, since its dumps are megabytes of INFO lines written
+just before the process dies.
+The first swapchain logs `wsi/orbis: async log on (ring 64 KiB)`, and swapchain
+teardown and `atexit` wait up to 250/500 ms for the ring to empty.
+`mesa_log_get_file()` users (shader dumps under debug options) still write the
+FILE directly. The host build of the orbis arm uses `pthread_create`.
