@@ -33,3 +33,6 @@ build/ps4-wine-sdk/
 # ps5log destination: a workstation address, never committed (upstream's
 # dev.conf.example says the same: "never commit a workstation address").
 build/devconf/
+
+# git worktree checkouts (playden-ps4-*, etc) - never part of the tree
+worktrees/
