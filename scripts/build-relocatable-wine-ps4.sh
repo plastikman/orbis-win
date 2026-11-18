@@ -103,11 +103,6 @@ for object in "$APP_OBJ"/*.o; do
   APP_OBJECTS+=("$object")
 done
 APP_OBJECTS+=("$PRX_BUILD/native_wine64_main_reloc.o")
-# --wrap=dup leaves __real_dup unresolved against a shared libc PRX; supply the
-# console's own answer (EPERM) so create-fself can close the module.
-"$CC" -std=gnu11 -O2 -fPIC -c "$ROOT/src/native/pw_real_dup_ps4.c" \
-  -o "$PRX_BUILD/pw_real_dup_ps4.o"
-APP_OBJECTS+=("$PRX_BUILD/pw_real_dup_ps4.o")
 # ⚠ create-fself can leave the end of .bss unmapped (scripts/bss-tail-pad.py),
 # and rtld then refuses the module: "reloc_non_plt ... ref=relocated_wine_app.prx",
 # a black screen before the log starts (01.55, 2026-11-09). Check every link
