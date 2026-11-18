@@ -68,8 +68,12 @@ Then link the LLVM tools the Wine build calls through the SDK (only
 
     sh prospero-win/tools/build_wine_runtime.sh --jobs "$(nproc)"
 
-    PROSPERO_WINE_PREPATCHED=1 PW_PRX_LINK=1 \
+    PW_ORBIS_COMPAT=<pin> PROSPERO_WINE_PREPATCHED=1 PW_PRX_LINK=1 \
       sh prospero-win/tools/build_wine_ps5.sh --sdk "$PWD/build/ps4-wine-sdk"
+
+`PW_ORBIS_COMPAT` is **required** here, even though §8b presents it as optional:
+`prospero-clang` refuses to build without a correct orbis-compat, so the command
+without it stops at "no orbis-compat at .../mesa-build/orbis-compat".
 
 `PW_PRX_LINK=1` is **required**: without it the shim appends its stand-in
 `libwineshim.a` while the script already puts prospero-win's real wine/ps5 units
@@ -108,7 +112,7 @@ The `src/mesa-patches-ps4` series does **not** reproduce the shipped tree either
 
     scripts/restore-mesa-tree.sh "$PWD/mesa-build"   # pins in src/mesa-trees/
 
-    ORBIS_COMPAT_DIR="$PWD/sdk/orbis-sdk-v1/orbis-compat" \
+    ORBIS_COMPAT_DIR="$PWD/sdk/orbis-sdk-v1/orbis-compat"   # ⚠ the BUNDLE, on purpose — see §8c \
     OO_PS4_TOOLCHAIN="$PWD/sdk/orbis-sdk-v1/sdk" \
       bash mesa-build/mesa-ps4/ps4/build.sh
 
@@ -130,7 +134,7 @@ wow64native.
 "Mesa Zink OpenGL provider missing" and every `graphics = opengl` title is
 refused at startup.
 
-## 8b. orbis-compat (optional)
+## 8b. orbis-compat (REQUIRED)
 
 Every PRX links `liborbis-compat-16bit-wchar.a`, which
 `prepare-ps4-toolchain.sh` takes from the fetched SDK bundle by default. A
@@ -139,8 +143,13 @@ hash. To link the one older packages used, see `src/orbis-compat-pin/` and pass:
 
     PW_ORBIS_COMPAT=/path/to/orbis-compat ./scripts/prepare-ps4-toolchain.sh
 
-The bundle's copy is fine for building — it passes the gate. Use the pin when
-you want the `orbis_*` diagnostics or are comparing two packages.
+⚠ **The bundle's copy is NOT fine, even though it passes the gate.** It predates
+the `include/signal.h` delta, so `SIG_UNBLOCK` compiles to Linux's `1` —
+`SIG_BLOCK` to libkernel — and Wine's native-frame probe blocks the signal it
+sends itself. `wow64native` then reports `STATUS_NOT_SUPPORTED` (`c00000bb`) and
+Wine drops to the `wowprospero` translator silently. Measured on hardware
+2026-11-17; the gate reported 19 PASS / 0 FAIL on exactly such a package.
+`prospero-clang` now fails loudly instead of falling back.
 
 ## 9. Console modules
 
@@ -258,3 +267,35 @@ other than its author has followed this file end to end. The gate is evidence
 that the build is correct, not that the instructions are complete. The first
 person to follow this file should treat it as a validation run and fix what
 they trip over here.
+
+
+## 8c. RADV is the one module that must NOT use the pin
+
+Measured on hardware 2026-11-17, Fallout: New Vegas, one variable changed:
+
+| `libvulkan.prx` built against | result |
+|---|---|
+| the **pin** orbis-compat | `0xc0000005 at libvulkan.so+0x16a6dba`, `frames_put=0`, spinner |
+| the **bundle** orbis-compat | 0 faults, 1920x1080, 59.8 fps |
+
+So:
+
+* `libvulkan.prx` (RADV) -> **bundle** orbis-compat (114,252 B)
+* every other PRX -> **pin** orbis-compat (190,196 B)
+
+and each module must be **consistent**: the headers it compiles against and the
+archive it links must come from the same orbis-compat. The pin's `include/signal.h`
+fix is what lets Wine's native-frame probe pass, so `ntdll` needs it; RADV does not
+care about the signal ABI and faults against the pin. The working packages always
+shipped this split — by accident of a five-week-old staged archive, not on purpose.
+
+⚠ **The PRX link reads the STAGED archive**, `build/ps4-wine-sdk/liborbis-compat-16bit-wchar.a`,
+not `PW_ORBIS_COMPAT`. That variable steers only the executable link and the
+toolchain guard. `scripts/ci/prepare-from-source.sh` now stages the bundle for the
+RADV link and puts the pin back immediately after; override the choice with
+`PW_RADV_ORBIS_COMPAT`.
+
+⚠ **`orbis-porting-kit` is not vendored.** `mesa-build/mesa-ps4/ps4/build.sh` needs
+it and finds it only because the bundle's `orbis-compat` happens to carry the kit
+scripts. Point `ORBIS_COMPAT_DIR` at a pin without them and the build stops with
+"orbis-porting-kit not found". Set `ORBIS_KIT_DIR`, or clone the kit.

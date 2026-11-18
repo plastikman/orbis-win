@@ -108,8 +108,22 @@ build_host_wine() {
 stamped wine-host "$(pin_stamp "$ROOT/src/wine-trees/wine-host-HEAD.txt")" build_host_wine
 
 # ------------------------------------------------------------------- Mesa
+# ⚠ RADV IS THE ONE MODULE THAT MUST **NOT** USE THE PIN orbis-compat.
+# Measured on hardware 2026-11-17 (Fallout: New Vegas, one variable changed):
+#   libvulkan.prx against the PIN    -> 0xc0000005 at libvulkan.so+0x16a6dba,
+#                                       frames_put=0, every title on the spinner
+#   libvulkan.prx against the BUNDLE -> 0 faults, 1920x1080, 59.8 fps
+# Every other PRX needs the PIN, whose include/signal.h fix (SIG_UNBLOCK=2) is what
+# lets Wine's native-frame probe pass; without it wow64native returns c00000bb and
+# every title silently drops to the wowprospero translator. RADV does not care about
+# the signal ABI. So the split is deliberate, and each module stays CONSISTENT: the
+# headers it compiles against and the archive it links are the same orbis-compat.
+# (Working packages always shipped this split -- by accident of a five-week-old
+# staged archive. PW_RADV_ORBIS_COMPAT makes it explicit.)
+MESA_ORBIS_COMPAT="${PW_RADV_ORBIS_COMPAT:-$ROOT/sdk/orbis-sdk-v1/orbis-compat}"
 build_mesa() {
-    ORBIS_COMPAT_DIR="$ROOT/sdk/orbis-sdk-v1/orbis-compat" \
+    ORBIS_KIT_DIR="${ORBIS_KIT_DIR:-$MESA_ORBIS_COMPAT}" \
+    ORBIS_COMPAT_DIR="$MESA_ORBIS_COMPAT" \
     OO_PS4_TOOLCHAIN="$ROOT/sdk/orbis-sdk-v1/sdk" \
         bash "$ROOT/mesa-build/mesa-ps4/ps4/build.sh"
 }
@@ -121,9 +135,18 @@ stamped mesa "$(pin_stamp "$ROOT/src/mesa-trees/mesa-ps4-HEAD.txt")" build_mesa
 say "PRX modules"
 sh "$ROOT/scripts/prx-ps4.sh"
 sh "$ROOT/scripts/freetype-prx-ps4.sh"
+# ⚠ The PRX link reads the STAGED archive (prospero-clang's OCLIB,
+# build/ps4-wine-sdk/liborbis-compat-16bit-wchar.a), NOT $PW_ORBIS_COMPAT -- that
+# only steers the executable link and the toolchain guard. So stage the bundle for
+# the RADV link and put the pin back straight after, or the next PRX built would
+# silently link the wrong one.
+OCLIB_STAGED="$ROOT/build/ps4-wine-sdk/liborbis-compat-16bit-wchar.a"
+cp "$OCLIB_STAGED" "$OCLIB_STAGED.pin-backup"
+cp "$MESA_ORBIS_COMPAT/build/liborbis-compat.a" "$OCLIB_STAGED"
 PW_RADV_MESA_SRC="$ROOT/mesa-build/mesa-ps4" \
 PW_RADV_MESA_BUILD="$ROOT/mesa-build/mesa-ps4/build-orbis" \
     sh "$ROOT/scripts/radv-prx-ps4.sh"
+mv "$OCLIB_STAGED.pin-backup" "$OCLIB_STAGED"
 sh "$ROOT/scripts/wineps5-prx-ps4.sh"
 
 say "from-source inputs ready"
