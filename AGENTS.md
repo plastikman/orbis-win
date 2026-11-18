@@ -112,3 +112,26 @@
   a profile that merely omits the native override can inherit `wow64cpu.dll`
   and never run the prospero-win translator. Keep the launcher selecting the
   requested CPU DLL explicitly for both modes.
+
+## Continue approved work without unnecessary stops
+
+Once the user approves a plan, continue through implementation, verification,
+and documentation until the approved work is complete or user input is
+genuinely required. A milestone is a progress update, not a new approval gate.
+
+- Report meaningful milestones without ending the task or asking whether to
+  continue.
+- Commits are checkpoints, not stopping points. When authorized to commit, make
+  appropriate commits and continue with the remaining approved work. Plan
+  approval alone does not authorize commits, pushes, or system changes.
+- Do not require repeated authorization for work already covered by the
+  approved scope.
+- Pause when an action requires separate permission, a material design change
+  needs agreement, or a blocker cannot be resolved within the approved scope.
+  Ask the specific question needed to proceed.
+- If one step is blocked, continue independent approved work where doing so
+  remains useful and safe, without bypassing the blocked step's approval
+  requirement.
+- Do not present an intermediate milestone as completion while approved work
+  remains. Finish with the outcome, verification results, and any explicitly
+  blocked or incomplete items.
