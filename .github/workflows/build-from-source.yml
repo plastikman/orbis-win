@@ -57,6 +57,24 @@ jobs:
       - name: prospero-win
         run: git clone -q https://github.com/plastikman/prospero-win.git prospero-win
 
+      # ⚠ ntdll MUST link the pin, not the bundle's copy. The bundle predates the
+      # include/signal.h delta, so SIG_UNBLOCK compiles to Linux's 1, which libkernel
+      # reads as SIG_BLOCK: Wine's native-frame probe blocks the signal it is about to
+      # send itself, wow64native reports STATUS_NOT_SUPPORTED (c00000bb), and Wine drops
+      # to the wowprospero translator silently. Measured on hardware 2026-11-17 - and the
+      # parity gate passes such a package 19/0, so nothing downstream catches it.
+      # Mesa/RADV is the exception and keeps the bundle's copy; see the Mesa step.
+      - name: orbis-compat (the pin - every Wine PRX links this)
+        run: |
+          git clone -q https://github.com/orbis-ports/orbis-compat.git orbis-compat
+          git -C orbis-compat checkout -q --detach "$(cat src/orbis-compat-pin/BASE.txt)"
+          git -C orbis-compat apply "$PWD/src/orbis-compat-pin/orbis-compat-delta.patch"
+          cp -r src/orbis-compat-pin/cmake orbis-compat/
+          OO_PS4_TOOLCHAIN="$PWD/sdk/orbis-sdk-v1/sdk" bash orbis-compat/build.sh
+          grep -q 'define[[:space:]]\+SIG_UNBLOCK[[:space:]]\+2' orbis-compat/include/signal.h \
+            || { echo "!! the pin lacks the PS4 signal ABI delta" >&2; exit 1; }
+          echo "PW_ORBIS_COMPAT=$PWD/orbis-compat" >> "$GITHUB_ENV"
+
       - name: Restore the pinned Wine trees
         run: |
           ./scripts/restore-wine-trees.sh "$PWD/wine-trees"
@@ -88,6 +106,12 @@ jobs:
           PROSPERO_WINE_PREPATCHED=1 PW_PRX_LINK=1 \
             sh prospero-win/tools/build_wine_ps5.sh --sdk "$PWD/build/ps4-wine-sdk"
 
+      # ⚠ THE BUNDLE'S orbis-compat HERE, ON PURPOSE, and not $PW_ORBIS_COMPAT.
+      # RADV built against the pin faults at run time (see the PRX step). fetch-sdk.sh
+      # says why the bundle pins SDK + orbis-compat + Mesa together: "a Mesa built
+      # against one header tree and linked against another is a struct-layout bug that
+      # compiles cleanly and fails at run time". This also supplies orbis-porting-kit,
+      # which build.sh finds through ORBIS_COMPAT_DIR.
       - name: Mesa / RADV
         run: |
           ORBIS_COMPAT_DIR="$PWD/sdk/orbis-sdk-v1/orbis-compat" \
@@ -98,8 +122,17 @@ jobs:
         run: |
           sh scripts/prx-ps4.sh
           sh scripts/freetype-prx-ps4.sh
+          # ⚠ RADV is the one module that must link the BUNDLE's orbis-compat: against
+          # the pin, libvulkan.prx faults 0xc0000005 at +0x16a6dba and every title sits on
+          # the spinner (measured on hardware 2026-11-17, Fallout: New Vegas, one variable
+          # changed). The PRX link reads the STAGED archive, not $PW_ORBIS_COMPAT, so swap
+          # it for this one link and put the pin back straight after.
+          OC=build/ps4-wine-sdk/liborbis-compat-16bit-wchar.a
+          cp "$OC" "$OC.pin"
+          cp sdk/orbis-sdk-v1/orbis-compat/build/liborbis-compat.a "$OC"
           M="$PWD/mesa-build/mesa-ps4"
           PW_RADV_MESA_SRC="$M" PW_RADV_MESA_BUILD="$M/build-orbis" sh scripts/radv-prx-ps4.sh
+          mv "$OC.pin" "$OC"
           sh scripts/wineps5-prx-ps4.sh
 
       - name: What was built
