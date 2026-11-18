@@ -199,7 +199,7 @@ done < <(find "$STAGE" -type f -print0)
 for preset in "$ROOT"/src/profiles/input/*.input; do
   EXTRA+=(--extra "$preset:input/${preset##*/}")
 done
-# The home-screen icon: upstream prospero-win's mark (assets/prospero-win-logo.svg),
+# The home-screen icon: orbis-win's OW mark (assets/orbis-win-mark.svg),
 # rendered to 512x512 by scripts/render-logo-icon.py. Without it the title shows
 # a blank tile on the PS4 home screen (2026-11-06).
 ICON=${PS4_ICON:-$ROOT/assets/icon0.png}

@@ -10,10 +10,15 @@ Individual SPDX identifiers and copyright notices take precedence for the
 files that carry them. For example, `src/gfx-hang-probe/main.c` is MIT-licensed;
 the corresponding MIT license text is in [`LICENSES/MIT.txt`](LICENSES/MIT.txt).
 
+`assets/orbis-win-mark.svg` is the OW mark, drawn for this project. It reuses
+the `prospero-win` mark's frame, colours and underline, with new O and W
+letterforms, and is covered by this repository's license. `assets/icon0.png`
+(the package's home-screen icon) is rendered from it by
+`scripts/render-logo-icon.py`.
+
 `assets/prospero-win-logo.svg` is the `prospero-win` mark, copied unchanged
-from that project's `assets/`; `assets/icon0.png` (the package's home-screen
-icon) is rendered from it by `scripts/render-logo-icon.py`. Both remain
-`prospero-win`'s, under its license.
+from that project's `assets/`. It remains `prospero-win`'s, under its license.
+Packages up to v0.0.5 used it as their home-screen icon.
 
 Patch files under `src/wine-patches-ps4/`, `src/prospero-win-patches-ps4/`,
 `src/mesa-patches-ps4/` and `patches/` are intended to be applied to their

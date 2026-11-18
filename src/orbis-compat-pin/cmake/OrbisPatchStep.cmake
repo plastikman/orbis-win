@@ -1,0 +1,27 @@
+# Script-mode wrapper so ORBIS_PATCH_COMMAND can be used verbatim as a PATCH_COMMAND.
+# Invoked as: cmake -DORBIS_KIT_DIR=<kit> -P OrbisPatchStep.cmake -- <family>/<project> [<srcdir>]
+# srcdir defaults to the current working directory, which is where FetchContent runs a PATCH_COMMAND.
+# SPDX-License-Identifier: MIT
+set(_args "")
+math(EXPR _last "${CMAKE_ARGC}-1")
+set(_seen_sep FALSE)
+foreach(_i RANGE 0 ${_last})
+  if(_seen_sep)
+    list(APPEND _args "${CMAKE_ARGV${_i}}")
+  elseif("${CMAKE_ARGV${_i}}" STREQUAL "--")
+    set(_seen_sep TRUE)
+  endif()
+endforeach()
+list(LENGTH _args _n)
+if(_n LESS 1)
+  message(FATAL_ERROR "OrbisPatchStep: expected <family>/<project> [<srcdir>] after --")
+endif()
+list(GET _args 0 _project)
+if(_n GREATER 1)
+  list(GET _args 1 _srcdir)
+else()
+  set(_srcdir "${CMAKE_CURRENT_SOURCE_DIR}")
+endif()
+get_filename_component(_srcdir "${_srcdir}" ABSOLUTE)
+include("${CMAKE_CURRENT_LIST_DIR}/OrbisPatch.cmake")
+orbis_patch_source("${_project}" "${_srcdir}")

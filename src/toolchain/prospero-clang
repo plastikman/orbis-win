@@ -23,14 +23,26 @@ PATH="$TOOL_DIR:$PATH"; export PATH
 # This shim is copied from src/toolchain/ into build/ps4-wine-sdk/bin/. Walk
 # upward until the repository root is found, so it works in either location.
 # The ARC runner invokes the cached compiler through /orbis-cache/deps, which
-# also contains the SDK marker; prefer the workspace link created by
-# scripts/ci/prepare-runner.sh so linker scripts and sources come from checkout.
-ROOT=${PW_PS4_ROOT:-/home/zpeirce/ps4-gladius}
-if [ ! -f "$ROOT/sdk/orbis-sdk-v1/BUNDLE.txt" ]; then
-  ROOT=$TOOL_DIR
-  while [ "$ROOT" != / ] && [ ! -f "$ROOT/sdk/orbis-sdk-v1/BUNDLE.txt" ]; do
-    ROOT=$(dirname "$ROOT")
+# also contains the SDK marker; walk the path the shim was invoked by (not the
+# resolved one) first, so the workspace link created by
+# scripts/ci/prepare-runner.sh wins and linker scripts and sources come from
+# the checkout. PW_PS4_ROOT overrides both walks.
+#
+# Until 2026-11-17 this defaulted to one workstation's absolute path, which on
+# that workstation SHADOWED the walk and linked ANOTHER checkout's
+# libwineshim.a into the build, and elsewhere did not exist at all.
+find_root() {
+  r=$1
+  while [ "$r" != / ] && [ ! -f "$r/sdk/orbis-sdk-v1/BUNDLE.txt" ]; do
+    r=$(dirname "$r")
   done
+  echo "$r"
+}
+if [ -n "${PW_PS4_ROOT:-}" ]; then
+  ROOT=$PW_PS4_ROOT
+else
+  ROOT=$(find_root "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -L)")
+  [ -f "$ROOT/sdk/orbis-sdk-v1/BUNDLE.txt" ] || ROOT=$(find_root "$TOOL_DIR")
 fi
 [ -f "$ROOT/sdk/orbis-sdk-v1/BUNDLE.txt" ] || {
   echo "cannot locate orbis-win root; run scripts/fetch-sdk.sh first" >&2
@@ -38,16 +50,51 @@ fi
 }
 SDK="$ROOT/sdk/orbis-sdk-v1/sdk"
 SDKLIB="$SDK/lib"
+# mesa-build/ is the CI cache layout (scripts/ci/prepare-runner.sh links it).
+# PW_ORBIS_COMPAT names an orbis-compat built from src/orbis-compat-pin.
+#
+# ⚠ DO NOT FALL BACK TO THE SDK BUNDLE'S orbis-compat. Measured on hardware
+# 2026-11-17: the bundle's copy predates the include/signal.h delta, so
+# SIG_UNBLOCK compiles to Linux's 1, which libkernel reads as SIG_BLOCK. Wine's
+# native-frame probe then blocks the signal it is about to send itself, the
+# handler never runs, pw_native_frame_verified() fails, and wow64native reports
+# STATUS_NOT_SUPPORTED (c00000bb) -- so Wine silently drops to the wowprospero
+# translator and every title runs slow. The parity gate does not catch it
+# (19 PASS / 0 FAIL on exactly such a package). A previous fallback here turned
+# that into a silent miscompile; failing loudly is the whole point.
 MESA_BUILD=${MESA_BUILD:-$ROOT/mesa-build}
+if [ -n "${PW_ORBIS_COMPAT:-}" ]; then
+  ORBIS_COMPAT_DIR=$PW_ORBIS_COMPAT
+else
+  ORBIS_COMPAT_DIR="$MESA_BUILD/orbis-compat"
+fi
+if [ ! -f "$ORBIS_COMPAT_DIR/include/signal.h" ]; then
+  echo "prospero-clang: no orbis-compat at $ORBIS_COMPAT_DIR" >&2
+  echo "  build it from src/orbis-compat-pin (see its README) and pass" >&2
+  echo "  PW_ORBIS_COMPAT=<dir>, or set MESA_BUILD to a tree containing" >&2
+  echo "  orbis-compat/. The SDK bundle's copy is NOT a substitute." >&2
+  exit 1
+fi
+if ! grep -q 'define[[:space:]]\+SIG_UNBLOCK[[:space:]]\+2' "$ORBIS_COMPAT_DIR/include/signal.h"; then
+  echo "prospero-clang: $ORBIS_COMPAT_DIR/include/signal.h lacks the PS4 signal" >&2
+  echo "  ABI delta (SIG_UNBLOCK must be 2, not Linux's 1). Apply" >&2
+  echo "  src/orbis-compat-pin/orbis-compat-delta.patch; without it native" >&2
+  echo "  WoW64 silently falls back to the translator." >&2
+  exit 1
+fi
 # ⚠ EACH PRX LINKS ITS OWN libunwind, so each must define the four symbols it
 # finds unwind tables through. The executable linker script provides them;
 # a shared link does not, and create-fself refuses the undefined
 # __eh_frame_end. prospero-win ships exactly this script for its own PRX link.
-# ⚠ THE 28 WRAPS BELONG ON EVERY MODULE THAT LINKS THE cwd SHIM.
+# ⚠ THE 29 WRAPS BELONG ON EVERY MODULE THAT LINKS THE cwd SHIM.
 # pw_wine_cwd_libc.c defines __wrap_open and calls __real_open; lld creates
 # that pairing only when told to, per symbol. Without them the link leaves
 # __real_stat undefined — which a .so tolerates and create-fself does not.
-CWDWRAPS="-Wl,--wrap=access -Wl,--wrap=chdir -Wl,--wrap=chmod -Wl,--wrap=close -Wl,--wrap=fchdir -Wl,--wrap=fopen -Wl,--wrap=fstatat -Wl,--wrap=getcwd -Wl,--wrap=link -Wl,--wrap=lstat -Wl,--wrap=mkdir -Wl,--wrap=mkdirat -Wl,--wrap=open -Wl,--wrap=openat -Wl,--wrap=opendir -Wl,--wrap=readlink -Wl,--wrap=realpath -Wl,--wrap=rename -Wl,--wrap=renameat -Wl,--wrap=rmdir -Wl,--wrap=stat -Wl,--wrap=statfs -Wl,--wrap=symlink -Wl,--wrap=symlinkat -Wl,--wrap=truncate -Wl,--wrap=unlink -Wl,--wrap=unlinkat -Wl,--wrap=utimes"
+# dup joined the shim in prospero-win 8471db8 (__wrap_dup falls back to
+# sceKernelRdup); without --wrap=dup the app PRX link fails "missing library
+# for symbol (__real_dup)" (measured 2026-11-17, prospero-win fe5c8d1).
+# src/native/CMakeLists.txt wraps it for the same reason.
+CWDWRAPS="-Wl,--wrap=access -Wl,--wrap=chdir -Wl,--wrap=chmod -Wl,--wrap=close -Wl,--wrap=dup -Wl,--wrap=fchdir -Wl,--wrap=fopen -Wl,--wrap=fstatat -Wl,--wrap=getcwd -Wl,--wrap=link -Wl,--wrap=lstat -Wl,--wrap=mkdir -Wl,--wrap=mkdirat -Wl,--wrap=open -Wl,--wrap=openat -Wl,--wrap=opendir -Wl,--wrap=readlink -Wl,--wrap=realpath -Wl,--wrap=rename -Wl,--wrap=renameat -Wl,--wrap=rmdir -Wl,--wrap=stat -Wl,--wrap=statfs -Wl,--wrap=symlink -Wl,--wrap=symlinkat -Wl,--wrap=truncate -Wl,--wrap=unlink -Wl,--wrap=unlinkat -Wl,--wrap=utimes"
 # ⚠ crtlib.o, NOT crt1.o, FOR MODULES. create-fself needs a
 # .data.sce_module_param section and crashes without it:
 #   panic: nil pointer dereference in GenerateProgramHeaders
@@ -81,9 +128,15 @@ STUBS="$ROOT/build/ps4-wine-sdk/libps4stubs.a"
 # binary: cmpl $0x0, 0x4(%rdi,%rax). Wine calls wcslen, wmemchr and wmemcmp.
 OCLIB="$ROOT/build/ps4-wine-sdk/liborbis-compat-16bit-wchar.a"
 
-CFLAGS="--target=x86_64-scei-ps4 -fPIC -funwind-tables
+# ⚠ THE BUILD EMBEDS ITS OWN ABSOLUTE PATH. Wine's __FILE__ strings put the
+# source directory into every module (10 in ntdll.prx), so two checkouts at
+# different paths cannot produce identical bytes from identical sources.
+# PW_FILE_PREFIX_MAP=<from>=<to> rewrites them.
+PREFIX_MAP="${PW_FILE_PREFIX_MAP:+-ffile-prefix-map=$PW_FILE_PREFIX_MAP}"
+
+CFLAGS="$PREFIX_MAP --target=x86_64-scei-ps4 -fPIC -funwind-tables
   -D__PS4__ -DPS4 -DORBIS -D__ORBIS__ -D__PROSPERO__ -D_BSD_SOURCE=1 -fno-visibility-from-dllstorageclass
-  -isysroot $SDK -isystem $ROOT/src/freebsd-compat -isystem $MESA_BUILD/orbis-compat/include -isystem $SDK/include"
+  -isysroot $SDK -isystem $ROOT/src/freebsd-compat -isystem $ORBIS_COMPAT_DIR/include -isystem $SDK/include"
 
 # ⚠ LINKING NEEDS THE WHOLE RULE, which is why configure's "can the compiler
 # create executables" failed with compile flags alone. From the same toolchain
@@ -104,9 +157,12 @@ CFLAGS="--target=x86_64-scei-ps4 -fPIC -funwind-tables
 # relocations stripped has to live.
 if [ "${PW_NO_PIE:-}" = 1 ]; then PIE=""; else PIE="-pie"; fi
 EXE_LD_SCRIPT="${PW_EXECUTABLE_LD_SCRIPT:-$MESA_BUILD/orbis-porting-kit/cmake/orbis-tls.ld}"
+# The SDK bundle keeps the identical script under orbis-compat/ (verify.sh
+# checks the two copies are byte-identical).
+[ -f "$EXE_LD_SCRIPT" ] || EXE_LD_SCRIPT="$ORBIS_COMPAT_DIR/cmake/orbis-tls.ld"
 EXE_NO_RELRO=""
 if [ "${PW_EXECUTABLE_NO_RELRO:-0}" = 1 ]; then EXE_NO_RELRO="-Wl,-z,norelro"; fi
-EXE_COMPAT="-Wl,--whole-archive $MESA_BUILD/orbis-compat/build/liborbis-compat.a -Wl,--no-whole-archive"
+EXE_COMPAT="-Wl,--whole-archive $ORBIS_COMPAT_DIR/build/liborbis-compat.a -Wl,--no-whole-archive"
 if [ "${PW_EXECUTABLE_NO_ORBIS_COMPAT:-0}" = 1 ]; then EXE_COMPAT=""; fi
 LDFLAGS="-nostdlib $PIE $EXE_NO_RELRO -Wl,-m,elf_x86_64
   -Wl,--script=$EXE_LD_SCRIPT -Wl,--eh-frame-hdr -Wl,--no-rosegment

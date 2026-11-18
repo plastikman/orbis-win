@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # Create the PS4 support objects and archives used by the Wine title and PRXs.
 set -euo pipefail
+case ${1:-} in
+  -h|--help)
+    echo "usage: $0"
+    echo "Builds build/ps4-wine-sdk (shim, LLVM 19 links, libwineshim.a, libps4stubs.a, module_param.o)."
+    echo "PW_ROOT selects the prospero-win tree; PW_LLVM_BIN the LLVM 19 bin directory (scripts/link-llvm-ps4.sh)."
+    exit 0 ;;
+esac
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 PW="${PW_ROOT:-$ROOT/prospero-win}"
 BUNDLE="$ROOT/sdk/orbis-sdk-v1"
@@ -12,6 +19,8 @@ CC="$OUT/bin/prospero-clang"
 [[ -f "$PW/wine/ps5/pw_wine_dmem.c" ]] || { echo "missing patched prospero-win at $PW" >&2; exit 1; }
 mkdir -p "$OBJ" "$OUT/bin"
 "$ROOT/scripts/sync-toolchain.sh"
+"$ROOT/scripts/link-llvm-ps4.sh"
+PATH="$OUT/bin:$PATH"
 
 INC=( -I"$PW" -I"$PW/include" -I"$PW/src" -I"$PW/native" \
       -I"$PW/wine/ps5" -I"$ROOT/src/native" )
@@ -44,8 +53,38 @@ llvm-ar rcs "$OUT/libps4stubs.a" "$OBJ/stubs.o" "$OBJ/pw_wine_dmem_glue_ps4.o"
 
 # Wine uses 16-bit WCHAR on this target. The paired bundle's compatibility
 # archive contains the SDK-compatible routines; preserve that exact archive.
-cp "$BUNDLE/orbis-compat/build/liborbis-compat.a" "$OUT/liborbis-compat-16bit-wchar.a"
+# ⚠ AN UNPINNED BUILD INPUT until 2026-11-17. The bundle ships 114,252 bytes
+# defining NO orbis_jit_alloc/orbis_report; the archive GLDS10043 02.59 linked
+# is 190,196 bytes and defines them. PW_ORBIS_COMPAT names the one to use.
+ORBIS_COMPAT="${PW_ORBIS_COMPAT:-$BUNDLE/orbis-compat}"
+[[ -f "$ORBIS_COMPAT/build/liborbis-compat.a" ]] ||
+  { echo "no liborbis-compat.a under $ORBIS_COMPAT" >&2; exit 1; }
+echo "orbis-compat: $ORBIS_COMPAT ($(sha256sum "$ORBIS_COMPAT/build/liborbis-compat.a" | cut -c1-16))"
+cp "$ORBIS_COMPAT/build/liborbis-compat.a" "$OUT/liborbis-compat-16bit-wchar.a"
+# ⚠ The section must be writable. The orbis-compat CRT (MIT, since
+# orbis-compat 7bed896) declares the parameter block const, so its section is
+# flagged A only. With src/freebsd-compat/prx_module_param.ld (ALIGN(0x4000),
+# INSERT BEFORE .data) lld then gives it a read-only page of its own between
+# RELRO and .data, create-fself starts the RW segment at it, and prx-ps4.sh's
+# bss-pad check finds no oelf segment for the ELF's last RW one: "ntdll: end of
+# .bss still unmapped after the .bss pad" (measured 2026-11-17). OpenOrbis's
+# sdk/lib/crtlib.o has the same 0x18 bytes flagged WA, and so does every PRX of
+# release v0.0.7 (the parameter block opens the RW segment). Keep the paired
+# bundle's bytes and give them OpenOrbis's flags.
+#
+# This is the ROOT CAUSE of that .bss error. scripts/bss-tail-pad.py was also
+# relaxed to match the writable segment by its end rather than by an exact va,
+# which stops the check reporting a pad that can never succeed; keep both --
+# the flags fix the cause, the matching stops a future layout change from
+# producing a nonsense pad.
 llvm-objcopy --only-section=.data.sce_module_param \
-  "$BUNDLE/orbis-compat/build/crt/crtlib.o" "$OUT/module_param.o"
+  --set-section-flags .data.sce_module_param=alloc,load,contents,data \
+  "$ORBIS_COMPAT/build/crt/crtlib.o" "$OUT/module_param.o"
 [[ -s "$OUT/module_param.o" ]] || { echo "failed to extract module parameter section" >&2; exit 1; }
+# Read the headers once and search the text: `llvm-readelf | grep -q` under
+# pipefail fails when grep exits on its first match while readelf is still writing.
+mp_sections=$(llvm-readelf -S "$OUT/module_param.o") || {
+  echo "llvm-readelf failed on $OUT/module_param.o" >&2; exit 1; }
+grep -Eq '\.data\.sce_module_param +PROGBITS +[0-9a-f]+ [0-9a-f]+ [0-9a-f]+ [0-9a-f]+ +WA ' <<<"$mp_sections" ||
+  { echo "module_param.o: .data.sce_module_param is not WA" >&2; exit 1; }
 echo "PS4 toolchain support ready: $OUT"

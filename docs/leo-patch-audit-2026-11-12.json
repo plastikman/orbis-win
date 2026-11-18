@@ -1,0 +1,2503 @@
+[
+ {
+  "patch": "0100-ntdll-no-fstab-device-on-ps5.patch",
+  "subject": "ntdll: Report no fstab device on PS5.",
+  "status": "present",
+  "found": 3,
+  "added": 3,
+  "frac": 1.0,
+  "diagnostic": true,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/file.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0101-server-realpath-into-server-memory.patch",
+  "subject": "server: Resolve file names into server-owned memory.",
+  "status": "partial",
+  "found": 4,
+  "added": 5,
+  "frac": 0.8,
+  "diagnostic": false,
+  "component": "server",
+  "files": [
+   "server/fd.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0102-server-user-shared-data-fills-a-host-page.patch",
+  "subject": "server: Size the user shared data section to a host page.",
+  "status": "present",
+  "found": 2,
+  "added": 2,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "server",
+  "files": [
+   "server/mapping.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0110-server-run-in-process-on-ps5.patch",
+  "subject": "server: Run in-process on PS5.",
+  "status": "present",
+  "found": 95,
+  "added": 99,
+  "frac": 0.96,
+  "diagnostic": false,
+  "component": "server",
+  "files": [
+   "server/main.c",
+   "server/process.c",
+   "server/request.c",
+   "server/request.h",
+   "server/unicode.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0111-ntdll-connect-to-the-in-process-server.patch",
+  "subject": "ntdll: Connect to the in-process server on PS5.",
+  "status": "present",
+  "found": 40,
+  "added": 42,
+  "frac": 0.95,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/server.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0120-server-ps5-default-audio-driver.patch",
+  "subject": "server: Default the audio driver to the PS5 one on PS5.",
+  "status": "present",
+  "found": 11,
+  "added": 11,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "server",
+  "files": [
+   "server/registry.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0130-ntdll-ps5-report-main-exe-load-failure.patch",
+  "subject": "ntdll: Run a relocated main program in-process on PS5.",
+  "status": "present",
+  "found": 12,
+  "added": 12,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/env.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0140-ntdll-ps5-list-directory-by-name.patch",
+  "subject": "ntdll: List a directory by its name on PS5.",
+  "status": "present",
+  "found": 9,
+  "added": 9,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/file.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0145-ntdll-ps5-resolve-names-under-a-root-directory.patch",
+  "subject": "ntdll: Resolve names under a root directory on PS5.",
+  "status": "present",
+  "found": 10,
+  "added": 10,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/file.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0150-server-ps5-save-the-registry-in-1mib-writes.patch",
+  "subject": "server: Save the registry in 1 MiB writes on PS5.",
+  "status": "present",
+  "found": 2,
+  "added": 2,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "server",
+  "files": [
+   "server/registry.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0160-ntdll-ps5-keep-listings-of-searched-directories.patch",
+  "subject": "ntdll: Keep listings of searched directories on PS5.",
+  "status": "present",
+  "found": 43,
+  "added": 43,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/file.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0170-ntdll-ps5-track-directories-from-the-server.patch",
+  "subject": "ntdll: Track directories received from the server on PS5.",
+  "status": "partial",
+  "found": 6,
+  "added": 17,
+  "frac": 0.35,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/server.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0400-win32u-ps5-user-driver.patch",
+  "subject": "win32u: Add an in-process user driver for PS5.",
+  "status": "present",
+  "found": 212,
+  "added": 231,
+  "frac": 0.92,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/driver.c",
+   "dlls/win32u/ps5drv.c",
+   "dlls/win32u/win32u_private.h",
+   "dlls/win32u/winstation.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0410-win32u-ps5-fontless-metrics-and-server-desktop.patch",
+  "subject": "win32u: Size windows right without fonts and with a",
+  "status": "present",
+  "found": 3,
+  "added": 3,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/sysparams.c",
+   "dlls/win32u/window.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0420-win32u-ps5-driver-cursor.patch",
+  "subject": "win32u: Draw the application's cursor in the PS5 user driver.",
+  "status": "partial",
+  "found": 87,
+  "added": 99,
+  "frac": 0.88,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/ps5drv.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0430-win32u-ps5-driver-window-view.patch",
+  "subject": "win32u: Let the PS5 user driver present the visible windows",
+  "status": "partial",
+  "found": 28,
+  "added": 32,
+  "frac": 0.88,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/ps5drv.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0440-win32u-ps5-driver-cursor-edges.patch",
+  "subject": "win32u: Keep the PS5 driver's cursor whole at the frame's",
+  "status": "present",
+  "found": 16,
+  "added": 16,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/ps5drv.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0450-winevulkan-host-display-extension.patch",
+  "subject": "winevulkan: Let a host driver use VK_KHR_display.",
+  "status": "present",
+  "found": 103,
+  "added": 103,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "winevulkan",
+  "files": [
+   "dlls/winevulkan/make_vulkan",
+   "include/wine/vulkan.h"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0455-win32u-vulkan-optional-host-external-capabilities.patch",
+  "subject": "win32u: Request external memory, semaphore and fence",
+  "status": "present",
+  "found": 7,
+  "added": 7,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/vulkan.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0456-win32u-vulkan-keep-swapchain-chain-when-scaling.patch",
+  "subject": "win32u: Keep the application's swapchain chain when adding",
+  "status": "present",
+  "found": 1,
+  "added": 1,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/vulkan.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0457-win32u-vulkan-placed-map-properties-khr.patch",
+  "subject": "win32u: Query placed-map properties through the KHR entry",
+  "status": "present",
+  "found": 1,
+  "added": 1,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/vulkan.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0460-win32u-ps5-driver-vulkan-display-plane.patch",
+  "subject": "win32u: Present Vulkan surfaces on the PS5's display plane.",
+  "status": "present",
+  "found": 64,
+  "added": 64,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/driver.c",
+   "dlls/win32u/ps5drv.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0470-xinput-ps5-title-controller.patch",
+  "subject": "xinput: Read the PS5 title's controller.",
+  "status": "partial",
+  "found": 115,
+  "added": 132,
+  "frac": 0.87,
+  "diagnostic": false,
+  "component": "xinput",
+  "files": [
+   "dlls/xinput1_3/Makefile.in",
+   "dlls/xinput1_3/main.c",
+   "dlls/xinput1_3/unixlib.c",
+   "dlls/xinput1_3/unixlib.h"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0471-xinput-ps5-four-controllers.patch",
+  "subject": "xinput: Read the PS5 title's four controllers.",
+  "status": "partial",
+  "found": 27,
+  "added": 31,
+  "frac": 0.87,
+  "diagnostic": false,
+  "component": "xinput",
+  "files": [
+   "dlls/xinput1_3/main.c",
+   "dlls/xinput1_3/unixlib.c",
+   "dlls/xinput1_3/unixlib.h"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0480-winegstreamer-ps5-static-plugins.patch",
+  "subject": "winegstreamer: Register the PS5 static media plugins.",
+  "status": "absent",
+  "found": 0,
+  "added": 34,
+  "frac": 0.0,
+  "diagnostic": false,
+  "component": "winegstreamer",
+  "files": [
+   "dlls/winegstreamer/unixlib.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0481-winegstreamer-media-failure.patch",
+  "subject": "winegstreamer: Fail media creation cleanly.",
+  "status": "absent",
+  "found": 14,
+  "added": 73,
+  "frac": 0.19,
+  "diagnostic": false,
+  "component": "winegstreamer",
+  "files": [
+   "dlls/winegstreamer/gst_private.h",
+   "dlls/winegstreamer/main.c",
+   "dlls/winegstreamer/media_source.c",
+   "dlls/winegstreamer/wg_format.c",
+   "dlls/winegstreamer/wg_parser.c",
+   "dlls/winegstreamer/wm_reader.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0482-rtworkq-cleanup-groups.patch",
+  "subject": "rtworkq: Release cleanup groups with queues.",
+  "status": "absent",
+  "found": 0,
+  "added": 2,
+  "frac": 0.0,
+  "diagnostic": false,
+  "component": "rtworkq",
+  "files": [
+   "dlls/rtworkq/queue.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0485-winegstreamer-release-a-parser-once-after-a-failed-connect.patch",
+  "subject": "winegstreamer: Release a parser's elements once after a failed connect.",
+  "status": "partial",
+  "found": 1,
+  "added": 3,
+  "frac": 0.33,
+  "diagnostic": false,
+  "component": "winegstreamer",
+  "files": [
+   "dlls/winegstreamer/wg_parser.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0500-ntdll-ps5-signal-context-and-segment-bases.patch",
+  "subject": "ntdll: Adapt signal context and segment bases to PS5.",
+  "status": "present",
+  "found": 39,
+  "added": 41,
+  "frac": 0.95,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/signal_x86_64.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0501-ntdll-ps5-signal-fp-state-at-its-measured-offset.patch",
+  "subject": "ntdll: Read the PS5 signal frame's FP state at its measured offset.",
+  "status": "present",
+  "found": 3,
+  "added": 3,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/signal_x86_64.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0510-ntdll-ps5-host-page-size.patch",
+  "subject": "ntdll: Use the host page size on PS5.",
+  "status": "absent",
+  "found": 0,
+  "added": 2,
+  "frac": 0.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/virtual.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0520-ntdll-ps5-ntdll-directory.patch",
+  "subject": "ntdll: Let a PS5 title name the ntdll directory.",
+  "status": "present",
+  "found": 4,
+  "added": 4,
+  "frac": 1.0,
+  "diagnostic": true,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/loader.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0530-ntdll-syscall-dispatcher-slot-in-large-host-page.patch",
+  "subject": "ntdll: Keep the syscall dispatcher slot inside a large host",
+  "status": "partial",
+  "found": 3,
+  "added": 5,
+  "frac": 0.6,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/signal_x86_64.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0540-ntdll-count-host-vm-calls-and-skip-unchanged-mprotect.patch",
+  "subject": "ntdll: Count host address-space calls and skip unchanged",
+  "status": "present",
+  "found": 83,
+  "added": 86,
+  "frac": 0.97,
+  "diagnostic": true,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/virtual.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0545-ntdll-keep-the-pages-that-fault-most-often.patch",
+  "subject": "ntdll: Keep the pages that fault most often for the title's",
+  "status": "present",
+  "found": 34,
+  "added": 34,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/virtual.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0550-ntdll-ps5-no-process-creation.patch",
+  "subject": "ntdll: Fail process creation cleanly on PS5.",
+  "status": "present",
+  "found": 5,
+  "added": 5,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/process.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0560-ntdll-stderr-output-sink.patch",
+  "subject": "ntdll: Let a PS5 title receive Wine's stderr output.",
+  "status": "present",
+  "found": 43,
+  "added": 43,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/debug.c",
+   "dlls/ntdll/unix/loader.c",
+   "dlls/ntdll/unix/server.c",
+   "dlls/ntdll/unix/unix_private.h"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0570-ntdll-ps5-reserve-virtual-range.patch",
+  "subject": "ntdll: Reserve the PS5 address space with",
+  "status": "present",
+  "found": 15,
+  "added": 16,
+  "frac": 0.94,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/virtual.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0580-ntdll-ps5-config-dir-parent-ownership.patch",
+  "subject": "ntdll: Skip the config-dir parent ownership check on PS5.",
+  "status": "present",
+  "found": 1,
+  "added": 1,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/server.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0590-ntdll-ps5-repair-null-fs-on-unix-entry.patch",
+  "subject": "ntdll: Repair a null %fs on each Unix entry on PS5.",
+  "status": "present",
+  "found": 37,
+  "added": 37,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/signal_x86_64.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0600-ntdll-ps5-direct-memory-for-anonymous-memory.patch",
+  "subject": "ntdll: Back anonymous memory with direct memory on PS5.",
+  "status": "present",
+  "found": 25,
+  "added": 27,
+  "frac": 0.93,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/virtual.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0601-ntdll-ps5-keep-i386-images-below-4gib.patch",
+  "subject": "ntdll: Keep i386 images below 4 GiB on the PS5.",
+  "status": "present",
+  "found": 2,
+  "added": 2,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/virtual.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0602-ntdll-map-unaligned-shared-sections-private.patch",
+  "subject": "ntdll: Map a private copy of a shared section that is not",
+  "status": "present",
+  "found": 10,
+  "added": 10,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/virtual.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0603-ntdll-report-the-ps5-title-s-memory.patch",
+  "subject": "ntdll: Report the PS5 title's memory budget.",
+  "status": "present",
+  "found": 17,
+  "added": 17,
+  "frac": 1.0,
+  "diagnostic": true,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/system.c",
+   "dlls/ntdll/unix/virtual.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0604-ntdll-ps5-commit-stacks-as-windows-does.patch",
+  "subject": "ntdll: Commit thread and fiber stacks as Windows does on PS5.",
+  "status": "present",
+  "found": 61,
+  "added": 61,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/thread.c",
+   "dlls/ntdll/unix/virtual.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0610-ntdll-ps5-segv-hook-for-the-wow64-cpu.patch",
+  "subject": "ntdll: Let a PS5 WoW64 CPU backend see SIGSEGV first.",
+  "status": "present",
+  "found": 8,
+  "added": 8,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/signal_x86_64.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0611-wow64-ps5-take-the-cpu-from-the-environment.patch",
+  "subject": "wow64: take the CPU backend from WINE_PS5_WOW64_CPU, falling back to the prefix's",
+  "status": "present",
+  "found": 25,
+  "added": 25,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "wow64",
+  "files": [
+   "dlls/wow64/syscall.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0612-wow64-opt-in-named-system-service-profile.patch",
+  "subject": "wow64: add opt-in named guest system-service diagnostics",
+  "status": "present",
+  "found": 52,
+  "added": 52,
+  "frac": 1.0,
+  "diagnostic": true,
+  "component": "wow64",
+  "files": [
+   "dlls/wow64/syscall.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0613-wow64-slow-system-service-events.patch",
+  "subject": "wow64: opt-in slow guest system-service events with the guest stack",
+  "status": "present",
+  "found": 140,
+  "added": 140,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "wow64",
+  "files": [
+   "dlls/wow64/syscall.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0614-wow64-ps5-translator-when-the-native-cpu-does-not-start.patch",
+  "subject": "wow64: Run on the translator when the native CPU does not",
+  "status": "present",
+  "found": 34,
+  "added": 34,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "wow64",
+  "files": [
+   "dlls/wow64/syscall.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0620-ntdll-generic-processor-topology.patch",
+  "subject": "ntdll: Report a generic processor topology where the host",
+  "status": "present",
+  "found": 21,
+  "added": 21,
+  "frac": 1.0,
+  "diagnostic": true,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/system.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0630-win32u-ps5-driver-display-modes.patch",
+  "subject": "win32u: Let applications set display modes on the PS5.",
+  "status": "present",
+  "found": 26,
+  "added": 26,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/ps5drv.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0640-win32u-ps5-flush-period.patch",
+  "subject": "win32u: Flush a drawing thread's surface once per frame on",
+  "status": "present",
+  "found": 10,
+  "added": 10,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/dibdrv/dc.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0650-win32u-ps5-black-surfaces.patch",
+  "subject": "win32u: Start window surfaces black on the PS5.",
+  "status": "present",
+  "found": 2,
+  "added": 2,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/dce.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0670-win32u-ps5-relative-mouse.patch",
+  "subject": "win32u: Move the PS5 pointer by relative motion.",
+  "status": "present",
+  "found": 29,
+  "added": 29,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/ps5drv.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0671-win32u-ps5-mouse-wheel.patch",
+  "subject": "win32u: Forward PS5 vertical mouse wheel input.",
+  "status": "present",
+  "found": 7,
+  "added": 7,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/ps5drv.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0680-server-ps5-wait-watchdog.patch",
+  "subject": "server: A wait watchdog for the PS5 (diagnostic, off by",
+  "status": "partial",
+  "found": 96,
+  "added": 110,
+  "frac": 0.87,
+  "diagnostic": true,
+  "component": "server",
+  "files": [
+   "server/async.c",
+   "server/fd.c",
+   "server/queue.c",
+   "server/request.c",
+   "server/thread.c",
+   "server/thread.h"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0690-ntdll-ps5-slow-operation-log.patch",
+  "subject": "ntdll: Log slow host operations on the PS5 (diagnostic, off",
+  "status": "present",
+  "found": 71,
+  "added": 72,
+  "frac": 0.99,
+  "diagnostic": true,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/server.c",
+   "dlls/ntdll/unix/sync.c",
+   "dlls/ntdll/unix/thread.c",
+   "dlls/ntdll/unix/unix_private.h"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0700-strmbase-renderer-state-wait-without-filter-lock.patch",
+  "subject": "strmbase, quartz: Wait for a renderer's state change without",
+  "status": "present",
+  "found": 8,
+  "added": 8,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "dsound",
+  "files": [
+   "dlls/quartz/dsoundrender.c",
+   "libs/strmbase/renderer.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0710-ntdll-ps5-guest-access-violations-from-the-wow64-cpu.patch",
+  "subject": "ntdll: Let the PS5's WoW64 CPU raise the access violations",
+  "status": "present",
+  "found": 16,
+  "added": 17,
+  "frac": 0.94,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/signal_x86_64.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0730-server-ps5-anonymous-mappings-in-shared-memory.patch",
+  "subject": "server: Back anonymous mappings with shared memory on PS5.",
+  "status": "present",
+  "found": 13,
+  "added": 13,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "server",
+  "files": [
+   "server/mapping.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0740-win32u-ps5-vulkan-hardware-cursor.patch",
+  "subject": "win32u: Show the cursor over PS5 Vulkan frames with",
+  "status": "partial",
+  "found": 10,
+  "added": 14,
+  "frac": 0.71,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/ps5drv.c",
+   "dlls/win32u/vulkan.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0750-winspool-fail-unix-calls-without-a-backend.patch",
+  "subject": "winspool: Fail Unix calls cleanly when the printer backend",
+  "status": "present",
+  "found": 2,
+  "added": 2,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "winspool.drv",
+  "files": [
+   "dlls/winspool.drv/wspool.h"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0760-ws2-32-read-fqdn-once.patch",
+  "subject": "ws2_32: Read a fresh fully qualified computer name once",
+  "status": "partial",
+  "found": 5,
+  "added": 13,
+  "frac": 0.38,
+  "diagnostic": false,
+  "component": "ws2_32",
+  "files": [
+   "dlls/ws2_32/protocol.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0770-server-ps5-run-sync-requests-on-client-threads.patch",
+  "subject": "server: Run sync requests on the client threads on PS5.",
+  "status": "present",
+  "found": 155,
+  "added": 161,
+  "frac": 0.96,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/server.c",
+   "server/fd.c",
+   "server/request.c",
+   "server/request.h"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0780-ws2-32-keep-fqdn-until-the-registry-changes.patch",
+  "subject": "ws2_32: Keep the computer name until the registry changes",
+  "status": "present",
+  "found": 46,
+  "added": 46,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ws2_32",
+  "files": [
+   "dlls/ws2_32/protocol.c",
+   "dlls/ws2_32/socket.c",
+   "dlls/ws2_32/ws2_32_private.h"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0790-server-ps5-immediate-mutex-calls.patch",
+  "subject": "server, ntdll: opt-in immediate mutex calls in process",
+  "status": "present",
+  "found": 105,
+  "added": 110,
+  "frac": 0.95,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/server.c",
+   "dlls/ntdll/unix/sync.c",
+   "dlls/ntdll/unix/unix_private.h",
+   "server/mutex.c",
+   "server/request.c",
+   "server/request.h",
+   "server/thread.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0810-server-ps5-shared-mutex-word.patch",
+  "subject": "server: prepare shared mutex authority and lifetime transitions",
+  "status": "present",
+  "found": 258,
+  "added": 258,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "server",
+  "files": [
+   "include/wine/ps5_mutex_word.h",
+   "server/fd.c",
+   "server/handle.c",
+   "server/mutex.c",
+   "server/request.c",
+   "server/request.h",
+   "server/thread.c",
+   "server/thread.h"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0820-ntdll-ps5-shared-mutex-client.patch",
+  "subject": "ntdll: add opt-in native shared mutex backend and exact cache",
+  "status": "present",
+  "found": 158,
+  "added": 161,
+  "frac": 0.98,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/server.c",
+   "dlls/ntdll/unix/thread.c",
+   "dlls/ntdll/unix/unix_private.h",
+   "include/wine/ps5_mutex_backend.h",
+   "server/mutex.c",
+   "server/request.c",
+   "server/request.h"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0870-server-ps5-release-image-view-fds.patch",
+  "subject": "server: Opt in to releasing view-only image backing descriptors.",
+  "status": "present",
+  "found": 69,
+  "added": 71,
+  "frac": 0.97,
+  "diagnostic": false,
+  "component": "server",
+  "files": [
+   "server/fd.c",
+   "server/file.h",
+   "server/mapping.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0871-server-ps5-park-directory-descriptors.patch",
+  "subject": "server: Park directory descriptors past a threshold on PS5.",
+  "status": "present",
+  "found": 84,
+  "added": 84,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "server",
+  "files": [
+   "server/fd.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0877-secur32-log-gnutls-errors-and-the-clock-on-handshake-failure.patch",
+  "subject": "secur32: Log the GnuTLS error and the clock when a handshake fails.",
+  "status": "present",
+  "found": 13,
+  "added": 13,
+  "frac": 1.0,
+  "diagnostic": true,
+  "component": "secur32",
+  "files": [
+   "dlls/secur32/schannel_gnutls.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0878-crypt32-ps5-root-certificates-beside-the-runtime.patch",
+  "subject": "crypt32: Load root certificates from beside the runtime on PS5.",
+  "status": "present",
+  "found": 22,
+  "added": 22,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "crypt32",
+  "files": [
+   "dlls/crypt32/unixlib.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0879-win32u-ps5-report-a-drained-wake-pipe.patch",
+  "subject": "win32u: Report the wake pipe as handled in the PS5 driver.",
+  "status": "absent",
+  "found": 0,
+  "added": 4,
+  "frac": 0.0,
+  "diagnostic": true,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/ps5drv.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0880-wine-ps5-runtime-defaults.patch",
+  "subject": "wine: Enable shared mutex and image-view cleanup defaults.",
+  "status": "present",
+  "found": 13,
+  "added": 13,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/server.c",
+   "server/fd.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0881-ntdll-ps5-report-the-cpus-a-game-runs-on.patch",
+  "subject": "ntdll: Report the CPUs a PS5 game may run on.",
+  "status": "present",
+  "found": 9,
+  "added": 9,
+  "frac": 1.0,
+  "diagnostic": true,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/system.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0882-server-ps5-round-robin-scheduling-and-priorities.patch",
+  "subject": "server: Give Windows threads round-robin scheduling and their priorities on the PS5.",
+  "status": "present",
+  "found": 30,
+  "added": 30,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/server.c",
+   "dlls/ntdll/unix/thread.c",
+   "server/thread.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0883-ntdll-ps5-native-wow64-signal-entry.patch",
+  "subject": "ntdll: support native WoW64 PS5 signal entry and verified xstate layout",
+  "status": "partial",
+  "found": 205,
+  "added": 228,
+  "frac": 0.9,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/native_libkernel_resolver.c",
+   "dlls/ntdll/unix/native_libkernel_resolver.h",
+   "dlls/ntdll/unix/signal_x86_64.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0884-server-ps5-poll-for-directory-changes.patch",
+  "subject": "server: Poll for directory changes on the PS5.",
+  "status": "present",
+  "found": 169,
+  "added": 169,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "server",
+  "files": [
+   "server/change.c",
+   "server/fd.c",
+   "server/file.h"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0885-server-ps5-shared-sync-word.patch",
+  "subject": "server: prepare event/semaphore shared atomic state",
+  "status": "present",
+  "found": 58,
+  "added": 58,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "wine",
+  "files": [
+   "include/wine/ps5_sync_word.h"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0886-server-ps5-shared-sync-lifetime.patch",
+  "subject": "server: prepare bounded event/semaphore authority and lifetime hooks",
+  "status": "present",
+  "found": 262,
+  "added": 262,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "server",
+  "files": [
+   "server/event.c",
+   "server/mutex.c",
+   "server/ps5_sync.h",
+   "server/request.h",
+   "server/semaphore.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0887-ntdll-ps5-shared-sync-client.patch",
+  "subject": "ntdll: opt in to shared event/semaphore operations",
+  "status": "present",
+  "found": 175,
+  "added": 175,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/server.c",
+   "dlls/ntdll/unix/sync.c",
+   "dlls/ntdll/unix/unix_private.h",
+   "include/wine/ps5_sync_backend.h",
+   "server/request.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0888-ntdll-ps5-shared-sync-default-on.patch",
+  "subject": "wine: Default to compatible shared events and semaphores.",
+  "status": "present",
+  "found": 3,
+  "added": 3,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/server.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0889-ntdll-ps5-processor-times-from-the-process.patch",
+  "subject": "ntdll: Report PS5 processor times from the process's own times.",
+  "status": "present",
+  "found": 13,
+  "added": 13,
+  "frac": 1.0,
+  "diagnostic": true,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/system.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0890-ntdll-ps5-share-name-changes-with-the-server.patch",
+  "subject": "ntdll: Share name changes with the in-process server on PS5.",
+  "status": "present",
+  "found": 12,
+  "added": 12,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/server.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0891-ntdll-report-a-re-protected-image-page-as-copied.patch",
+  "subject": "ntdll: Report a re-protected image page as copied.",
+  "status": "present",
+  "found": 3,
+  "added": 3,
+  "frac": 1.0,
+  "diagnostic": true,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/virtual.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0892-win32u-map-a-dib-section-below-the-wow64-limit.patch",
+  "subject": "win32u: Map a DIB section's section below the WoW64 limit.",
+  "status": "present",
+  "found": 1,
+  "added": 1,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/dib.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0893-ntdll-clear-decommitted-pages-of-a-shared-host-page.patch",
+  "subject": "ntdll: Clear decommitted pages that share a host page with",
+  "status": "present",
+  "found": 18,
+  "added": 18,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/virtual.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0894-win32u-extend-narrow-syscall-arguments-on-clang.patch",
+  "subject": "win32u: Extend narrow system call arguments when built with",
+  "status": "present",
+  "found": 19,
+  "added": 19,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/syscall.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0895-ntdll-ps5-reserve-the-low-gap.patch",
+  "subject": "ntdll: Reserve 0x68000000-0x7f000000 on PS5.",
+  "status": "present",
+  "found": 1,
+  "added": 1,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/virtual.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0896-ntdll-ps5-leave-through-exit-when-a-process-ends-itself.patch",
+  "subject": "ntdll: Leave through exit() when a process ends itself on PS5.",
+  "status": "present",
+  "found": 3,
+  "added": 3,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/process.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0897-ntdll-ps5-back-fixed-reservations-with-direct-memory.patch",
+  "subject": "ntdll: Back PS5 fixed-address reservations with direct",
+  "status": "present",
+  "found": 1,
+  "added": 1,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/virtual.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0898-ntdll-ps5-process-memory-counters-from-the-views.patch",
+  "subject": "ntdll: Count a PS5 process's memory from its views.",
+  "status": "present",
+  "found": 39,
+  "added": 39,
+  "frac": 1.0,
+  "diagnostic": true,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/process.c",
+   "dlls/ntdll/unix/unix_private.h",
+   "dlls/ntdll/unix/virtual.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0899-include-list-the-ps5-headers-for-makedep.patch",
+  "subject": "include: List the PS5 sync headers for makedep.",
+  "status": "present",
+  "found": 4,
+  "added": 4,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "Makefile.in",
+  "files": [
+   "include/Makefile.in"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0900-ntdll-ps5-validated-tsc-qpc-anchor.patch",
+  "subject": "ntdll: add an opt-in validated TSC QPC anchor",
+  "status": "present",
+  "found": 68,
+  "added": 68,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/time.c",
+   "dlls/ntdll/unix/process.c",
+   "dlls/ntdll/unix/sync.c",
+   "dlls/wow64/process.c",
+   "include/winternl.h"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0901-win32u-ps5-shared-key-state-fastpath.patch",
+  "subject": "win32u: add an opt-in shared key-state reader",
+  "status": "present",
+  "found": 82,
+  "added": 82,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/main.c",
+   "dlls/win32u/sysparams.c",
+   "dlls/win32u/winstation.c",
+   "include/ntuser.h"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0902-win32u-ps5-send-extended-keys-as-extended.patch",
+  "subject": "win32u: Send the PS5 driver's extended keys with",
+  "status": "present",
+  "found": 6,
+  "added": 6,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/ps5drv.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0903-ntdll-ps5-keep-the-fs-base-of-a-resumed-64-bit-thread.patch",
+  "subject": "ntdll: Keep the FS base of a 64-bit thread resumed where it",
+  "status": "present",
+  "found": 11,
+  "added": 11,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/signal_x86_64.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0910-win32u-ps5-worker-desktop-cache.patch",
+  "subject": "win32u: recognize existing PS5 desktops on fresh worker threads",
+  "status": "present",
+  "found": 22,
+  "added": 22,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/ntuser_private.h",
+   "dlls/win32u/win32u_private.h",
+   "dlls/win32u/window.c",
+   "dlls/win32u/winstation.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0950-win32u-ps5-scale-the-cursor-with-a-scaled-swapchain.patch",
+  "subject": "win32u: Keep the pointer on a scaled PS5 swapchain and stop",
+  "status": "absent",
+  "found": 0,
+  "added": 32,
+  "frac": 0.0,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/ps5drv.c",
+   "dlls/win32u/vulkan.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0951-winebus-ps5-title-controller-as-hid-gamepad.patch",
+  "subject": "winebus: Show the PS5 title's controller as a HID gamepad.",
+  "status": "absent",
+  "found": 4,
+  "added": 218,
+  "frac": 0.02,
+  "diagnostic": false,
+  "component": "winebus",
+  "files": [
+   "dlls/winebus.sys/bus_ps5.c",
+   "dlls/winebus.sys/main.c",
+   "dlls/winebus.sys/unix_private.h"
+  ],
+  "missing_files": [
+   "dlls/winebus.sys/bus_ps5.c"
+  ]
+ },
+ {
+  "patch": "0952-ntoskrnl-ps5-host-the-hid-drivers-in-the-game.patch",
+  "subject": "ntoskrnl: Host the controller's HID drivers in a PS5 title's",
+  "status": "absent",
+  "found": 12,
+  "added": 109,
+  "frac": 0.11,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/loader.c",
+   "dlls/ntoskrnl.exe/ntoskrnl.c",
+   "dlls/ntoskrnl.exe/ntoskrnl.exe.spec",
+   "dlls/ntoskrnl.exe/ntoskrnl_private.h",
+   "dlls/ntoskrnl.exe/pnp.c",
+   "loader/wine.inf.in"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0953-winebus-wow64-thunks-for-a-hosted-32-bit-game.patch",
+  "subject": "winebus: Add WoW64 calls for a 32-bit game hosting it.",
+  "status": "absent",
+  "found": 5,
+  "added": 62,
+  "frac": 0.08,
+  "diagnostic": false,
+  "component": "winebus",
+  "files": [
+   "dlls/winebus.sys/unixlib.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0954-setupapi-ps5-write-services-without-a-service-manager.patch",
+  "subject": "setupapi: Write a service's registry key when there is no",
+  "status": "absent",
+  "found": 3,
+  "added": 50,
+  "frac": 0.06,
+  "diagnostic": false,
+  "component": "setupapi",
+  "files": [
+   "dlls/setupapi/install.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0955-wow64win-convert-the-input-of-send-hardware-input.patch",
+  "subject": "wow64win: Convert the INPUT of NtUserSendHardwareInput.",
+  "status": "absent",
+  "found": 3,
+  "added": 19,
+  "frac": 0.16,
+  "diagnostic": false,
+  "component": "wow64",
+  "files": [
+   "dlls/wow64win/user.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0956-gdi32-keep-a-window-s-pixel-format-with-a-native-opengl32.patch",
+  "subject": "gdi32: keep a window's pixel format with a native opengl32",
+  "status": "present",
+  "found": 2,
+  "added": 2,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "gdi32",
+  "files": [
+   "dlls/gdi32/opengl.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0957-kernelbase-fall-back-to-the-stored-computer-name.patch",
+  "subject": "kernelbase: Fall back to ComputerName when ActiveComputerName",
+  "status": "present",
+  "found": 4,
+  "added": 4,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "kernelbase",
+  "files": [
+   "dlls/kernelbase/registry.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0958-ntdll-honor-wine-cpu-topology-s-processor-count.patch",
+  "subject": "ntdll: Honor WINE_CPU_TOPOLOGY's processor count.",
+  "status": "absent",
+  "found": 0,
+  "added": 8,
+  "frac": 0.0,
+  "diagnostic": true,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/system.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0959-vkd3d-shader-fx-implement-pass-assignment-for-fx-2-0.patch",
+  "subject": "vkd3d-shader/fx: Implement pass assignment for fx_2_0",
+  "status": "partial",
+  "found": 41,
+  "added": 51,
+  "frac": 0.8,
+  "diagnostic": false,
+  "component": "d3d",
+  "files": [
+   "libs/vkd3d/libs/vkd3d-shader/fx.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0960-vkd3d-shader-fx-write-sampler-state-initializers-for-fx-2-0.patch",
+  "subject": "vkd3d-shader/fx: Write sampler state initializers for",
+  "status": "present",
+  "found": 114,
+  "added": 114,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "d3d",
+  "files": [
+   "libs/vkd3d/libs/vkd3d-shader/fx.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0961-vkd3d-shader-fx-accept-true-and-false-for-any-fx-2-0-state.patch",
+  "subject": "vkd3d-shader/fx: Accept TRUE and FALSE for any fx_2_0",
+  "status": "present",
+  "found": 8,
+  "added": 8,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "d3d",
+  "files": [
+   "libs/vkd3d/libs/vkd3d-shader/fx.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0962-vkd3d-shader-fx-write-null-shader-and-texture-states-for-fx-2-0.patch",
+  "subject": "vkd3d-shader/fx: Write NULL shader and texture states",
+  "status": "present",
+  "found": 27,
+  "added": 27,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "d3d",
+  "files": [
+   "libs/vkd3d/libs/vkd3d-shader/fx.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0963-vkd3d-shader-hlsl-compile-ps-1-x-effect-shaders-as-ps-2-0.patch",
+  "subject": "vkd3d-shader/hlsl: Compile ps_1_x effect shaders as",
+  "status": "present",
+  "found": 3,
+  "added": 3,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "d3d",
+  "files": [
+   "libs/vkd3d/libs/vkd3d-shader/hlsl.y"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0964-ntdll-ps5-retire-thread-alert-kqueues.patch",
+  "subject": "ntdll: Own PS5 alert kqueues by live thread.",
+  "status": "absent",
+  "found": 13,
+  "added": 89,
+  "frac": 0.15,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/sync.c",
+   "dlls/ntdll/unix/thread.c",
+   "dlls/ntdll/unix/unix_private.h",
+   "dlls/ntdll/unix/virtual.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0965-win32u-ps5-no-pixel-format-message-loop-on-the-desktop.patch",
+  "subject": "win32u: Don't post a pixel format to the PS5's desktop.",
+  "status": "present",
+  "found": 2,
+  "added": 2,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/window.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0966-winebus-ps5-other-controllers-as-hid-gamepads.patch",
+  "subject": "winebus: Show the PS5 title's other controllers as HID gamepads.",
+  "status": "absent",
+  "found": 1,
+  "added": 112,
+  "frac": 0.01,
+  "diagnostic": false,
+  "component": "hidclass",
+  "files": [
+   "dlls/hidclass.sys/device.c",
+   "dlls/hidclass.sys/hid.h",
+   "dlls/hidclass.sys/pnp.c",
+   "dlls/ntoskrnl.exe/ntoskrnl.c",
+   "dlls/winebus.sys/bus_ps5.c",
+   "dlls/winebus.sys/main.c",
+   "dlls/winebus.sys/unix_private.h"
+  ],
+  "missing_files": [
+   "dlls/winebus.sys/bus_ps5.c"
+  ]
+ },
+ {
+  "patch": "0967-win32u-ps5-do-not-wait-for-the-desktop-window-owner.patch",
+  "subject": "win32u: Don't wait for the PS5 desktop window's owner.",
+  "status": "present",
+  "found": 6,
+  "added": 6,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/message.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0968-win32u-ps5-keep-the-pointer-in-a-window-under-a-display-mode.patch",
+  "subject": "win32u: Limit the PS5 pointer by a swapchain window's place",
+  "status": "absent",
+  "found": 0,
+  "added": 1,
+  "frac": 0.0,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/ps5drv.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0969-msvcp90-make-ctype-char-narrow-a-vtable-tail-call-like-native.patch",
+  "subject": "msvcp90: Make ctype<char>::narrow() a vtable tail call, like",
+  "status": "absent",
+  "found": 0,
+  "added": 6,
+  "frac": 0.0,
+  "diagnostic": false,
+  "component": "msvcp80",
+  "files": [
+   "dlls/msvcp80/msvcp80.spec",
+   "dlls/msvcp90/locale.c",
+   "dlls/msvcp90/msvcp90.spec"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0970-ntdll-ps5-trace-each-process-query-class-once.patch",
+  "subject": "ntdll: Trace each process query class once on PS5.",
+  "status": "present",
+  "found": 9,
+  "added": 9,
+  "frac": 1.0,
+  "diagnostic": true,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/process.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0971-kernelbase-ps5-no-debugger-in-a-title.patch",
+  "subject": "kernelbase: Do not start a debugger in a PS5 title.",
+  "status": "present",
+  "found": 11,
+  "added": 11,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "kernelbase",
+  "files": [
+   "dlls/kernelbase/debug.c",
+   "dlls/kernelbase/kernelbase.h",
+   "dlls/kernelbase/main.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0972-faudio-keep-resampling-taps-within-the-samples.patch",
+  "subject": "faudio: Keep resampling taps within the samples to resample.",
+  "status": "present",
+  "found": 14,
+  "added": 14,
+  "frac": 1.0,
+  "diagnostic": true,
+  "component": "faudio",
+  "files": [
+   "libs/faudio/src/FAudio_internal.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0973-ntdll-ps5-title-menu-snapshot.patch",
+  "subject": "ntdll: Hand the PS5 title's menu to the game's renderer.",
+  "status": "present",
+  "found": 34,
+  "added": 34,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/process.c",
+   "dlls/wow64/process.c",
+   "include/winternl.h"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0974-ntdll-fault-on-protected-pages-that-share-a-host-page.patch",
+  "subject": "ntdll: Fault on protected pages that share a host page with",
+  "status": "partial",
+  "found": 67,
+  "added": 77,
+  "frac": 0.87,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/signal_x86_64.c",
+   "dlls/ntdll/unix/unix_private.h",
+   "dlls/ntdll/unix/virtual.c",
+   "server/mapping.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0975-ntdll-clear-decommitted-pages-beside-protected-ones.patch",
+  "subject": "ntdll: Clear decommitted pages beside protected ones.",
+  "status": "absent",
+  "found": 0,
+  "added": 4,
+  "frac": 0.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/virtual.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0976-ntdll-server-ps5-small-anonymous-sections-in-direct-memory.patch",
+  "subject": "ntdll, server: Keep small anonymous sections in direct memory",
+  "status": "absent",
+  "found": 5,
+  "added": 32,
+  "frac": 0.16,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/server.c",
+   "dlls/ntdll/unix/virtual.c",
+   "server/mapping.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0977-kernelbase-list-drives-nothing-has-published.patch",
+  "subject": "kernelbase: Find drives by their roots when none are",
+  "status": "absent",
+  "found": 1,
+  "added": 8,
+  "frac": 0.12,
+  "diagnostic": false,
+  "component": "kernelbase",
+  "files": [
+   "dlls/kernelbase/volume.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0978-win32u-ps5-show-a-smaller-display-mode-where-win32u-puts-it.patch",
+  "subject": "win32u: Show a smaller PS5 display mode where win32u puts",
+  "status": "absent",
+  "found": 0,
+  "added": 14,
+  "frac": 0.0,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/ps5drv.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0979-ntdll-ps5-report-the-storage-for-a-title-s-root.patch",
+  "subject": "ntdll: Report the storage for a title's root directory on PS5.",
+  "status": "absent",
+  "found": 2,
+  "added": 12,
+  "frac": 0.17,
+  "diagnostic": true,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/file.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0980-server-ps5-dump-long-waiting-stacks-in-the-watchdog.patch",
+  "subject": "server: Dump a long-waiting PS5 thread's i386 stack in the",
+  "status": "present",
+  "found": 44,
+  "added": 45,
+  "frac": 0.98,
+  "diagnostic": true,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/server.c",
+   "server/thread.c",
+   "server/thread.h"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0981-win32u-register-builtin-classes-without-waiting.patch",
+  "subject": "win32u: Register the builtin classes without waiting on",
+  "status": "present",
+  "found": 28,
+  "added": 28,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/class.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0982-ntdll-ps5-high-area-as-large-as-the-kernel-grants.patch",
+  "subject": "ntdll: Reserve the PS5 high area as large as the kernel",
+  "status": "present",
+  "found": 26,
+  "added": 26,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/virtual.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0983-win32u-ps5-report-the-120-hz-output-rate.patch",
+  "subject": "win32u: Report the PS5's 120 Hz output rate.",
+  "status": "absent",
+  "found": 0,
+  "added": 4,
+  "frac": 0.0,
+  "diagnostic": true,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/ps5drv.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0984-win32u-ps5-tell-windows-when-the-controller-comes-or-goes.patch",
+  "subject": "win32u: Tell windows when a PS5 title's controller comes or",
+  "status": "present",
+  "found": 12,
+  "added": 12,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/ps5drv.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0985-ntdll-ps5-start-hosted-drivers-without-thread-attach.patch",
+  "subject": "ntdll: Start a PS5 title's hosted drivers without thread",
+  "status": "absent",
+  "found": 1,
+  "added": 20,
+  "frac": 0.05,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/loader.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0986-ntdll-keep-a-host-page-whole-when-accesses-beside-an-inaccessible-page-run-hot.patch",
+  "subject": "ntdll: Keep a host page whole when accesses beside an",
+  "status": "present",
+  "found": 27,
+  "added": 27,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/virtual.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0987-ntdll-report-hot-writes-only-beside-a-read-only-data-page.patch",
+  "subject": "ntdll: Report hot writes only beside a read-only data page.",
+  "status": "absent",
+  "found": 0,
+  "added": 1,
+  "frac": 0.0,
+  "diagnostic": true,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/virtual.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0988-ntdll-let-the-kernel-write-a-page-beside-a-protected-one.patch",
+  "subject": "ntdll: Let the kernel write a page beside a protected one.",
+  "status": "absent",
+  "found": 11,
+  "added": 65,
+  "frac": 0.17,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/virtual.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0989-ntdll-report-hot-writes-beside-a-read-only-page-only-on-request.patch",
+  "subject": "ntdll: Report hot writes beside a read-only page only on",
+  "status": "absent",
+  "found": 0,
+  "added": 4,
+  "frac": 0.0,
+  "diagnostic": true,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/virtual.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0990-winebus-ps5-title-controller-as-dualshock-4.patch",
+  "subject": "winebus: Show the PS5 title's controllers as DualShock 4s on",
+  "status": "absent",
+  "found": 0,
+  "added": 246,
+  "frac": 0.0,
+  "diagnostic": false,
+  "component": "winebus",
+  "files": [
+   "dlls/winebus.sys/bus_ps5.c"
+  ],
+  "missing_files": [
+   "dlls/winebus.sys/bus_ps5.c"
+  ]
+ },
+ {
+  "patch": "0991-xinput-ps5-no-controller-beside-a-dualshock-4.patch",
+  "subject": "xinput: Report no PS5 title controller beside a DualShock 4.",
+  "status": "absent",
+  "found": 0,
+  "added": 6,
+  "frac": 0.0,
+  "diagnostic": true,
+  "component": "xinput",
+  "files": [
+   "dlls/xinput1_3/unixlib.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0992-ntoskrnl-ps5-wait-for-a-dualshock-4-by-its-hid-interface.patch",
+  "subject": "ntoskrnl: Wait for a PS5 title's DualShock 4 by its HID",
+  "status": "absent",
+  "found": 0,
+  "added": 8,
+  "frac": 0.0,
+  "diagnostic": false,
+  "component": "ntoskrnl.exe",
+  "files": [
+   "dlls/ntoskrnl.exe/ntoskrnl.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0993-server-ps5-park-read-only-file-descriptors.patch",
+  "subject": "server: Park read-only file descriptors past a budget on PS5.",
+  "status": "absent",
+  "found": 15,
+  "added": 157,
+  "frac": 0.1,
+  "diagnostic": false,
+  "component": "server",
+  "files": [
+   "server/fd.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0994-ntdll-ps5-run-a-program-a-game-starts-next.patch",
+  "subject": "ntdll: Run a program a game starts next on PS5.",
+  "status": "present",
+  "found": 86,
+  "added": 88,
+  "frac": 0.98,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/process.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0995-win32u-ps5-show-where-the-pointer-is-and-keep-windows-in-order.patch",
+  "subject": "win32u: Show where the PS5 pointer is and keep windows in",
+  "status": "absent",
+  "found": 7,
+  "added": 64,
+  "frac": 0.11,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/ps5drv.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0996-ntdll-ps5-end-a-launcher-that-waits-for-the-program-it-started.patch",
+  "subject": "ntdll: End a program that waits for the one it started on",
+  "status": "present",
+  "found": 43,
+  "added": 43,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/process.c",
+   "dlls/ntdll/unix/sync.c",
+   "dlls/ntdll/unix/unix_private.h"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0997-ntdll-ps5-say-which-program-could-not-start.patch",
+  "subject": "ntdll: Say which program could not start on PS5.",
+  "status": "present",
+  "found": 12,
+  "added": 12,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/process.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0998-win32u-keep-the-video-memory-size-within-32-bits.patch",
+  "subject": "win32u: Keep the video memory size within 32 bits.",
+  "status": "absent",
+  "found": 0,
+  "added": 1,
+  "frac": 0.0,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/sysparams.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "0999-winegstreamer-ps5-play-mp3-and-wav-through-directshow.patch",
+  "subject": "winegstreamer: Register the PS5 WAV, MP3 and ID3 plugins.",
+  "status": "absent",
+  "found": 0,
+  "added": 6,
+  "frac": 0.0,
+  "diagnostic": false,
+  "component": "winegstreamer",
+  "files": [
+   "dlls/winegstreamer/unixlib.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "1000-ntdll-let-wine-large-address-aware-give-a-32-bit-program-4-gb.patch",
+  "subject": "ntdll: Let WINE_LARGE_ADDRESS_AWARE give a 32-bit program 4",
+  "status": "partial",
+  "found": 8,
+  "added": 23,
+  "frac": 0.35,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/virtual.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "1001-d3dx9-compile-a-function-of-the-source-in-effect-compiler-compileshader.patch",
+  "subject": "d3dx9: Compile a function of the source in",
+  "status": "present",
+  "found": 61,
+  "added": 61,
+  "frac": 1.0,
+  "diagnostic": false,
+  "component": "d3d",
+  "files": [
+   "dlls/d3dx9_36/effect.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "1002-server-ps5-say-what-holds-the-files-when-an-open-runs-out.patch",
+  "subject": "server: Say what holds the files when an open runs out of",
+  "status": "absent",
+  "found": 4,
+  "added": 35,
+  "frac": 0.11,
+  "diagnostic": false,
+  "component": "server",
+  "files": [
+   "server/fd.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "1003-ntoskrnl-ps5-host-nsiproxy-in-the-game.patch",
+  "subject": "ntoskrnl: Host nsiproxy in a PS5 title's game too.",
+  "status": "absent",
+  "found": 2,
+  "added": 37,
+  "frac": 0.05,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/loader.c",
+   "dlls/ntoskrnl.exe/ntoskrnl.c",
+   "dlls/ntoskrnl.exe/ntoskrnl.exe.spec"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "1004-dnsapi-fail-without-the-unix-library.patch",
+  "subject": "dnsapi: Fail instead of calling a Unix side that did not",
+  "status": "absent",
+  "found": 0,
+  "added": 2,
+  "frac": 0.0,
+  "diagnostic": false,
+  "component": "dnsapi",
+  "files": [
+   "dlls/dnsapi/dnsapi.h"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "1005-ntdll-ps5-say-what-fills-a-32-bit-address-space.patch",
+  "subject": "ntdll: Say what fills a 32-bit program's address space on",
+  "status": "absent",
+  "found": 7,
+  "added": 49,
+  "frac": 0.14,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/virtual.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "1006-win32u-ps5-list-a-mouse-and-a-keyboard-for-raw-input.patch",
+  "subject": "win32u: List a mouse and a keyboard for raw input on PS5.",
+  "status": "absent",
+  "found": 5,
+  "added": 22,
+  "frac": 0.23,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/rawinput.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "1007-ntdll-ps5-report-only-reserved-space-as-free-to-a-32-bit-program.patch",
+  "subject": "ntdll: Report only reserved space as free to a 32-bit program",
+  "status": "partial",
+  "found": 1,
+  "added": 3,
+  "frac": 0.33,
+  "diagnostic": true,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/virtual.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "1008-ntdll-ps5-host-the-controllers-drivers-without-nsiproxy.patch",
+  "subject": "ntdll: Host the controller's drivers without nsiproxy on request.",
+  "status": "absent",
+  "found": 0,
+  "added": 4,
+  "frac": 0.0,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/loader.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "1009-server-ps5-park-files-bound-to-a-completion-port.patch",
+  "subject": "server: Park files bound to a completion port on PS5.",
+  "status": "absent",
+  "found": 0,
+  "added": 1,
+  "frac": 0.0,
+  "diagnostic": false,
+  "component": "server",
+  "files": [
+   "server/fd.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "1010-ntdll-ps5-title-notifications-and-invites.patch",
+  "subject": "ntdll: Let the PS5 title show notifications and ask about invites.",
+  "status": "absent",
+  "found": 13,
+  "added": 57,
+  "frac": 0.23,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/process.c",
+   "dlls/wow64/process.c",
+   "include/winternl.h"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "1011-ntdll-ps5-connect-to-a-server-in-another-process-of-the-title.patch",
+  "subject": "ntdll: Connect to a server that another process of the",
+  "status": "absent",
+  "found": 1,
+  "added": 7,
+  "frac": 0.14,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/server.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "1012-ntdll-one-syscall-dispatcher-slot-value-for-every-process.patch",
+  "subject": "ntdll: Keep one syscall dispatcher slot value for every",
+  "status": "absent",
+  "found": 3,
+  "added": 22,
+  "frac": 0.14,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/signal_x86_64.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "1013-ntdll-ps5-let-the-title-act-once-the-server-is-connected.patch",
+  "subject": "ntdll: Let the title act once the server is connected on PS5.",
+  "status": "absent",
+  "found": 2,
+  "added": 8,
+  "frac": 0.25,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/loader.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "1014-win32u-ps5-leave-the-display-to-the-title-in-a-headless-process.patch",
+  "subject": "win32u: Leave the display to the title in a headless process",
+  "status": "absent",
+  "found": 4,
+  "added": 21,
+  "frac": 0.19,
+  "diagnostic": false,
+  "component": "win32u",
+  "files": [
+   "dlls/win32u/ps5drv.c",
+   "dlls/win32u/sysparams.c",
+   "dlls/win32u/vulkan.c",
+   "dlls/win32u/win32u_private.h"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "1015-server-ps5-keep-system-apcs-for-a-title-s-second-process.patch",
+  "subject": "server: Keep system APCs for a title's second process on",
+  "status": "partial",
+  "found": 2,
+  "added": 6,
+  "frac": 0.33,
+  "diagnostic": false,
+  "component": "server",
+  "files": [
+   "server/thread.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "1016-ntdll-convert-the-received-tos-and-ttl-control-messages-the-bsds-send.patch",
+  "subject": "ntdll: Convert the received TOS and TTL control messages the",
+  "status": "partial",
+  "found": 6,
+  "added": 12,
+  "frac": 0.5,
+  "diagnostic": false,
+  "component": "ntdll",
+  "files": [
+   "dlls/ntdll/unix/socket.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "1017-server-accept-a-send-buffer-size-of-0-on-freebsd-too.patch",
+  "subject": "server: Accept a send buffer size of 0 on FreeBSD too.",
+  "status": "absent",
+  "found": 0,
+  "added": 1,
+  "frac": 0.0,
+  "diagnostic": false,
+  "component": "server",
+  "files": [
+   "server/sock.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "1018-iphlpapi-leave-the-dns-servers-out-when-dnsqueryconfig-fails.patch",
+  "subject": "iphlpapi: Leave the DNS servers out when DnsQueryConfig",
+  "status": "absent",
+  "found": 0,
+  "added": 1,
+  "frac": 0.0,
+  "diagnostic": false,
+  "component": "iphlpapi",
+  "files": [
+   "dlls/iphlpapi/iphlpapi_main.c"
+  ],
+  "missing_files": []
+ },
+ {
+  "patch": "1019-server-ps5-watch-many-directories.patch",
+  "subject": "server: Watch many directories on PS5.",
+  "status": "absent",
+  "found": 9,
+  "added": 111,
+  "frac": 0.08,
+  "diagnostic": true,
+  "component": "server",
+  "files": [
+   "server/change.c",
+   "server/fd.c",
+   "server/file.h"
+  ],
+  "missing_files": []
+ }
+]

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "ps4": {
+      "type": "stdio",
+      "command": "${HOME}/git/ps4-mcp/.venv/bin/ps5mcp-server",
+      "args": [],
+      "env": {
+        "PS4_HOST": "10.168.2.52"
+      }
+    }
+  }
+}

@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: prospero-win <prospero-win@invalid>
+Date: Sun, 16 Nov 2026 12:00:00 +0100
+Subject: [PATCH] ntdll: Say what start routine a thread is created with.
+
+Hollow Knight completes Unity's initialisation -- D3D11 through DXVK,
+every Mono assembly, PhysX multi-threaded -- and then one thread faults
+immediately with c0000005 on execute at address 0: ctxrip=0, every
+register zero but rcx/r8/r9, rsp just under a fresh 64 KiB stack. That is
+a thread entering a start routine of NULL, not a corrupted call deep in
+code.
+
+Two very different causes produce that, and nothing in the log tells them
+apart: the guest asked for a NULL start (a function pointer it resolved
+came back NULL), or it asked for a real one and this port lost it between
+NtCreateThreadEx and the thread's first instruction. Wine traces neither,
+so say it once per thread at the creation site. ERR, not TRACE: the
+profile's verbose WINEDEBUG turns fixme off and this must survive it.
+---
+ dlls/ntdll/unix/thread.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/dlls/ntdll/unix/thread.c b/dlls/ntdll/unix/thread.c
+index 1111111..2222222 100644
+--- a/dlls/ntdll/unix/thread.c
++++ b/dlls/ntdll/unix/thread.c
+@@ -1467,6 +1467,9 @@ NTSTATUS WINAPI NtCreateThreadEx( HANDLE *handle, ACCESS_MASK access, OBJECT_ATT
+     TEB *teb;
+     WOW_TEB *wow_teb;
+     unsigned int status;
+ 
++    /* PW_THREAD_CREATE: a NULL start here means the guest asked for one. */
++    ERR( "PW_THREAD_CREATE start=%p param=%p flags=%#x\n", start, param, (unsigned int)flags );
++
+     if (flags & ~supported_flags)
+         FIXME( "Unsupported flags %#x.\n", flags );

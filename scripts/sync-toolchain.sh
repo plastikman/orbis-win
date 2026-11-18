@@ -2,7 +2,13 @@
 # Copy the tracked toolchain shim into the ignored build tree, or report drift.
 #   scripts/sync-toolchain.sh [--check]
 set -euo pipefail
-ROOT=/home/zpeirce/ps4-gladius
+case ${1:-} in
+    -h|--help)
+        echo "usage: $0 [--check]"
+        echo "Copies src/toolchain/prospero-clang to build/ps4-wine-sdk/bin/; --check reports drift instead."
+        exit 0 ;;
+esac
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 SRC=$ROOT/src/toolchain/prospero-clang
 DST=$ROOT/build/ps4-wine-sdk/bin/prospero-clang
 if [[ ${1:-} == --check ]]; then

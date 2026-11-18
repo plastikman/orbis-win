@@ -259,8 +259,10 @@ if (( PKG )); then
     STAGE="$OUT/pkg-stage"
     PKGTOOL="$BUNDLE/sdk/bin/linux/PkgTool.Core"
     export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
-    ossl="${XDG_CACHE_HOME:-$HOME/.cache}/orbis-ports/openssl11/lib"
-    [[ -d $ossl ]] && export LD_LIBRARY_PATH="$ossl${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    # A miss is not fatal here: PkgTool.Core may still find libssl on the loader path.
+    if ossl=$("$ROOT/scripts/find-openssl11.sh"); then
+        export LD_LIBRARY_PATH="$ossl${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    fi
 
     "$PKGTOOL" sfo_setentry "$STAGE/sce_sys/param.sfo" ATTRIBUTE \
         --type Integer --maxsize 4 --value 8388608 > /dev/null
