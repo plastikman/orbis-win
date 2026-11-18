@@ -1,0 +1,98 @@
+From: Zak Peirce <plastikman@gmail.com>
+Subject: ps5: Resolve names from the active prefix hosts file first
+
+Tested in Orbis-Win 02.62 for Splinter Cell Conviction offline launch.
+Base prospero-win source: 75f25351354b866e8cae8c17e828e386651ddb7e.
+This lets a title-local hosts entry override retired services without changing
+console-wide name resolution.
+
+---
+diff --git a/wine/ps5/pw_ws2_32_libc.c b/wine/ps5/pw_ws2_32_libc.c
+index f09a661..f403c7d 100644
+--- a/wine/ps5/pw_ws2_32_libc.c
++++ b/wine/ps5/pw_ws2_32_libc.c
+@@ -99,0 +100,81 @@ int sceNetResolverStartNtoa6(int resolver, const char *name, struct in6_addr *ad
++/* The PS4 resolver uses libSceNet directly, so it bypasses both the console's
++ * /etc/hosts and Wine's standard C: prefix hosts file. Check the active Wine
++ * prefix first. This lets a game-local hosts entry override retired services
++ * without changing DNS for the rest of the console. */
++static int pw_prefix_hosts_resolve(const char *name, int family,
++                                   struct pw_ws2_address answers[2], int *count)
++{
++    const char *prefix = getenv("WINEPREFIX");
++    char path[1024], line[512];
++    FILE *hosts;
++    int path_len;
++
++    *count = 0;
++    if (!prefix || !*prefix)
++        return EAI_NONAME;
++    path_len = snprintf(path, sizeof(path), "%s/drive_c/windows/system32/drivers/etc/hosts", prefix);
++    if (path_len < 0 || (size_t)path_len >= sizeof(path))
++        return EAI_NONAME;
++    if (!(hosts = fopen(path, "r")))
++        return EAI_NONAME;
++
++    while (fgets(line, sizeof(line), hosts))
++    {
++        struct pw_ws2_address answer;
++        char *cursor = line, *start;
++        size_t length;
++        int parsed = 0;
++
++        while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r' || *cursor == '\n') cursor++;
++        if (!*cursor || *cursor == '#') continue;
++        start = cursor;
++        while (*cursor && *cursor != ' ' && *cursor != '\t' && *cursor != '\r' &&
++               *cursor != '\n' && *cursor != '#') cursor++;
++        length = cursor - start;
++        if (!length) continue;
++
++        if (family != AF_INET6 && length < INET_ADDRSTRLEN)
++        {
++            char address[INET_ADDRSTRLEN];
++            memcpy(address, start, length);
++            address[length] = 0;
++            if (inet_pton(AF_INET, address, answer.bytes) == 1)
++            {
++                answer.family = AF_INET;
++                parsed = 1;
++            }
++        }
++        if (!parsed && family != AF_INET && length < INET6_ADDRSTRLEN)
++        {
++            char address[INET6_ADDRSTRLEN];
++            memcpy(address, start, length);
++            address[length] = 0;
++            if (inet_pton(AF_INET6, address, answer.bytes) == 1)
++            {
++                answer.family = AF_INET6;
++                parsed = 1;
++            }
++        }
++        if (!parsed) continue;
++
++        while (*cursor && *cursor != '#' && *cursor != '\r' && *cursor != '\n')
++        {
++            while (*cursor == ' ' || *cursor == '\t') cursor++;
++            if (!*cursor || *cursor == '#' || *cursor == '\r' || *cursor == '\n') break;
++            start = cursor;
++            while (*cursor && *cursor != ' ' && *cursor != '\t' && *cursor != '\r' &&
++                   *cursor != '\n' && *cursor != '#') cursor++;
++            length = cursor - start;
++            if (strlen(name) == length && !strncasecmp(name, start, length))
++            {
++                answers[0] = answer;
++                *count = 1;
++                fclose(hosts);
++                return 0;
++            }
++        }
++    }
++    fclose(hosts);
++    return EAI_NONAME;
++}
++
+@@ -104,0 +186,2 @@ static int pw_console_resolve(const char *name, int family, struct pw_ws2_addres
++    if (!pw_prefix_hosts_resolve(name, family, answers, count))
++        return 0;
