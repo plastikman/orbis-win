@@ -1977,7 +1977,7 @@ static void watch_oblivion_rx_pages(unsigned int sample)
 #include "../freebsd-compat/machine/fbsd_mcontext.h"
 
 #define PW_GUEST_SAMPLE_OFFSET 64        /* mcontext within ucontext, measured (fault_probe) */
-#define PW_GUEST_SAMPLE_MAX    400       /* bounded: a wedge would otherwise log forever */
+#define PW_GUEST_SAMPLE_MAX    20000     /* debugging a wedge: we want the data, not a tidy log */
 
 static volatile unsigned int guest_samples;
 static volatile unsigned int guest_sample_logged;
@@ -1997,17 +1997,18 @@ static int guest_code_pointer(uint64_t w)
 /* Stacks for the first samples OF EACH THREAD, not the first samples overall. SIGALRM from
  * ITIMER_REAL is process-directed, so the kernel picks whichever thread answers: the global
  * first three can all be idle workers, and the wedged thread -- the only one worth a stack --
- * would never print one. Bounded: 16 threads, 2 stacks each. */
+ * would never print one. 128 threads, 6 stacks each: enough to show whether a thread
+ * is truly stuck at one rip or merely slow. */
 static int guest_stack_want(unsigned long tid)
 {
-    static volatile unsigned long seen_tid[16];
-    static volatile unsigned int  seen_hits[16];
+    static volatile unsigned long seen_tid[128];
+    static volatile unsigned int  seen_hits[128];
     unsigned int i;
 
-    for (i = 0; i < 16; i++)
+    for (i = 0; i < 128; i++)
         if (__atomic_load_n(&seen_tid[i], __ATOMIC_ACQUIRE) == tid)
-            return __atomic_add_fetch(&seen_hits[i], 1, __ATOMIC_ACQ_REL) <= 2;
-    for (i = 0; i < 16; i++) {
+            return __atomic_add_fetch(&seen_hits[i], 1, __ATOMIC_ACQ_REL) <= 6;
+    for (i = 0; i < 128; i++) {
         unsigned long expected = 0;
         if (__atomic_compare_exchange_n(&seen_tid[i], &expected, tid, 0,
                                         __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {

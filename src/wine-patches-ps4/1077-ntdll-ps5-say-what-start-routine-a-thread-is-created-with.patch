@@ -17,20 +17,27 @@ NtCreateThreadEx and the thread's first instruction. Wine traces neither,
 so say it once per thread at the creation site. ERR, not TRACE: the
 profile's verbose WINEDEBUG turns fixme off and this must survive it.
 ---
- dlls/ntdll/unix/thread.c | 3 +++
- 1 file changed, 3 insertions(+)
+ dlls/ntdll/unix/thread.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
 
 diff --git a/dlls/ntdll/unix/thread.c b/dlls/ntdll/unix/thread.c
 index 1111111..2222222 100644
 --- a/dlls/ntdll/unix/thread.c
 +++ b/dlls/ntdll/unix/thread.c
-@@ -1467,6 +1467,9 @@ NTSTATUS WINAPI NtCreateThreadEx( HANDLE *handle, ACCESS_MASK access, OBJECT_ATT
-     TEB *teb;
+@@ -1468,6 +1468,16 @@
      WOW_TEB *wow_teb;
      unsigned int status;
  
-+    /* PW_THREAD_CREATE: a NULL start here means the guest asked for one. */
-+    ERR( "PW_THREAD_CREATE start=%p param=%p flags=%#x\n", start, param, (unsigned int)flags );
++    /* PW_THREAD_CREATE: a NULL start here means the guest asked for one. Behind the
++     * sampler switch, because every thread a title creates would otherwise be logged
++     * and Hollow Knight alone creates forty before it stops. */
++    {
++        static int pw_log = -1;
++        if (pw_log < 0) { const char *pw_t = getenv( "PW_PS4_GUEST_SAMPLER" ); pw_log = pw_t && pw_t[0] == '1'; }
++        if (pw_log)
++            ERR( "PW_THREAD_CREATE start=%p param=%p flags=%#x\n", start, param, (unsigned int)flags );
++    }
 +
      if (flags & ~supported_flags)
          FIXME( "Unsupported flags %#x.\n", flags );
+ 
