@@ -21,6 +21,29 @@ Package `-vkbun`, every one of the 14 PRX modules built from source here:
 Only `libc.prx` and `libSceFios2.prx` are not built — console modules, never
 redistributed, by design.
 
+### 1b. The CI-built binaries were installed and run on hardware
+
+Not just "CI went green". The `prx-modules` artifact from run 44234732286 was
+downloaded, packaged here, gated and installed as `-cibuild.pkg`:
+
+    19:29:39  profile=fallout-new-vegas  cpu=native backend=wow64native.dll
+              libvulkan faults = 0
+              did-not-start    = 0   <- native WoW64 started; no c00000bb
+              simulate entry   = 0   <- the translator never loaded
+              frames_put=3  last=1920x1080  audible=8624   screenshot: 59.9 fps
+
+Gate on that package: exit 0, 0 FAIL.
+
+**8 of the 14 modules are byte-identical** between the GitHub runner and this
+workstation, `libvulkan.prx` (268fdd06) among them. The 6 that differ are exactly
+the Wine-side PRXs (ntdll, win32u, ws2_32, wineserver, opengl32, wineps5), because
+the local tree carries Max's 1086/1087 and CI builds the pinned tree without them.
+That is the expected difference, not drift.
+
+⚠ CI uploads only `*.prx`, not the matching `*.shared.elf`, so the parity gate's
+export check is skipped on a CI-built stage ("--elf-dir PRX does not match the
+stage"). Worth adding to the artifact.
+
 ## 2. Root cause of the libvulkan fault: orbis-compat is PER MODULE
 
     libvulkan.prx (RADV)  ->  the SDK BUNDLE's orbis-compat (114,252 B)
@@ -114,8 +137,9 @@ is half that fix; the DXVK allocator refusal is the other half, still open).
      requires LLVM 19 and the workflow installed Ubuntu's unversioned clang, so the
      first run on main after that merge failed (44234091715, "no LLVM 19 found").
      Now installs 19.1.7 from apt.llvm.org like `build-ps4-package.yml` does.
-   Run **44234732286: completed/success** on `ubuntu-latest`, from a fresh
-   checkout, fetching the public SDK bundle — all 14 PRX modules built, and the
+   **TWO green runs, not one:** 44234732286 (the branch) and **44236959940 (on
+   `main`, after the merge)** — both `completed/success` on `ubuntu-latest`, from a
+   fresh checkout, fetching the public SDK bundle. All 14 PRX modules built, and the
    toolchain recorded linking the PIN it built on the runner, not the bundle:
    `orbis-compat: /home/runner/work/orbis-win/orbis-win/orbis-compat (e69c24fedfc4432c)`.
    **This is the "someone else can build it" demonstration.** The earlier run on
