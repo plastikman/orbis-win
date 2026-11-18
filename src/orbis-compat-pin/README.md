@@ -32,7 +32,26 @@ Then build it and point the toolchain at it:
 `prepare-ps4-toolchain.sh` prints the archive's hash, so a build records which
 one it linked.
 
-**You do not need this to build.** A package built against the SDK bundle's
-copy passes the parity gate (verified 2026-11-17: 19 PASS, 0 FAIL). Use this pin
-when you want the `orbis_*` diagnostics, or when comparing against an older
-package.
+**YOU DO NEED THIS TO BUILD.** An earlier version of this file said you did
+not, on the evidence that a package built against the SDK bundle's copy passes
+the parity gate (19 PASS, 0 FAIL). It does pass -- and it is still broken.
+
+Measured on hardware 2026-11-17. The bundle's `include/signal.h` predates the
+delta below, so `SIG_UNBLOCK` compiles to Linux's `1`, which libkernel reads as
+`SIG_BLOCK`. Wine's `pw_native_frame_verified()` probe then blocks the very
+signal it is about to send itself:
+
+    err:seh:pw_native_frame_verified PW_NATIVE_FRAME unverified sig=28
+      ... old_blocked=0 ... now_blocked=1 ... pending=1 ... hits=0
+
+The handler never runs, the probe fails, `pw_native_ready_caps()` returns 0,
+`wow64native`'s `process_init` returns `STATUS_NOT_SUPPORTED` (`c00000bb`), and
+Wine falls back to the `wowprospero` translator **silently**. Every title then
+runs at translator speed. The delta also corrects the signal *numbers*
+(`SIGUSR1=30`, `SIGBUS=10`, `SIGSYS=12`, ...), without which a SIGBUS fault can
+be mistaken for Wine's SIGUSR1 suspend signal.
+
+`src/toolchain/prospero-clang` now refuses to build without an orbis-compat
+carrying this delta, rather than silently selecting the bundle's copy.
+
+The `orbis_*` diagnostics are a second, lesser reason to use the pin.

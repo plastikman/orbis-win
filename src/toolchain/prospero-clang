@@ -51,10 +51,37 @@ fi
 SDK="$ROOT/sdk/orbis-sdk-v1/sdk"
 SDKLIB="$SDK/lib"
 # mesa-build/ is the CI cache layout (scripts/ci/prepare-runner.sh links it).
-# A from-source checkout has the same pieces inside the fetched SDK bundle, so
-# fall back to that instead of failing on a directory only the runner has.
+# PW_ORBIS_COMPAT names an orbis-compat built from src/orbis-compat-pin.
+#
+# ⚠ DO NOT FALL BACK TO THE SDK BUNDLE'S orbis-compat. Measured on hardware
+# 2026-11-17: the bundle's copy predates the include/signal.h delta, so
+# SIG_UNBLOCK compiles to Linux's 1, which libkernel reads as SIG_BLOCK. Wine's
+# native-frame probe then blocks the signal it is about to send itself, the
+# handler never runs, pw_native_frame_verified() fails, and wow64native reports
+# STATUS_NOT_SUPPORTED (c00000bb) -- so Wine silently drops to the wowprospero
+# translator and every title runs slow. The parity gate does not catch it
+# (19 PASS / 0 FAIL on exactly such a package). A previous fallback here turned
+# that into a silent miscompile; failing loudly is the whole point.
 MESA_BUILD=${MESA_BUILD:-$ROOT/mesa-build}
-[ -d "$MESA_BUILD/orbis-compat" ] || MESA_BUILD="$ROOT/sdk/orbis-sdk-v1"
+if [ -n "${PW_ORBIS_COMPAT:-}" ]; then
+  ORBIS_COMPAT_DIR=$PW_ORBIS_COMPAT
+else
+  ORBIS_COMPAT_DIR="$MESA_BUILD/orbis-compat"
+fi
+if [ ! -f "$ORBIS_COMPAT_DIR/include/signal.h" ]; then
+  echo "prospero-clang: no orbis-compat at $ORBIS_COMPAT_DIR" >&2
+  echo "  build it from src/orbis-compat-pin (see its README) and pass" >&2
+  echo "  PW_ORBIS_COMPAT=<dir>, or set MESA_BUILD to a tree containing" >&2
+  echo "  orbis-compat/. The SDK bundle's copy is NOT a substitute." >&2
+  exit 1
+fi
+if ! grep -q 'define[[:space:]]\+SIG_UNBLOCK[[:space:]]\+2' "$ORBIS_COMPAT_DIR/include/signal.h"; then
+  echo "prospero-clang: $ORBIS_COMPAT_DIR/include/signal.h lacks the PS4 signal" >&2
+  echo "  ABI delta (SIG_UNBLOCK must be 2, not Linux's 1). Apply" >&2
+  echo "  src/orbis-compat-pin/orbis-compat-delta.patch; without it native" >&2
+  echo "  WoW64 silently falls back to the translator." >&2
+  exit 1
+fi
 # ⚠ EACH PRX LINKS ITS OWN libunwind, so each must define the four symbols it
 # finds unwind tables through. The executable linker script provides them;
 # a shared link does not, and create-fself refuses the undefined
@@ -109,7 +136,7 @@ PREFIX_MAP="${PW_FILE_PREFIX_MAP:+-ffile-prefix-map=$PW_FILE_PREFIX_MAP}"
 
 CFLAGS="$PREFIX_MAP --target=x86_64-scei-ps4 -fPIC -funwind-tables
   -D__PS4__ -DPS4 -DORBIS -D__ORBIS__ -D__PROSPERO__ -D_BSD_SOURCE=1 -fno-visibility-from-dllstorageclass
-  -isysroot $SDK -isystem $ROOT/src/freebsd-compat -isystem $MESA_BUILD/orbis-compat/include -isystem $SDK/include"
+  -isysroot $SDK -isystem $ROOT/src/freebsd-compat -isystem $ORBIS_COMPAT_DIR/include -isystem $SDK/include"
 
 # ⚠ LINKING NEEDS THE WHOLE RULE, which is why configure's "can the compiler
 # create executables" failed with compile flags alone. From the same toolchain
@@ -132,10 +159,10 @@ if [ "${PW_NO_PIE:-}" = 1 ]; then PIE=""; else PIE="-pie"; fi
 EXE_LD_SCRIPT="${PW_EXECUTABLE_LD_SCRIPT:-$MESA_BUILD/orbis-porting-kit/cmake/orbis-tls.ld}"
 # The SDK bundle keeps the identical script under orbis-compat/ (verify.sh
 # checks the two copies are byte-identical).
-[ -f "$EXE_LD_SCRIPT" ] || EXE_LD_SCRIPT="$MESA_BUILD/orbis-compat/cmake/orbis-tls.ld"
+[ -f "$EXE_LD_SCRIPT" ] || EXE_LD_SCRIPT="$ORBIS_COMPAT_DIR/cmake/orbis-tls.ld"
 EXE_NO_RELRO=""
 if [ "${PW_EXECUTABLE_NO_RELRO:-0}" = 1 ]; then EXE_NO_RELRO="-Wl,-z,norelro"; fi
-EXE_COMPAT="-Wl,--whole-archive $MESA_BUILD/orbis-compat/build/liborbis-compat.a -Wl,--no-whole-archive"
+EXE_COMPAT="-Wl,--whole-archive $ORBIS_COMPAT_DIR/build/liborbis-compat.a -Wl,--no-whole-archive"
 if [ "${PW_EXECUTABLE_NO_ORBIS_COMPAT:-0}" = 1 ]; then EXE_COMPAT=""; fi
 LDFLAGS="-nostdlib $PIE $EXE_NO_RELRO -Wl,-m,elf_x86_64
   -Wl,--script=$EXE_LD_SCRIPT -Wl,--eh-frame-hdr -Wl,--no-rosegment
