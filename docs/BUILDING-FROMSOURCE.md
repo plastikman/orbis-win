@@ -295,7 +295,24 @@ toolchain guard. `scripts/ci/prepare-from-source.sh` now stages the bundle for t
 RADV link and puts the pin back immediately after; override the choice with
 `PW_RADV_ORBIS_COMPAT`.
 
-⚠ **`orbis-porting-kit` is not vendored.** `mesa-build/mesa-ps4/ps4/build.sh` needs
-it and finds it only because the bundle's `orbis-compat` happens to carry the kit
-scripts. Point `ORBIS_COMPAT_DIR` at a pin without them and the build stops with
-"orbis-porting-kit not found". Set `ORBIS_KIT_DIR`, or clone the kit.
+### orbis-porting-kit comes with the SDK bundle
+
+`mesa-build/mesa-ps4/ps4/build.sh` needs the kit, and `scripts/fetch-sdk.sh`
+already supplies it: the bundle is a release asset of **the kit's own repo**
+(`orbis-ports/orbis-porting-kit`, tag `orbis-sdk-v1`) and ships
+`orbis-compat/scripts/ps4/orbis-env.sh` next to the headers and the archive.
+build.sh's fourth candidate is `$ORBIS_COMPAT_DIR`, so with `ORBIS_COMPAT_DIR`
+pointed at the bundle the kit resolves with **nothing outside this tree** —
+verified 2026-11-17 by a clean Mesa build with `ORBIS_KIT_DIR` unset, which
+reproduced the shipped `libvulkan.prx` byte for byte.
+
+⚠ The one way to break it is to point `ORBIS_COMPAT_DIR` at a pin that has no
+`scripts/` (as an intermediate experiment here did): the build then stops with
+"orbis-porting-kit not found". That is why `build_mesa()` uses the bundle and
+sets `ORBIS_KIT_DIR` from it explicitly rather than relying on the search order.
+
+And the reason the bundle ships them together is the bug this document is about —
+`fetch-sdk.sh` says it outright: *"The bundle pins the OpenOrbis SDK, the
+orbis-compat overlay and Mesa/RADV together on purpose: a Mesa built against one
+header tree and linked against another is a struct-layout bug that compiles
+cleanly and fails at run time."*
