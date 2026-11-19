@@ -15,6 +15,7 @@ FAIL means: do not install. WARN items need a written disposition.
 Exit status: 0 = no FAIL, 1 = at least one FAIL.
 """
 import argparse
+import glob
 import os
 import re
 import subprocess
@@ -136,6 +137,36 @@ def main():
            f"libvulkan.prx lacks {missing_vo}: the title's non-Vulkan frames vanish once a game has a Vulkan "
            "surface (src/native/pw_vulkan_radv_ps4.c, scripts/radv-prx-ps4.sh)" if missing_vo else
            'libvulkan.prx exports pw_videoout_idle/show_tiled/quiesce for the title\'s own frames')
+
+    # 4b-2. The orbis-compat split. RADV links the BUNDLE archive; every other PRX links the PIN. Each half
+    # is load-bearing and they are not interchangeable:
+    #   * libvulkan.prx against the PIN faults 0xc0000005 at libvulkan.so+0x16a6dba dereferencing address 8,
+    #     during driver init, so no title ever renders -- it either hangs with frames_put=0 or drops back to
+    #     the launcher (solved 2026-11-17, reintroduced in Playden 01.31 / Orbis-Win 02.67 and caught only on
+    #     hardware because nothing here checked it).
+    #   * every other PRX against the BUNDLE loses the pin's signal.h fix (SIG_UNBLOCK=2), which is what makes
+    #     native WoW64 work; without it every title silently drops to the translator.
+    # The marker is the archive's own content, not a hash, so this survives a rebuild: the pin carries
+    # orbis_jit, the bundle carries ORBIS_THREAD_STACK. libc.prx and libSceFios2.prx are SDK modules that
+    # link neither and are exempt.
+    SDK_MODULES = ('libc', 'libSceFios2')
+    if 'ORBIS_THREAD_STACK' in v and not any(x.startswith('orbis_jit') for x in v):
+        report('PASS', 'libvulkan.prx links the bundle orbis-compat, as RADV requires')
+    else:
+        report('FAIL', 'libvulkan.prx links the PIN orbis-compat: it will fault 0xc0000005 at +0x16a6dba in '
+                       'driver init and NO title will render. Rebuild it against the bundle archive '
+                       '(sdk/orbis-sdk-v1/orbis-compat, 114,252 B) with that same tree\'s headers')
+    mismatched = []
+    for prx in sorted(glob.glob(os.path.join(cand, 'sce_module', '*.prx'))):
+        name = os.path.basename(prx)[:-4]
+        if name == 'libvulkan' or name in SDK_MODULES:
+            continue
+        if not any(x.startswith('orbis_jit') for x in strings(prx)):
+            mismatched.append(name)
+    report('FAIL' if mismatched else 'PASS',
+           f"{mismatched} link the bundle orbis-compat instead of the pin: without the pin's signal.h fix "
+           '(SIG_UNBLOCK=2) native WoW64 stops working and every title falls back to the translator'
+           if mismatched else 'every non-RADV PRX links the pin orbis-compat, keeping native WoW64')
 
     # 4c. Window-sized swapchains are fitted to the screen (Mesa 0039) and win32u reports the window's size
     # (series 1054). Either half alone is wrong: 1054 without 0039 shows a small swapchain in a corner of the
