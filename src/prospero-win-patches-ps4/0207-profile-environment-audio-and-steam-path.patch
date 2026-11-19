@@ -1,0 +1,656 @@
+From: Zak Peirce <zak@orbis-win>
+Subject: profile: add environment audio and Steam path settings
+
+--- a/native/pw_audio_ps5.c
++++ b/native/pw_audio_ps5.c
+@@ -40,20 +40,26 @@ int pw_audio_ps5_platform_ops(PwAudioPs5Ops *ops)
+ #endif
+ }
+ 
+-int pw_audio_ps5_open_port(const PwAudioPs5Ops *ops,int *handle)
++int pw_audio_ps5_open_port_with_volume(const PwAudioPs5Ops *ops,uint32_t volume_percent,int *handle)
+ {
+     int32_t volumes[8];
+-    if(!ops || !handle || !ops->init || !ops->open || !ops->volume || !ops->close)
++    if(!ops || !handle || volume_percent > 100 || !ops->init || !ops->open || !ops->volume || !ops->close)
+         return PW_ERR_PRECONDITION;
+     if(ops->init()<0)return PW_ERR_STATE;
+     int port=ops->open(PW_AUDIO_PS5_USER_SYSTEM,PW_AUDIO_PS5_PORT_MAIN,
+         PW_AUDIO_PS5_PORT_INDEX,PW_AUDIO_PS5_GRAIN,PW_AUDIO_PS5_RATE,
+         PW_AUDIO_PS5_FORMAT_S16_STEREO);
+     if(port<0)return PW_ERR_STATE;
+-    for(unsigned i=0;i<8;i++)volumes[i]=PW_AUDIO_PS5_VOLUME_0DB;
++    const int32_t level = (PW_AUDIO_PS5_VOLUME_0DB * (int32_t)volume_percent + 50) / 100;
++    for(unsigned i=0;i<8;i++)volumes[i]=level;
+     if(ops->volume(port,PW_AUDIO_PS5_VOLUME_FLAGS,volumes)<0) {
+         (void)ops->close(port);return PW_ERR_STATE;
+     }
+     *handle=port;
+     return PW_OK;
+ }
++
++int pw_audio_ps5_open_port(const PwAudioPs5Ops *ops,int *handle)
++{
++    return pw_audio_ps5_open_port_with_volume(ops, 100, handle);
++}
+--- a/native/pw_audio_ps5.h
++++ b/native/pw_audio_ps5.h
+@@ -24,9 +24,11 @@ typedef struct PwAudioPs5Ops {
+ int pw_audio_ps5_platform_ops(PwAudioPs5Ops *);
+ /* The main port for a caller that mixes and clocks itself (Wine's audio
+  * sink): the library initialised, PW_AUDIO_PS5_GRAIN frames of 16-bit
+- * stereo at PW_AUDIO_PS5_RATE per output call, unity volume. The caller
++ * stereo at PW_AUDIO_PS5_RATE per output call. volume_percent is 0..100,
++ * linearly scaled from mute to the console's 0 dB level. The caller
+  * then calls ops->output(*handle, grain) and ops->close(*handle).
+  * PW_ERR_STATE when the library refuses. */
+ int pw_audio_ps5_open_port(const PwAudioPs5Ops *ops,int *handle);
++int pw_audio_ps5_open_port_with_volume(const PwAudioPs5Ops *ops,uint32_t volume_percent,int *handle);
+ 
+ #endif
+--- a/native/wine64_main.c
++++ b/native/wine64_main.c
+@@ -907,6 +907,60 @@ static int game_setup_failed(const char *reason)
+     return 1;
+ }
+ 
++/* A profile's [steam] install_dir names the Playden game root inside the
++ * bottle's virtual C:\\Program Files (x86)\\Steam\\steamapps\\common view.
++ * Wine's PS4 path layer loads this table lazily on first lookup. */
++static int ensure_private_directory(const char *path)
++{
++    struct stat info;
++    if (!mkdir(path, 0755)) return 0;
++    if (errno != EEXIST || lstat(path, &info) || !S_ISDIR(info.st_mode)) return -1;
++    return 0;
++}
++
++static int pw_steam_view_write(const char *prefix, const char *install_dir, const char *game_root)
++{
++    char path[PW_TITLE_ROOT_CAPACITY + PW_APP_ID_CAPACITY + 256];
++    char temporary[sizeof(path) + 32], line[PW_TITLE_LAUNCH_MAX_BYTES + PW_GAME_STEAM_INSTALL_DIR_CAPACITY];
++    const char *const folders[] = { "drive_c", "Program Files (x86)", "Steam", "steamapps", "common" };
++    struct stat info;
++    int n, fd, failed = 0;
++    size_t written = 0, length;
++
++    if (!prefix || !install_dir || !install_dir[0] || !game_root || !game_root[0]) return -1;
++    if (lstat(game_root, &info) || !S_ISDIR(info.st_mode)) return -1;
++    n = snprintf(path, sizeof(path), "%s", prefix);
++    if (n < 0 || (size_t)n >= sizeof(path) || ensure_private_directory(path)) return -1;
++    for (size_t i = 0; i < sizeof(folders) / sizeof(folders[0]); i++) {
++        const size_t used = strlen(path), remaining = sizeof(path) - used;
++        n = snprintf(path + used, remaining, "/%s", folders[i]);
++        if (n < 0 || (size_t)n >= remaining || ensure_private_directory(path)) return -1;
++    }
++    n = snprintf(line, sizeof(line), "%s\t%s\n", install_dir, game_root);
++    if (n < 0 || (size_t)n >= sizeof(line)) return -1;
++    length = (size_t)n;
++    n = snprintf(temporary, sizeof(temporary), "%s/.pw-symlinks.playden-tmp", path);
++    if (n < 0 || (size_t)n >= sizeof(temporary)) return -1;
++    {
++        const size_t used = strlen(path), remaining = sizeof(path) - used;
++        n = snprintf(path + used, remaining, "/.pw-symlinks");
++        if (n < 0 || (size_t)n >= remaining) return -1;
++    }
++    fd = open(temporary, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0644);
++    if (fd < 0) return -1;
++    while (written < length) {
++        ssize_t count = write(fd, line + written, length - written);
++        if (count < 0 && errno == EINTR) continue;
++        if (count <= 0) { failed = 1; break; }
++        written += (size_t)count;
++    }
++    if (fsync(fd)) failed = 1;
++    if (close(fd)) failed = 1;
++    if (!failed && !rename(temporary, path)) return 0;
++    (void)unlink(temporary);
++    return -1;
++}
++
+ /* ---- library ------------------------------------------------------------ */
+ 
+ /* Complete the one-shot helper exchange before loading profiles or starting
+@@ -2044,6 +2098,7 @@ int main(int argc, char **argv)
+             * by one.) */
+            WINE64_PROFILE_ENV_CAPACITY = 9 + PW_GAME_GRAPHICS_ENV_MAX + PW_GAME_RUNTIME_ENV_MAX + PW_GAME_CPU_ENV_MAX +
+                                          PW_GAME_CLOCK_ENV_MAX + PW_GAME_DEBUG_ENV_MAX +
++                                         PW_GAME_ENVIRONMENT_MAX +
+                                          PW_GAME_MEMORY_ENV_MAX };
+     static PwWineStartEnv extra[WINE64_FIXED_ENV_COUNT + WINE64_PROFILE_ENV_CAPACITY] = {
+         { "WINEDEBUG", PW_WINE64_DEBUG },
+@@ -2192,6 +2247,13 @@ int main(int argc, char **argv)
+         snprintf(prefix, sizeof(prefix), "%s/prefixes/%s", library_root, game->app.prefix);
+     else
+         snprintf(prefix, sizeof(prefix), "%s/prefix", library_root);
++    if (game && game->steam.install_dir[0]) {
++        const int steam_status = playden_mode
++            ? pw_steam_view_write(prefix, game->steam.install_dir, playden_launch.game_root) : -1;
++        PS5LOG_LOG("PW_WINE64 steam view install_dir=%s target=%s status=%d", game->steam.install_dir,
++                   playden_mode ? playden_launch.game_root : "-", steam_status);
++        if (steam_status) return game_setup_failed("steam-library-view");
++    }
+     snprintf(radv_cache, sizeof(radv_cache), "%s/cache/radv", library_root);
+     snprintf(exec_chain_request, sizeof(exec_chain_request), "%s/.pw-exec-chain", prefix);
+     snprintf(exec_refused, sizeof(exec_refused), "%s/.pw-exec-refused", prefix);
+@@ -2383,11 +2445,28 @@ int main(int argc, char **argv)
+             }
+             if (debug_count) PS5LOG_LOG("PW_WINE64 debug_env=%s", names);
+         }
++        /* [environment]: the bounded per-game variables that Playden validates. */
++        {
++            PwGameEnv profile_env[PW_GAME_ENVIRONMENT_MAX];
++            size_t environment_count = pw_game_profile_env(game, profile_env);
++            char names[PW_GAME_ENVIRONMENT_MAX * PW_GAME_ENVIRONMENT_NAME] = "";
++
++            for (size_t i = 0; i < environment_count; i++) {
++                extra[config.extra_env_count++] = (PwWineStartEnv){ profile_env[i].name, profile_env[i].value };
++                if (i) strcat(names, ",");
++                strcat(names, profile_env[i].name);
++            }
++            if (environment_count) PS5LOG_LOG("PW_WINE64 environment=%s", names);
++        }
+         /* refresh and opengl_thread set the PS5 OpenGL SDK's output rate and
+          * glthread; Zink, which replaced it, has neither, so they are ignored. */
+         if (game->display.refresh != 60 || game->display.opengl_thread)
+             PS5LOG_LOG("PW_WINE64 ignored display refresh=%u opengl_thread=%d (no longer supported)",
+                        (unsigned)game->display.refresh, game->display.opengl_thread);
++        /* The Playden PS4 kit view keys these capability claims to this exact
++         * marker in the released PRX. Keep it beside the applied profile so a
++         * kit built from an older Orbis-Win release cannot claim the new keys. */
++        PS5LOG_LOG("PW_WINE64 profile_features=environment,audio-volume,steam-library-path");
+         PS5LOG_LOG("PW_WINE64 profile id=%s prefix=%s desktop=%s scaling=%d view=%s show_fps=%d framegen=%u "
+                    "input=%s preset=%s mode=%s mouse=%d rumble=%u dll_overrides=%s", game->app.id, prefix,
+                    desktop[0] ? desktop : "default",
+@@ -2572,9 +2651,11 @@ int main(int argc, char **argv)
+             void (*set_audio)(PwWineAudioSink, void *) = (void (*)(PwWineAudioSink, void *))
+                 (uintptr_t)pw_prx_lookup(start.descriptor, "pw_wine_set_audio_sink");
+             int audio_status = set_audio ? pw_audio_ps5_platform_ops(&audio_ops) : PW_ERR_NOT_FOUND;
+-            if (audio_status == PW_OK) audio_status = pw_audio_ps5_open_port(&audio_ops, &audio_port);
++            if (audio_status == PW_OK)
++                audio_status = pw_audio_ps5_open_port_with_volume(&audio_ops, game->audio.volume, &audio_port);
+             if (audio_status == PW_OK) set_audio(wine_audio, NULL);
+-            PS5LOG_LOG("PW_WINE64 audio sink=%d port=%d status=%s", set_audio != NULL, audio_port,
++            PS5LOG_LOG("PW_WINE64 audio sink=%d port=%d volume=%u status=%s", set_audio != NULL, audio_port,
++                       (unsigned)game->audio.volume,
+                        pw_result_name(audio_status));
+         }
+         /* The game starts in its profile's working directory. A title
+--- a/src/pw_game_profile.c
++++ b/src/pw_game_profile.c
+@@ -291,7 +291,8 @@ static int display_field(PwGameDisplay *display, uint32_t *seen, const uint8_t *
+     return PW_ERR_UNSUPPORTED;
+ }
+ 
+-enum { SECTION_NONE, SECTION_APPLICATION, SECTION_DISPLAY, SECTION_INPUT, SECTION_DEBUG, SECTION_RUNTIME };
++enum { SECTION_NONE, SECTION_APPLICATION, SECTION_DISPLAY, SECTION_INPUT, SECTION_DEBUG, SECTION_RUNTIME,
++       SECTION_ENVIRONMENT, SECTION_AUDIO, SECTION_STEAM };
+ 
+ /* One line: its trimmed extent and where the next begins. */
+ static size_t next_line(const uint8_t *bytes, size_t length, size_t cursor,
+@@ -315,7 +316,32 @@ static int section_of(const uint8_t *begin, const uint8_t *end)
+            is(begin, (size_t)(end - begin), "display") ? SECTION_DISPLAY :
+            is(begin, (size_t)(end - begin), "input") ? SECTION_INPUT :
+            is(begin, (size_t)(end - begin), "debug") ? SECTION_DEBUG :
+-           is(begin, (size_t)(end - begin), "runtime") ? SECTION_RUNTIME : -1;
++           is(begin, (size_t)(end - begin), "runtime") ? SECTION_RUNTIME :
++           is(begin, (size_t)(end - begin), "environment") ? SECTION_ENVIRONMENT :
++           is(begin, (size_t)(end - begin), "audio") ? SECTION_AUDIO :
++           is(begin, (size_t)(end - begin), "steam") ? SECTION_STEAM : -1;
++}
++
++/* [steam] install_dir: one path component below steamapps/common. Keep this
++ * contract in step with Playden's IsProsperoSteamInstallDir(). */
++static int steam_field(PwGameSteam *steam, const uint8_t *key, size_t key_length,
++                       const uint8_t *value, size_t value_length)
++{
++    static const char invalid[] = "\\/:*?\"<>|";
++
++    if (!is(key, key_length, "install_dir")) return PW_ERR_UNSUPPORTED;
++    if (steam->install_dir[0]) return PW_ERR_MALFORMED;
++    if (!value_length || value_length >= sizeof(steam->install_dir) ||
++        (value_length == 1 && value[0] == '.') || (value_length == 2 && value[0] == '.' && value[1] == '.') ||
++        value[value_length - 1] == ' ' || value[value_length - 1] == '.')
++        return PW_ERR_UNSUPPORTED;
++    for (size_t i = 0; i < value_length; i++) {
++        uint8_t c = value[i];
++        if (c < 0x20 || c == 0x7f || strchr(invalid, c)) return PW_ERR_UNSUPPORTED;
++    }
++    memcpy(steam->install_dir, value, value_length);
++    steam->install_dir[value_length] = 0;
++    return PW_OK;
+ }
+ 
+ /* [debug] winedebug = Wine's channel list (e.g. +seh,warn+module,-all):
+@@ -380,6 +406,68 @@ static int debug_env_field(PwGameProfile *profile, const uint8_t *value, size_t
+     return PW_OK;
+ }
+ 
++/* Playden's [environment] allow-list (src/runtime/prospero_profile.cpp): these
++ * are per-game graphics and Wine controls, not a general process environment. */
++static int environment_field(PwGameProfile *profile, const uint8_t *key, size_t key_length,
++                             const uint8_t *value, size_t value_length)
++{
++    static const char *const prefixes[] = { "DXVK_", "MESA_", "RADV_", "SDL_" };
++    const int large_address = is(key, key_length, "wine_large_address_aware");
++    const int nsiproxy = is(key, key_length, "pw_nsiproxy_disable");
++    const int park_files = is(key, key_length, "wine_ps5_park_files");
++    const int cached_files = is(key, key_length, "wine_ps5_cached_files");
++    int allowed = large_address || nsiproxy || park_files || cached_files ||
++                  is(key, key_length, "wine_cpu_topology");
++    PwGameProfileEnv *entry;
++
++    if (!key_length || key_length >= PW_GAME_ENVIRONMENT_NAME || !value_length ||
++        value_length >= PW_GAME_ENVIRONMENT_VALUE || profile->environment_count >= PW_GAME_ENVIRONMENT_MAX)
++        return PW_ERR_MALFORMED;
++    for (size_t i = 0; i < key_length; i++) {
++        uint8_t c = key[i];
++        if (!((c >= 'A' && c <= 'Z') || c == '_' || (i > 0 && c >= '0' && c <= '9'))) return PW_ERR_MALFORMED;
++    }
++    for (size_t i = 0; i < sizeof(prefixes) / sizeof(prefixes[0]); i++)
++        allowed |= key_length > strlen(prefixes[i]) && starts(key, key_length, prefixes[i]);
++    if (!allowed || is(key, key_length, "dxvk_hud") || is(key, key_length, "sdl_joystick_rawinput"))
++        return PW_ERR_UNSUPPORTED;
++    if (large_address || nsiproxy) {
++        if (!is(value, value_length, "0") && !is(value, value_length, "1")) return PW_ERR_UNSUPPORTED;
++    } else if (park_files || cached_files) {
++        if (value_length > 4) return PW_ERR_UNSUPPORTED;
++        for (size_t i = 0; i < value_length; i++)
++            if (value[i] < '0' || value[i] > '9') return PW_ERR_UNSUPPORTED;
++    }
++    for (size_t i = 0; i < value_length; i++) {
++        uint8_t c = value[i];
++        if (c < 0x20 || c > 0x7e || c == '"' || c == '\'') return PW_ERR_MALFORMED;
++    }
++    for (size_t i = 0; i < profile->environment_count; i++)
++        if (same(key, key_length, profile->environment[i].name)) return PW_ERR_MALFORMED;
++    entry = &profile->environment[profile->environment_count++];
++    memcpy(entry->name, key, key_length);
++    entry->name[key_length] = 0;
++    memcpy(entry->value, value, value_length);
++    entry->value[value_length] = 0;
++    return PW_OK;
++}
++
++static int audio_field(PwGameAudio *audio, uint32_t *seen, const uint8_t *key, size_t key_length,
++                      const uint8_t *value, size_t value_length)
++{
++    uint32_t volume;
++    int status;
++
++    if (!is(key, key_length, "volume")) return PW_ERR_UNSUPPORTED;
++    if (*seen & 1u) return PW_ERR_MALFORMED;
++    if ((status = number(value, value_length, &volume)) != PW_OK) return status;
++    if (volume > PW_GAME_AUDIO_VOLUME_MAX) return PW_ERR_UNSUPPORTED;
++    audio->volume = volume;
++    audio->volume_set = 1;
++    *seen |= 1u;
++    return PW_OK;
++}
++
+ static int debug_field(PwGameProfile *profile, const uint8_t *key, size_t key_length,
+                        const uint8_t *value, size_t value_length)
+ {
+@@ -446,7 +534,7 @@ static int parse_sections(const uint8_t *bytes, size_t length, PwGameProfile *pr
+                           PwGameInput *input_only, size_t *application_end)
+ {
+     int section = SECTION_NONE;
+-    uint32_t seen_sections = 0, display_seen = 0, runtime_seen = 0;
++    uint32_t seen_sections = 0, display_seen = 0, runtime_seen = 0, audio_seen = 0;
+     size_t cursor = 0;
+ 
+     while (cursor < length) {
+@@ -480,6 +568,13 @@ static int parse_sections(const uint8_t *bytes, size_t length, PwGameProfile *pr
+             section == SECTION_RUNTIME ?
+             runtime_field(&profile->runtime, &runtime_seen, begin, (size_t)(key_end - begin),
+                           value, (size_t)(end - value)) :
++            section == SECTION_ENVIRONMENT ?
++            environment_field(profile, begin, (size_t)(key_end - begin), value, (size_t)(end - value)) :
++            section == SECTION_AUDIO ?
++            audio_field(&profile->audio, &audio_seen, begin, (size_t)(key_end - begin), value,
++                        (size_t)(end - value)) :
++            section == SECTION_STEAM ?
++            steam_field(&profile->steam, begin, (size_t)(key_end - begin), value, (size_t)(end - value)) :
+             section == SECTION_DISPLAY ?
+             display_field(&profile->display, &display_seen, begin, (size_t)(key_end - begin),
+                           value, (size_t)(end - value)) :
+@@ -511,6 +606,14 @@ size_t pw_game_debug_env(const PwGameProfile *profile, PwGameEnv *env)
+     return profile->debug_env_count;
+ }
+ 
++size_t pw_game_profile_env(const PwGameProfile *profile, PwGameEnv *env)
++{
++    if (!profile || !env) return 0;
++    for (size_t i = 0; i < profile->environment_count; i++)
++        env[i] = (PwGameEnv){ profile->environment[i].name, profile->environment[i].value };
++    return profile->environment_count;
++}
++
+ int pw_game_cpu_native(const PwGameProfile *profile)
+ {
+     if (!profile || profile->app.architecture != PW_APP_ARCH_PE32) return 0;
+@@ -616,6 +719,7 @@ int pw_game_profile_parse(const uint8_t *bytes, size_t length, PwGameProfile *pr
+     parsed.input.mouse_speed = 0;       /* unset until a line sets it */
+     parsed.display.show_fps = 1;        /* on unless the profile says false */
+     parsed.display.refresh = 60;
++    parsed.audio.volume = PW_GAME_AUDIO_VOLUME_MAX;
+     if ((status = parse_sections(bytes, length, &parsed, NULL, &application_end)) != PW_OK)
+         return status;
+     if ((status = pw_app_profile_parse(bytes, application_end, &parsed.app)) != PW_OK)
+@@ -669,8 +773,9 @@ int pw_game_profile_apply_settings(PwGameProfile *profile, const uint8_t *bytes,
+     PwGameProfile result, debug;
+     PwGameInput input;
+     PwGameDisplay display;
++    PwGameAudio audio = { 0 };
+     char add[PW_APP_DLL_OVERRIDES_CAPACITY] = "", program[PW_APP_PATH_CAPACITY] = "";
+-    uint32_t seen_sections = 0, display_seen = 0;
++    uint32_t seen_sections = 0, display_seen = 0, audio_seen = 0;
+     int section = SECTION_NONE;
+     size_t cursor = 0;
+ 
+@@ -689,7 +794,8 @@ int pw_game_profile_apply_settings(PwGameProfile *profile, const uint8_t *bytes,
+         if (begin == end || *begin == ';' || *begin == '#') continue;
+         if (*begin == '[') {
+             int next = section_of(begin, end);
+-            if (next < 0 || next == SECTION_RUNTIME || (seen_sections & (1u << next))) return PW_ERR_MALFORMED;
++            if (next < 0 || next == SECTION_RUNTIME || next == SECTION_ENVIRONMENT || next == SECTION_STEAM ||
++                (seen_sections & (1u << next))) return PW_ERR_MALFORMED;
+             seen_sections |= 1u << next;
+             section = next;
+             continue;
+@@ -728,6 +834,9 @@ int pw_game_profile_apply_settings(PwGameProfile *profile, const uint8_t *bytes,
+             if (!is(begin, key_length, "winedebug")) return PW_ERR_UNSUPPORTED;
+             status = debug_field(&debug, begin, key_length, value, value_length);
+             break;
++        case SECTION_AUDIO:
++            status = audio_field(&audio, &audio_seen, begin, key_length, value, value_length);
++            break;
+         default:
+             status = input_field(&input, begin, key_length, value, value_length, 1);
+             break;
+@@ -747,6 +856,7 @@ int pw_game_profile_apply_settings(PwGameProfile *profile, const uint8_t *bytes,
+         result.display.height = display.height;
+     }
+     if (debug.winedebug[0]) memcpy(result.winedebug, debug.winedebug, sizeof(result.winedebug));
++    if (audio_seen & 1u) result.audio = audio;
+     if (program[0]) {
+         /* Another program in the game's folder: from the folder of the profile's own, which it
+          * also starts in; the game's arguments are not its. */
+--- a/src/pw_game_profile.h
++++ b/src/pw_game_profile.h
+@@ -96,7 +96,10 @@ enum {
+     PW_GAME_TOUCH_SPEED_DEFAULT = 400,  /* mouse = touchpad without mouse_speed: 1200 felt like a jump */
+     PW_GAME_RUMBLE_MAX = 100,
+     PW_GAME_WINEDEBUG_CAPACITY = 128,
++    PW_GAME_AUDIO_VOLUME_MAX = 100,
++    PW_GAME_STEAM_INSTALL_DIR_CAPACITY = 129,
+     PW_GAME_DEBUG_ENV_MAX = 5, PW_GAME_DEBUG_ENV_NAME = 48, PW_GAME_DEBUG_ENV_VALUE = 96,
++    PW_GAME_ENVIRONMENT_MAX = 8, PW_GAME_ENVIRONMENT_NAME = 64, PW_GAME_ENVIRONMENT_VALUE = 128,
+ };
+ 
+ typedef enum PwGameScaling { PW_GAME_SCALING_FIT = 0, PW_GAME_SCALING_INTEGER,
+@@ -165,6 +168,18 @@ typedef struct PwGameDebugEnv {
+     char name[PW_GAME_DEBUG_ENV_NAME];
+     char value[PW_GAME_DEBUG_ENV_VALUE];
+ } PwGameDebugEnv;
++/* [environment] NAME = VALUE: Playden's bounded runtime environment list. */
++typedef struct PwGameProfileEnv {
++    char name[PW_GAME_ENVIRONMENT_NAME];
++    char value[PW_GAME_ENVIRONMENT_VALUE];
++} PwGameProfileEnv;
++typedef struct PwGameAudio {
++    uint32_t volume;       /* percent, 0 mutes; 100 is the console's 0 dB level */
++    uint8_t volume_set;
++} PwGameAudio;
++typedef struct PwGameSteam {
++    char install_dir[PW_GAME_STEAM_INSTALL_DIR_CAPACITY]; /* one safe component below Steam's common folder */
++} PwGameSteam;
+ enum { PW_GAME_RUNTIME_ENV_MAX = 2, PW_GAME_CPU_ENV_MAX = 2, PW_GAME_GRAPHICS_ENV_MAX = 4,
+        PW_GAME_CLOCK_ENV_MAX = 2, PW_GAME_MEMORY_ENV_MAX = 1 };
+ 
+@@ -176,6 +191,10 @@ typedef struct PwGameProfile {
+     char winedebug[PW_GAME_WINEDEBUG_CAPACITY];
+     PwGameDebugEnv debug_env[PW_GAME_DEBUG_ENV_MAX];    /* [debug] env lines */
+     size_t debug_env_count;
++    PwGameProfileEnv environment[PW_GAME_ENVIRONMENT_MAX]; /* [environment] lines */
++    size_t environment_count;
++    PwGameAudio audio;
++    PwGameSteam steam;
+     PwGameRuntime runtime;      /* [runtime], everything off by default */
+     /* A player's settings chose another program than the profile's own ([application]
+      * executable): a launcher or setup tool, whose game the title may run next. */
+@@ -183,7 +202,7 @@ typedef struct PwGameProfile {
+ } PwGameProfile;
+ 
+ /* Parse a whole profile. [application] must come first; [display],
+- * [input], [debug] and [runtime] are optional, once each. PW_OK or a
++ * [input], [debug], [runtime], [environment], [audio] and [steam] are optional, once each. PW_OK or a
+  * PW_ERR_* status. */
+ int pw_game_profile_parse(const uint8_t *bytes, size_t length, PwGameProfile *profile);
+ /* The variables runtime sets in Wine's environment, into env, which has
+@@ -216,6 +235,8 @@ size_t pw_game_graphics_env(const PwGameProfile *profile, PwGameEnv *env);
+ /* The [debug] env variables, into env, which has room for
+  * PW_GAME_DEBUG_ENV_MAX; how many. The strings live in profile. */
+ size_t pw_game_debug_env(const PwGameProfile *profile, PwGameEnv *env);
++/* The [environment] variables, into env, which has room for PW_GAME_ENVIRONMENT_MAX; how many. */
++size_t pw_game_profile_env(const PwGameProfile *profile, PwGameEnv *env);
+ /* An input with nothing bound, keyboard mode, no pointer, full rumble. */
+ void pw_game_input_init(PwGameInput *input);
+ /* A player's settings for one game (settings/<profile id>.conf), over its parsed profile: [input] takes
+--- a/src/pw_wine_start.h
++++ b/src/pw_wine_start.h
+@@ -18,8 +18,8 @@
+ #include "pw_wine_launch.h"
+ 
+ enum {
+-    PW_WINE_START_MAX_ENV = 32,  /* +1: WINE_PS4_NETCFG (2026-11-05); +1: the exec chain's file;
+-                                  * +1: the pe64 per-page exec migration default (2026-11-16) */
++    PW_WINE_START_MAX_ENV = 40,  /* +1: WINE_PS4_NETCFG; +1: the exec chain's file;
++                                  * +1: the pe64 migration default; +8: [environment] (2026-11-18) */
+     /* wine, the executable and every word a profile's arguments may split into */
+     PW_WINE_START_MAX_ARGS = 2 + PW_WINE_LAUNCH_WORDS,
+     /* Stages, reported so a failed start names where it stopped. */
+--- a/tests/test_pw_audio_ps5.c
++++ b/tests/test_pw_audio_ps5.c
+@@ -5,12 +5,13 @@
+ 
+ static unsigned inits,opens,volumes,outputs,closes;
+ static int16_t last[PW_AUDIO_PS5_GRAIN*2];
++static int32_t expected_volume=0x8000;
+ 
+ static int op_init(void){inits++;return 0;}
+ static int op_open(int u,int t,int i,uint32_t g,uint32_t r,uint32_t f)
+ {assert(u==0xff&&t==0&&i==0&&g==256&&r==48000&&f==1);opens++;return 7;}
+ static int op_volume(int h,int flags,const int32_t *v)
+-{assert(h==7&&flags==3&&v[0]==0x8000&&v[7]==0x8000);volumes++;return 0;}
++{assert(h==7&&flags==3);for(unsigned i=0;i<8;i++)assert(v[i]==expected_volume);volumes++;return 0;}
+ static int op_output(int h,const void *p)
+ {
+     assert(h==7);memcpy(last,p,sizeof(last));outputs++;return 0;
+@@ -36,15 +37,21 @@ static void test_open_port(void)
+     assert(inits==0 && handle==-1);
+     assert(pw_audio_ps5_open_port(&ops,&handle)==PW_OK);
+     assert(handle==7 && inits==1 && opens==1 && volumes==1 && closes==0);
++    expected_volume=0;
++    assert(pw_audio_ps5_open_port_with_volume(&ops,0,&handle)==PW_OK && volumes==2);
++    expected_volume=0x4000;
++    assert(pw_audio_ps5_open_port_with_volume(&ops,50,&handle)==PW_OK && volumes==3);
++    assert(pw_audio_ps5_open_port_with_volume(&ops,101,&handle)==PW_ERR_PRECONDITION && volumes==3);
++    expected_volume=0x8000;
+     int16_t grain[PW_AUDIO_PS5_GRAIN*2];
+     for(int i=0;i<PW_AUDIO_PS5_GRAIN*2;i++)grain[i]=(int16_t)i;
+     assert(ops.output(handle,grain)==0 && outputs==1 && last[511]==511);
+ 
+     handle=-1;
+     PwAudioPs5Ops broken=ops;broken.init=fail_init;
+-    assert(pw_audio_ps5_open_port(&broken,&handle)==PW_ERR_STATE && opens==1 && handle==-1);
++    assert(pw_audio_ps5_open_port(&broken,&handle)==PW_ERR_STATE && opens==3 && handle==-1);
+     broken=ops;broken.open=fail_open;
+-    assert(pw_audio_ps5_open_port(&broken,&handle)==PW_ERR_STATE && volumes==1 && handle==-1);
++    assert(pw_audio_ps5_open_port(&broken,&handle)==PW_ERR_STATE && volumes==3 && handle==-1);
+     /* a port whose volume cannot be set is closed again */
+     broken=ops;broken.volume=fail_volume;
+     assert(pw_audio_ps5_open_port(&broken,&handle)==PW_ERR_STATE && closes==1 && handle==-1);
+--- a/tests/test_pw_game_profile.c
++++ b/tests/test_pw_game_profile.c
+@@ -38,7 +38,7 @@ static void test_graphics_env(void)
+             assert(count <= PW_GAME_GRAPHICS_ENV_MAX);
+             /* Fixed6, desktop/override/XInput3, graphics, runtime, clock and CPU. */
+             assert(6 + 3 + count + pw_game_cpu_env(&p, cpu) + pw_game_runtime_env(&p.runtime, runtime) +
+-                   PW_GAME_CLOCK_ENV_MAX + PW_GAME_DEBUG_ENV_MAX <= PW_WINE_START_MAX_ENV);
++                   PW_GAME_CLOCK_ENV_MAX + PW_GAME_DEBUG_ENV_MAX + PW_GAME_ENVIRONMENT_MAX <= PW_WINE_START_MAX_ENV);
+             /* refresh and opengl_thread no longer set anything */
+             if (graphics == PW_APP_GRAPHICS_ZINK) {
+                 assert(count == (size_t)(2 + fps));
+@@ -600,7 +600,93 @@ static void test_debug_env(void)
+     /* The title's environment has room for every profile variable at once. */
+     assert(PW_GAME_DEBUG_ENV_MAX == 5);
+     assert(7 + 3 + PW_GAME_GRAPHICS_ENV_MAX + PW_GAME_RUNTIME_ENV_MAX +
+-           PW_GAME_CPU_ENV_MAX + PW_GAME_CLOCK_ENV_MAX + PW_GAME_DEBUG_ENV_MAX <= PW_WINE_START_MAX_ENV);
++           PW_GAME_CPU_ENV_MAX + PW_GAME_CLOCK_ENV_MAX + PW_GAME_DEBUG_ENV_MAX +
++           PW_GAME_ENVIRONMENT_MAX <= PW_WINE_START_MAX_ENV);
++}
++
++/* [environment]: bounded launch variables Playden validates, including the Wine options */
++static void test_profile_environment(void)
++{
++    PwGameProfile p;
++    PwGameEnv env[PW_GAME_ENVIRONMENT_MAX];
++
++    assert(parse(APP, &p) == PW_OK && p.environment_count == 0 && pw_game_profile_env(&p, env) == 0);
++    assert(parse(APP "[environment]\nWINE_LARGE_ADDRESS_AWARE = 1\n"
++                 "WINE_PS5_PARK_FILES = 800\nWINE_PS5_CACHED_FILES = 160\n"
++                 "WINE_CPU_TOPOLOGY = 4:0,1,2,3\nDXVK_FRAME_RATE = 45\n",
++                 &p) == PW_OK);
++    assert(pw_game_profile_env(&p, env) == 5);
++    assert(!strcmp(env[0].name, "WINE_LARGE_ADDRESS_AWARE") && !strcmp(env[0].value, "1"));
++    assert(!strcmp(env[1].name, "WINE_PS5_PARK_FILES") && !strcmp(env[1].value, "800"));
++    assert(!strcmp(env[2].name, "WINE_PS5_CACHED_FILES") && !strcmp(env[2].value, "160"));
++    assert(!strcmp(env[3].name, "WINE_CPU_TOPOLOGY") && !strcmp(env[3].value, "4:0,1,2,3"));
++    assert(!strcmp(env[4].name, "DXVK_FRAME_RATE") && !strcmp(env[4].value, "45"));
++
++    /* Eight entries and the 127-byte limit match Playden's profile contract. */
++    assert(parse(APP "[environment]\nDXVK_A=1\nDXVK_B=1\nDXVK_C=1\nDXVK_D=1\n"
++                 "DXVK_E=1\nDXVK_F=1\nDXVK_G=1\nDXVK_H=1\n", &p) == PW_OK);
++    assert(p.environment_count == PW_GAME_ENVIRONMENT_MAX);
++    assert(parse(APP "[environment]\nDXVK_A=1\nDXVK_B=1\nDXVK_C=1\nDXVK_D=1\n"
++                 "DXVK_E=1\nDXVK_F=1\nDXVK_G=1\nDXVK_H=1\nDXVK_I=1\n", &p) != PW_OK);
++    {
++        char text[512];
++        memset(text, 'a', 127);
++        text[127] = 0;
++        snprintf(text + 127, sizeof(text) - 127, "\n");
++        char profile[1024];
++        snprintf(profile, sizeof(profile), APP "[environment]\nDXVK_CONFIG_FILE=%s", text);
++        assert(parse(profile, &p) == PW_OK);
++        text[126] = 'a';
++        text[127] = 'a';
++        text[128] = 0;
++        snprintf(profile, sizeof(profile), APP "[environment]\nDXVK_CONFIG_FILE=%s\n", text);
++        assert(parse(profile, &p) != PW_OK);
++    }
++
++    /* Only the names Playden accepts; don't turn this into an arbitrary WINE_* injection path. */
++    {
++        const char *refused[] = {
++            "WINE_UNKNOWN = 1", "WINEARCH = wow64", "WINEDEBUG = +all", "DXVK_HUD = fps",
++            "SDL_JOYSTICK_RAWINPUT = 0", "WINE_LARGE_ADDRESS_AWARE = true",
++            "WINE_PS5_PARK_FILES = 10000", "WINE_PS5_CACHED_FILES = -1",
++            "DXVK_FRAME_RATE = 60'", "DXVK_FRAME_RATE = 60\"",
++            "DXVK_FRAME_RATE = 1\nDXVK_FRAME_RATE = 2",
++        };
++        for (size_t i = 0; i < sizeof(refused) / sizeof(refused[0]); i++) {
++            char profile[512];
++            snprintf(profile, sizeof(profile), APP "[environment]\n%s\n", refused[i]);
++            assert(parse(profile, &p) != PW_OK);
++        }
++    }
++    assert(parse(APP "[debug]\nenv = PW_NATIVE_PROFILE=1\n[environment]\nWINE_LARGE_ADDRESS_AWARE=1\n", &p) == PW_OK);
++    assert(pw_game_debug_env(&p, env) == 1 && pw_game_profile_env(&p, env) == 1);
++}
++
++static void test_audio_volume(void)
++{
++    PwGameProfile p;
++    assert(parse(APP, &p) == PW_OK && p.audio.volume == 100 && !p.audio.volume_set);
++    assert(parse(APP "[audio]\nvolume = 0\n", &p) == PW_OK && p.audio.volume == 0 && p.audio.volume_set);
++    assert(parse(APP "[audio]\nvolume = 50\n", &p) == PW_OK && p.audio.volume == 50);
++    assert(parse(APP "[audio]\nvolume = 100\n", &p) == PW_OK && p.audio.volume == 100);
++    assert(parse(APP "[audio]\nvolume = 101\n", &p) != PW_OK);
++    assert(parse(APP "[audio]\nvolume = mute\n", &p) != PW_OK);
++    assert(parse(APP "[audio]\nvolume = 50\nvolume = 75\n", &p) == PW_ERR_MALFORMED);
++}
++
++static void test_steam_install_dir(void)
++{
++    PwGameProfile p;
++    assert(parse(APP, &p) == PW_OK && !p.steam.install_dir[0]);
++    assert(parse(APP "[steam]\ninstall_dir = The Talos Principle\n", &p) == PW_OK);
++    assert(!strcmp(p.steam.install_dir, "The Talos Principle"));
++    assert(parse(APP "[steam]\ninstall_dir = 0\n", &p) == PW_OK && !strcmp(p.steam.install_dir, "0"));
++    assert(parse(APP "[steam]\ninstall_dir = ../game\n", &p) != PW_OK);
++    assert(parse(APP "[steam]\ninstall_dir = .\n", &p) != PW_OK);
++    assert(parse(APP "[steam]\ninstall_dir = bad/part\n", &p) != PW_OK);
++    assert(parse(APP "[steam]\ninstall_dir = trailing.\n", &p) != PW_OK);
++    assert(parse(APP "[steam]\ninstall_dir = one\ninstall_dir = two\n", &p) == PW_ERR_MALFORMED);
++    assert(parse(APP "[steam]\nother = value\n", &p) == PW_ERR_UNSUPPORTED);
+ }
+ 
+ /* keyboard_stick, its dead zone and the four direction keys. */
+@@ -680,6 +766,7 @@ static void test_settings(void)
+     assert(p.display.width == 1152 && p.display.height == 864);
+     assert(!strcmp(p.winedebug, "err+all,warn+all"));
+     assert(!strcmp(p.app.dll_overrides, "d3d9=n;d3dx9_27=n,b"));
++    assert(apply(&p, "[audio]\nvolume = 0\n") == PW_OK && p.audio.volume == 0 && p.audio.volume_set);
+     /* A preset replaces the profile's whole [input]: its own buttons no longer apply. */
+     assert(parse(APP "[input]\nmode = xinput\ncross = space\n", &p) == PW_OK);
+     assert(apply(&p, "[input]\npreset = mouselook\nsquare = e\n") == PW_OK);
+@@ -726,6 +813,9 @@ int main(void)
+     test_runtime();
+     test_cpu();
+     test_debug_env();
++    test_profile_environment();
++    test_audio_volume();
++    test_steam_install_dir();
+     test_refusals();
+     test_presets();
+     test_default_mode();
+--- a/tests/test_pw_wine_start.c
++++ b/tests/test_pw_wine_start.c
+@@ -87,8 +87,10 @@ static int fake_info(int32_t handle, void *info)
+ 
+ static char env_log[512];
+ static int env_fail_on;
++static unsigned env_calls;
+ static int fake_env(const char *name, const char *value)
+ {
++    env_calls++;
+     if (env_fail_on && !strcmp(name, "WINEDEBUG")) return -7;
+     strcat(env_log, name); strcat(env_log, "="); strcat(env_log, value); strcat(env_log, ";");
+     return 0;
+@@ -126,6 +128,7 @@ static void build_module(int with_optional)
+ int main(void)
+ {
+     static const PwWineStartEnv extra[] = { { "WINEDEBUG", "err+all" } };
++    static PwWineStartEnv maximum_env[PW_WINE_START_MAX_ENV + 1];
+     static const char *const argv[] = { "wine", "C:\\Games\\Pinball\\PINBALL.EXE" };
+     const PwWineStartOps ops = { fake_load, fake_info, fake_env, fake_thread };
+     PwWineStartConfig config = {
+@@ -155,6 +158,17 @@ int main(void)
+     assert(!strcmp(env_log, "WINEPREFIX=/data/prospero-win/prefixes/pinball;"
+                             "WINE_PS5_NTDLL_DIR=/app0/win/wine/lib/wine/x86_64-unix;"
+                             "WINELOADERNOEXEC=1;WINEDEBUG=err+all;"));
++    /* The [environment] section adds eight bounded entries to the existing profile variables. */
++    for (unsigned i = 0; i < PW_WINE_START_MAX_ENV + 1; i++) maximum_env[i] = (PwWineStartEnv){ "X", "1" };
++    config.extra_env = maximum_env;
++    config.extra_env_count = PW_WINE_START_MAX_ENV;
++    env_calls = 0;
++    assert(pw_wine_start_environment(&start, &config, &ops) == PW_OK && env_calls == PW_WINE_START_MAX_ENV + 3);
++    config.extra_env_count = PW_WINE_START_MAX_ENV + 1;
++    env_calls = 0;
++    assert(pw_wine_start_environment(&start, &config, &ops) == PW_ERR_PRECONDITION && env_calls == 0);
++    config.extra_env = extra;
++    config.extra_env_count = 1;
+     assert(pw_wine_start_run(&start, &config, &ops) == PW_OK);
+     assert(thread_entry && thread_arg == &start && thread_stack == (16u << 20));
+     assert(calls_wine_main == 0 && start.stage == PW_WINE_START_THREAD);

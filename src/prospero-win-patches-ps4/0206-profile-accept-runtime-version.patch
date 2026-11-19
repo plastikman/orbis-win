@@ -1,0 +1,55 @@
+From: Zak Peirce <zak@orbis-win>
+Subject: profile: accept [runtime] version so a generator can declare one
+
+runtime_field returned PW_ERR_UNSUPPORTED for every key it did not know, and
+"version" was one of them, so a profile carrying it was refused whole.
+
+Playden gates its "32-bit code" setting -- cpu = native|translator, which this
+parser has read all along -- on the kit claiming the profile-version-2
+capability, and a kit that claims it writes "version = 2" into [runtime]
+alongside the cpu line. So the capability could not be declared: declaring it
+would have made every generated profile unparseable here. Not declaring it
+leaves the setting greyed out as "Needs a newer runtime kit", which is why an
+imported game was stuck on native and MDK -- a 1997 32-bit title that needs the
+translator -- crashed five seconds in with c0000005 at a 32-bit address
+(2026-11-18).
+
+The key names the profile's generation and selects nothing by itself: every
+key is read the same way whatever it says. So accept 1 and 2, once, and ignore
+it. Bit 16 of runtime_seen was free; 1, 2, 4 and 8 are thread_scheduling, cpu,
+shared_input and fast_clock, and the 16 at line 268 belongs to display_seen,
+a separate mask.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+
+--- a/src/pw_game_profile.c
++++ b/src/pw_game_profile.c
+@@ -398,7 +398,7 @@ static int debug_field(PwGameProfile *profile, const uint8_t *key, size_t key_le
+     return PW_OK;
+ }
+ 
+-/* [runtime] thread_scheduling, shared_input, fast_clock: true/false or
++/* [runtime] version: 1 or 2; thread_scheduling, shared_input, fast_clock: true/false or
+  * 1/0; cpu: native or translator; each once. */
+ static int runtime_field(PwGameRuntime *runtime, uint32_t *seen, const uint8_t *key, size_t key_length,
+                          const uint8_t *v, size_t n)
+@@ -414,6 +414,19 @@ static int runtime_field(PwGameRuntime *runtime, uint32_t *seen, const uint8_t *
+         *seen |= 2u;
+         return PW_OK;
+     }
++    /* [runtime] version = 1|2 names the profile's generation. The runtime reads every key it
++     * supports whatever the generation says, so the value only has to be one we know; it selects
++     * nothing by itself. Accepting it is what lets a generator declare version 2 -- Playden gates
++     * its "32-bit code" setting (cpu = native|translator, read above) on the kit claiming
++     * profile-version-2, and writes "version = 2" alongside it. Without this that line came back
++     * PW_ERR_UNSUPPORTED and the whole profile was refused, so the setting could not be offered at
++     * all and an imported game was stuck on native. */
++    if (is(key, key_length, "version")) {
++        if (*seen & 16u) return PW_ERR_MALFORMED;
++        if (!is(v, n, "1") && !is(v, n, "2")) return PW_ERR_UNSUPPORTED;
++        *seen |= 16u;
++        return PW_OK;
++    }
+     if (is(key, key_length, "thread_scheduling")) bit = 1u, field = &runtime->thread_scheduling;
+     else if (is(key, key_length, "shared_input")) bit = 4u, field = &runtime->shared_input;
+     else if (is(key, key_length, "fast_clock")) bit = 8u, field = &runtime->fast_clock;
