@@ -308,6 +308,59 @@ def main():
             report('WARN', f"{name}: {len(only)} PS4-specific baseline strings missing; review each: "
                            + ' | '.join(o[:60] for o in only[:6]) + (' ...' if len(only) > 6 else ''))
 
+    # 10. Capability providers in the PE payload. Check 9 above only reads sce_module/*.prx,
+    # so it cannot see the PE side at all -- and the PE side is where several capability
+    # providers live, because win/wine/lib/wine/<arch>-windows/ is built from the wine-HOST
+    # tree while the PRXs come from wine-ps5 (src/wine-trees/README.md). A provider can
+    # therefore vanish from a package with every PRX check still passing.
+    #
+    # That is not hypothetical: Orbis-Win 02.17 and Playden 01.26 shipped the hosted-driver
+    # provider in both architectures, and 02.69 / Playden 01.31 / 01.34 do not. It was lost
+    # when the build moved to the pinned wine-host tree (0f6e2e67), which carries neither
+    # archive patch 1043 nor 1076 -- the implementation lives only in wine-ps5. Nothing
+    # failed, because scripts/ps4-kit-view.py derives its claims from the staged provider:
+    # it honestly stopped claiming wine-driver-threads, so the capability silently
+    # disappeared from the kit instead of the build complaining. AGENTS.md's additive rule
+    # says a known-good fix must be preserved in every new package, so losing a provider the
+    # baseline shipped is a hard failure, not a review note.
+    #
+    # A marker is given as text and matched in BOTH encodings, because a PE carries both and
+    # which one a provider lands in is an implementation detail of the code that reads it.
+    # WINE_NTOSKRNL_HOSTED below is the opt-in switch for this very capability and it is a
+    # UTF-16 literal (RTL_CONSTANT_STRING / GetEnvironmentVariableW), so an ASCII-only scan --
+    # `strings` without -el, and the first draft of this check -- reports it absent from every
+    # package including the known-good ones. Checking the provider but not its switch would
+    # pass a package whose capability cannot actually be turned on.
+    def marker_in(path, text):
+        data = read(path)
+        return text.encode('ascii') in data or text.encode('utf-16-le') in data
+
+    PE_PROVIDERS = (
+        ('wine-driver-threads', 'ntdll.dll', 'hosted driver thread'),
+        ('wine-driver-threads', 'ntoskrnl.exe', 'wine_ntoskrnl_host_start'),
+        ('wine-driver-threads', 'ntoskrnl.exe', 'WINE_NTOSKRNL_HOSTED'),
+    )
+    lost, kept = {}, set()
+    for cap, fname, marker in PE_PROVIDERS:
+        for arch in ('i386-windows', 'x86_64-windows'):
+            rel = os.path.join('win', 'wine', 'lib', 'wine', arch, fname)
+            a, b = os.path.join(base, rel), os.path.join(cand, rel)
+            if not (os.path.isfile(a) and os.path.isfile(b)):
+                continue
+            if marker_in(a, marker):
+                if marker_in(b, marker):
+                    kept.add(cap)
+                else:
+                    lost.setdefault(cap, []).append(f'{arch}/{fname} ({marker})')
+    for cap, where in sorted(lost.items()):
+        report('FAIL', f"the {cap} provider is in the baseline but gone from the candidate "
+                       f"({', '.join(dict.fromkeys(where))}). The PE side builds from the wine-HOST tree, so "
+                       'restore the provider there (the wine-ps5 copy does not reach these '
+                       'files) -- otherwise the kit view just stops claiming the capability '
+                       'and the package ships quietly degraded')
+    for cap in sorted(kept - set(lost)):
+        report('PASS', f'the {cap} provider is still present in the PE payload')
+
     print(f"\n{'NOT INSTALLABLE' if failures else 'hard gates passed'}: {failures} FAIL")
     return 1 if failures else 0
 
