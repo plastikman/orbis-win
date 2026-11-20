@@ -375,6 +375,54 @@ def main():
     for cap in sorted(kept - set(lost)):
         report('PASS', f'the {cap} provider is still present in the PE payload')
 
+    # 11. Every module that carries the direct-memory glue must carry the SAME glue.
+    #
+    # The glue is compiled twice: scripts/prx-ps4.sh builds it fresh for the PRXs, and
+    # scripts/prepare-ps4-toolchain.sh bakes it into build/ps4-wine-sdk/libps4stubs.a, which is
+    # then CACHED and reused. BUILDING-FROMSOURCE.md already warns that a stamp "keyed too
+    # narrowly" silently skips a src/native change and ships the previous objects.
+    #
+    # That is not hypothetical. Orbis-Win 02.91 shipped with the two modules disagreeing:
+    # relocated_wine_app.prx had the current glue while sce_module/ntdll.prx had a six-week-old
+    # copy whose exec_migrate_range_max() defaulted to 256 KiB instead of unlimited. ntdll.prx is
+    # where map_image_into_view runs, so ITS copy won. Every exec mapping took the per-page path
+    # the source comment reserves for Hollow Knight and explicitly warns 32-bit titles away from
+    # ("unset / 0 -> no limit (default; 32-bit titles must stay here)").
+    #
+    # The visible cost was a completely dead controller in GTA IV: xinput1_4.dll's .text never
+    # became executable, DllMain faulted c0000005 at its own instruction address, and
+    # dlls/xinput9_1_0/main.c then returned ERROR_DEVICE_NOT_CONNECTED from every entry point for
+    # the life of the process. Nothing in the build complained; the package was green.
+    #
+    # The invariant is cheap to state: any module holding the range-max format string must also
+    # hold the default label the CURRENT source emits. A module with the format string but
+    # without the label was built from an older glue.
+    GLUE_FORMAT = 'exec-migrate-range-max'
+    GLUE_CURRENT = 'default-unlimited'
+    stale_glue, fresh_glue = [], []
+    for prx in sorted(glob.glob(os.path.join(cand, 'sce_module', '*.prx'))):
+        data = read(prx)
+        if GLUE_FORMAT.encode('ascii') not in data:
+            continue
+        (fresh_glue if GLUE_CURRENT.encode('ascii') in data else stale_glue).append(
+            os.path.basename(prx))
+    if stale_glue and fresh_glue:
+        report('FAIL', f"dmem glue mismatch: {', '.join(stale_glue)} carries an older "
+                       f"pw_wine_dmem_glue_ps4 than {', '.join(fresh_glue)} (no "
+                       f"'{GLUE_CURRENT}'). ntdll.prx's copy is the one that governs "
+                       'exec protection, so a stale one silently caps exec-migrate at 256 KiB '
+                       'and breaks 32-bit titles. Delete the objects AND '
+                       'build/ps4-wine-sdk/libps4stubs.a, re-run prepare-ps4-toolchain.sh + '
+                       'prx-ps4.sh, and confirm with: strings <pkg>/sce_module/ntdll.prx | '
+                       f'grep -c {GLUE_CURRENT}')
+    elif stale_glue:
+        report('WARN', f"every module with the dmem glue ({', '.join(stale_glue)}) lacks "
+                       f"'{GLUE_CURRENT}'; if the current source still emits that label they "
+                       'were all built from a stale libps4stubs.a')
+    elif fresh_glue:
+        report('PASS', f"the dmem glue agrees across {len(fresh_glue)} module(s) "
+                       f"({', '.join(fresh_glue)})")
+
     print(f"\n{'NOT INSTALLABLE' if failures else 'hard gates passed'}: {failures} FAIL")
     return 1 if failures else 0
 
