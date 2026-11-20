@@ -1979,7 +1979,7 @@ static void watch_oblivion_rx_pages(unsigned int sample)
 #include "../freebsd-compat/machine/fbsd_mcontext.h"
 
 #define PW_GUEST_SAMPLE_OFFSET 64        /* mcontext within ucontext, measured (fault_probe) */
-#define PW_GUEST_SAMPLE_MAX    400       /* bounded: a wedge would otherwise log forever */
+#define PW_GUEST_SAMPLE_MAX    20000     /* opt-in 10 Hz timer cap; targeted pokes bypass it */
 
 static volatile unsigned int guest_samples;
 static volatile unsigned int guest_sample_logged;
@@ -1998,10 +1998,10 @@ static int guest_code_pointer(uint64_t w)
 
 /* Stacks for the first samples OF EACH THREAD, not the first samples overall. SIGALRM from
  * ITIMER_REAL is process-directed, so the kernel picks whichever thread answers: the global
- * first three can all be idle workers, and the wedged thread -- the only one worth a stack --
- * would never print one. Track a bounded set of 16 threads, with 6 stacks each, enough to show
- * whether a thread is truly stuck at one rip or merely slow. */
-#define PW_GUEST_SAMPLE_THREADS 16
+ * first samples can all be idle workers, and the wedged thread -- the only one worth a stack --
+ * would never print one. Hollow Knight had 32 worker threads before the target was sampled.
+ * Track a bounded set of 128 threads, with 6 stacks each. This sampler and its timer are opt-in. */
+#define PW_GUEST_SAMPLE_THREADS 128
 static int guest_stack_want(unsigned long tid)
 {
     static volatile unsigned long seen_tid[PW_GUEST_SAMPLE_THREADS];
