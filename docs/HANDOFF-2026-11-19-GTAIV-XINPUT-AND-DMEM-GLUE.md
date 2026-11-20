@@ -319,9 +319,12 @@ that would make the "built from pins" claim false.
 
 1. **Release review and scope decision remain.** 02.98 is a candidate, not a
    release. Review its full local delta against the current `origin/main`
-   before any publication. At the last fetch, this branch was 23 commits ahead
-   and zero behind `origin/main`; the `origin/launcher-settings` tracking ref
-   was stale. No push, tag, or release has happened.
+   before any publication. At the latest comparison, this branch was 25 commits
+   ahead and zero behind `origin/main`; the `origin/launcher-settings` tracking
+   ref was stale. `git diff --check origin/main...HEAD` reports whitespace in
+   archived mail-style patch files only; the new handoff edit itself passes
+   `git diff --check`. Do not mechanically rewrite archived patch formatting.
+   No push, tag, or release has happened.
 2. Binding of Isaac still exits normally before its first frame after Zink
    provider discovery. In the 02.98 suite it again exited normally before
    rendering; no exception was recorded. This remains unresolved.
@@ -670,8 +673,8 @@ Hollow Knight and Risk of Rain 2 are PE64 cards and were not part of this
 13-title PE32 suite. 02.98's 26% Vulkan fix remains included in the package;
 RoR2 was not rerun as part of this suite.
 
-Next: review the 23-commit local delta against `origin/main`, resolve any
-release-review findings, and decide whether to publish 0.0.8. Keep 02.97 as a
+Next: complete review of the 25-commit local delta against `origin/main`, resolve
+any release-review findings, and decide whether to publish 0.0.8. Keep 02.97 as a
 rollback package and 02.98 installed as the current candidate. Publishing
 still requires separate authorization; this handoff records no push, tag, or
 release.
