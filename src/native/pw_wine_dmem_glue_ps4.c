@@ -1999,18 +1999,19 @@ static int guest_code_pointer(uint64_t w)
 /* Stacks for the first samples OF EACH THREAD, not the first samples overall. SIGALRM from
  * ITIMER_REAL is process-directed, so the kernel picks whichever thread answers: the global
  * first three can all be idle workers, and the wedged thread -- the only one worth a stack --
- * would never print one. 128 threads, 6 stacks each: enough to show whether a thread
- * is truly stuck at one rip or merely slow. */
+ * would never print one. Track a bounded set of 16 threads, with 6 stacks each, enough to show
+ * whether a thread is truly stuck at one rip or merely slow. */
+#define PW_GUEST_SAMPLE_THREADS 16
 static int guest_stack_want(unsigned long tid)
 {
-    static volatile unsigned long seen_tid[16];
-    static volatile unsigned int  seen_hits[128];
+    static volatile unsigned long seen_tid[PW_GUEST_SAMPLE_THREADS];
+    static volatile unsigned int  seen_hits[PW_GUEST_SAMPLE_THREADS];
     unsigned int i;
 
-    for (i = 0; i < 128; i++)
+    for (i = 0; i < PW_GUEST_SAMPLE_THREADS; i++)
         if (__atomic_load_n(&seen_tid[i], __ATOMIC_ACQUIRE) == tid)
             return __atomic_add_fetch(&seen_hits[i], 1, __ATOMIC_ACQ_REL) <= 6;
-    for (i = 0; i < 128; i++) {
+    for (i = 0; i < PW_GUEST_SAMPLE_THREADS; i++) {
         unsigned long expected = 0;
         if (__atomic_compare_exchange_n(&seen_tid[i], &expected, tid, 0,
                                         __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
