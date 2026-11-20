@@ -1,11 +1,11 @@
 # GTA IV's dead controller was a stale dmem glue in ntdll.prx (2026-11-19)
 
 The GTA IV controller fix was verified in **02.92**. The current installed
-candidate is **02.97**, built with the real release marker and the tested 02.96
-runtime payload plus the bounded guest-sampler table fix. It passed parity and
-PKG validation, was installed, and reached the Half-Life 2 menu. Binding of
-Isaac still exits normally before its first frame after successfully
-discovering the Zink provider on 02.96; it has not been retested on 02.97.
+candidate is **02.98**, which passed parity and PKG validation and was installed
+with its package digest checked against the package header. It contains the
+bounded 128-thread guest-sampler table fix. The 13-title PE32 startup suite was
+rerun on 02.98; results and remaining title-specific failures are recorded
+below. No push, tag, or release has been made.
 
 ## Session update (2026-11-19, latest state)
 
@@ -317,28 +317,27 @@ that would make the "built from pins" claim false.
 
 ### Remaining for 0.0.8
 
-1. The former Zink-provider refusal is resolved: both OpenGL profiles find the
-   provider. Half-Life reached its menu in 02.95, and Half-Life 2 reached its
-   menu in 02.96. Isaac still exits before rendering in both 02.95 and 02.96;
-   the 02.96 log shows provider discovery, native OpenGL DLL loads, one WGL
-   thread-context error, and a normal guest exit with no exception. This is not
-   enough to identify why the game exits. Decide separately whether to pursue
-   L4D2's controller warning and Splinter Cell's loading stall.
-2. Titan Quest reaches its menu with alert tracing disabled, but gameplay is
-   not validated because the current input attempt did not activate Play.
-3. Sampler limits were restored to the main-branch release values
-   (`PW_GUEST_SAMPLE_MAX=400`, 16 tracked threads), and `libps4stubs.a` was
-   rebuilt for 02.95. Keep the rebuilt archive when making the next package.
-4. **02.96 is a built, gated, and installed 0.0.8 candidate** with a correct
-   marker. The smoke checks passed for the launcher and Half-Life 2; Isaac's
-   early exit remains unresolved. It is not a release: do not tag or publish
-   it until the remaining release review and chosen validation scope are done.
-5. Review the local delta against `origin/main` before pushing anything. At
-   review start it was 18 commits; the 98-commit count against
-   `origin/launcher-settings` includes the newer main history because that
-   tracking ref is behind/diverged. No push, tag, or release has happened.
+1. **Release review and scope decision remain.** 02.98 is a candidate, not a
+   release. Review its full local delta against the current `origin/main`
+   before any publication. At the last fetch, this branch was 23 commits ahead
+   and zero behind `origin/main`; the `origin/launcher-settings` tracking ref
+   was stale. No push, tag, or release has happened.
+2. Binding of Isaac still exits normally before its first frame after Zink
+   provider discovery. In the 02.98 suite it again exited normally before
+   rendering; no exception was recorded. This remains unresolved.
+3. Left 4 Dead 2 and Splinter Cell Conviction did not reach a usable menu in
+   the 02.98 suite; both remained on the loading spinner. Their logs are in the
+   active UDP capture listed below. Keep them as known title-specific issues,
+   not as evidence of a general runtime regression.
+4. MDK reached its menu and rendered a scene, but the scene had visible color
+   and geometry corruption. This was also seen in 02.94; it remains a graphics
+   quality issue.
+5. The guest sampler is opt-in and bounded at 128 tracked threads. The 02.98
+   HL2 run emitted 12 samples for 12 distinct threads; the 128-entry capacity
+   is independently confirmed by the matching ELF symbol sizes, not by
+   reaching entries above index 15 at runtime.
 
-## Previous console state after 02.94 (superseded by 02.95 below)
+## Previous console state after 02.94 (superseded by 02.98 below)
 
 - Orbis-Win **02.94 targeted A/B** installed. It retains the 02.93 marker; the
   installed `app.json` package digest was verified against this 02.94 PKG.
@@ -634,12 +633,45 @@ commit `12405ec` (`Restore bounded 128-thread guest sampler`).
   at 22:48:21.997-22:48:53.019. The separate UDP log is
   `build-ps4-logs/ps5log-20261119-161212.log`; both receivers remain active.
   These logs are large and grow quickly under `wait_watchdog=1`.
-- The console is left running 02.98 at the Half-Life 2 menu, with the original
-  profile restored. No GitHub push, tag, or release was made.
+- The original global `/data/prospero-win/settings.conf` was restored over FTP
+  after the title suite and byte-verified against its backup:
+  SHA-256 `9c5f240bce9f607ec8cabf631e75700cf443c37ff68ef8baf19f7eda9c6c4121`.
+- The console is left at the PS4 home screen with Orbis-Win 0.0.8 Candidate
+  02.98 selected. The 02.98 package remains installed; no title is running.
+  No GitHub push, tag, or release was made.
 
-Next: investigate why the enabled profile flag did not produce the native
-sampler startup marker before claiming runtime validation. Keep the 02.97
-package as rollback and 02.98 as the installed candidate. Before any 0.0.8
-publication, review the remaining local changes against `origin/main` and
-complete the requested suite/release review. No push, tag, or release is
-authorized by this handoff.
+## 02.98 13-title PE32 startup suite (2026-11-19)
+
+After the HL2 sampler run, the original global `settings.conf` was temporarily
+changed to `wait_watchdog=0` to keep the startup-suite UDP log manageable. The
+exact original was retained and restored after the suite as recorded above.
+The startup log is
+`build-ps4-logs/ps5log-20261119-161212.log`; it contains the profile markers
+and runtime records for these launches. The PS4 app was closed to the home
+screen after the last test.
+
+| PE32 title | 02.98 result |
+| --- | --- |
+| The Binding of Isaac: Rebirth | Normal guest exit before first rendered frame; provider discovery succeeded. Unresolved. |
+| Vampire: The Masquerade – Bloodlines | Reached main menu. |
+| Fallout: New Vegas | Reached title menu. |
+| Fallout 3 GOTY | Reached title menu. |
+| Grand Theft Auto IV | Reached episode selector; Cross opened the selected episode and D-pad Right moved the main-menu highlight from Start to Options. Controller navigation confirmed. |
+| Half-Life 2 | Reached main menu. The opt-in sampler emitted 12 samples for 12 distinct threads; see sampler test above. |
+| Half-Life + Opposing Force | Reached main menu. |
+| Left 4 Dead 2 | Stayed on loading spinner after about 80 seconds. Log reached `frames_put=2`, `shown=0`, `vk_busy=1`; no guest exit observed before closing. |
+| MDK | Reached main menu and rendered its scene, with visible color/geometry corruption. |
+| The Elder Scrolls IV: Oblivion | Reached title menu. |
+| Space Cadet Pinball | Rendered the table at 800×600. |
+| Splinter Cell: Conviction | Stayed on loading spinner; profile was `splinter-cell-conviction`, XInput. Four frames had been submitted at the initial check; no guest exit observed before closing. |
+| Titan Quest Anniversary | Reached main menu. |
+
+Hollow Knight and Risk of Rain 2 are PE64 cards and were not part of this
+13-title PE32 suite. 02.98's 26% Vulkan fix remains included in the package;
+RoR2 was not rerun as part of this suite.
+
+Next: review the 23-commit local delta against `origin/main`, resolve any
+release-review findings, and decide whether to publish 0.0.8. Keep 02.97 as a
+rollback package and 02.98 installed as the current candidate. Publishing
+still requires separate authorization; this handoff records no push, tag, or
+release.
