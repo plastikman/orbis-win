@@ -1,7 +1,146 @@
 # GTA IV's dead controller was a stale dmem glue in ntdll.prx (2026-11-19)
 
-Fixed and verified on console in Orbis-Win **02.92**. The 0.0.8 release build is
-**blocked** on one thing, described in "Where to pick up".
+The GTA IV controller fix was verified in **02.92**. The current installed
+candidate is **02.96**, built with the real release marker and the tested 02.95
+runtime payload. It passed parity and PKG validation, was installed, and
+reached the Half-Life 2 menu. Binding of Isaac still exits normally before its
+first frame after successfully discovering the Zink provider.
+
+## Session update (2026-11-19, latest state)
+
+### 02.94 rebuilt and tested
+
+- The 02.93 Titan Quest run was not a valid test of the rebuilt alert object:
+  its `build_marker=GLDS10043-02.93-dmem-osi-diagnostics` confirmed it was still
+  running the installed 02.93 package. The 02.94 package was uploaded afterward
+  and installed through Debug Settings > Game > Package Installer.
+- The Wine PS4 source is at `ee7b06d32113629e28234bf6d1e1011cc8152203`, which
+  contains the Titan Quest alert-latch fix. Its old `sync.o` was timestamped
+  14:12, before the source commit at 15:06. I saved the old object, `ntdll.so`,
+  and PRX under
+  `/home/zpeirce/ps4-package-scratch/orbis-0293-diagnostics/evidence/pre-sync-rebuild/`,
+  rebuilt only `dlls/ntdll/unix/sync.o`, and ran `scripts/prx-ps4.sh` against
+  the ABI-v4 tree. The new object timestamp is 18:47. Only `ntdll.prx` changed
+  against the 02.93 stage; its two package copies match. This was incremental:
+  one object compile and the PRX link, not another full Wine compile.
+- Rebuilt `sync.o` SHA-256 is
+  `ce6d440b15eed24495b82dd79ab6151c2e9d616e1b681a20a6dde04946326559`;
+  02.94 `ntdll.prx` SHA-256 is
+  `d6d9a8aca93a966ea538f993a28e8b8a763e5b222bf0cf62ca3bf5df4558c110`.
+- The `make dlls/ntdll/ntdll.so` target is unsuitable in this PS4 build: its
+  `-z defs` link omits PS4 PRX shims and deletes the output on failure. The PRX
+  script links the Wine objects with the required shims directly. The old
+  `ntdll.so` intermediate was restored before using that script.
+- Candidate installer:
+  `/home/zpeirce/ps4-package-scratch/orbis-0294-alert-rebuild/IV0000-GLDS10043_00-GLDS100430000000.pkg`
+  (531,890,176 bytes; SHA-256
+  `68ef7088e68ed9a1ca801de5aad46f2488dd32f98cbc46f8129164c13357197c`). It is
+  also on the console at
+  `/data/pkg/IV0000-GLDS10043_00-GLDS100430000000.pkg`; FTP size matched exactly.
+- The candidate passed `check-ps4-package-parity.py` against the 02.93 stage
+  with zero FAILs and passed all 27 `PkgTool.Core pkg_validate` checks. Parity
+  still reports the known WARN that host `kernelbase/debug.c` is not present
+  under this PS4 source tree, so PW_EXCEPTION32 reachability is not checked by
+  that one rule; the package's i386 `kernelbase.dll` contains 25
+  `PW_EXCEPTION32` strings.
+- The package installer displayed the 02.94 candidate and accepted the
+  reinstall prompt. After installation, `/user/app/GLDS10043/app.json`'s
+  `packageDigest` matched the local package header digest at `0xFE0`
+  (`4BFFCDBF...697652A8`), confirming the installed app points at this PKG.
+- 02.94 retains the 02.93 app PRX, so its runtime marker still says
+  `GLDS10043-02.93-dmem-osi-diagnostics`. Use the package digest / installer
+  identity to distinguish this targeted A/B; the marker was not rebuilt.
+- Titan Quest launch at 19:06:01 used profile `titan-quest-anniversary`, native
+  WoW64, and `/data/prospero-win/prefixes/titan-quest-anniversary`. It reached
+  the Titan Quest main menu, past the prior `galaxy.dll+0x113887` crash point.
+  Runtime log: `/home/zpeirce/ps4-gladius/build-ps4-logs/ps5log-20261119-161212.log`
+  (02.94 run begins 19:06:01.185). No `PW_EXCEPTION32` or guest-fault record
+  followed that launch. The run was closed from the PS4 Quick Menu after the
+  main-menu check; the app returned to the PS4 home screen.
+- The console profile had very verbose `PW_ALERT` tracing active: the initial
+  appended log grew to about 75 MB, with over 172,000 records. I then set
+  `PW_PS4_ALERT_LOG=0` in the Titan Quest profile and `wait_watchdog=0` in
+  `/data/prospero-win/settings.conf` for the final TQ run. Both original files
+  are saved under
+  `/home/zpeirce/ps4-package-scratch/orbis-0294-alert-rebuild/evidence/` and
+  were restored and read back byte-for-byte. Original settings SHA-256:
+  `9c5f240bce9f607ec8cabf631e75700cf443c37ff68ef8baf19f7eda9c6c4121`;
+  original TQ profile SHA-256:
+  `554e24de09cea3bfc90eeaca2c6bf78db16193c3fbf2dc2627ea8f116e6d42a0`.
+- The full suite log is
+  `/home/zpeirce/ps4-gladius/build-ps4-logs/ps5log-20261119-161212.log` (about
+  684 MB). The watchdog's `wake_up` traces made it grow quickly while
+  `wait_watchdog=1`; it is retained for evidence. `ps5logd` PID 770617 is still
+  listening on port 9300, and the klog receiver PID 714692 is still running.
+
+### Other console coverage with 02.93
+
+- Fallout: New Vegas reached its main menu with native WoW64.
+- Half-Life 2 reached its main menu after a slow startup.
+- GTA IV reached its title menu with the controller working.
+- Titan Quest on 02.93 crashed at the known `galaxy.dll+0x113887` null read.
+  That run used 02.93, not the rebuilt 02.94 binary; do not count it as a
+  counterexample to the 02.94 result.
+
+### PE32 validation with the installed 02.94 candidate
+
+I ran all **13 PE32** titles listed in the Orbis-Win launcher. The earlier
+handoff called this a 12-title suite; the launcher actually has 15 game entries
+(13 PE32, two PE64) plus the Settings card. These were startup/UI checks, not
+gameplay certification. Identify 02.94 runs by the installed package digest,
+because the repackage still reports the embedded 02.93 marker.
+
+| PE32 title/profile | 02.94 result |
+|---|---|
+| Binding of Isaac Rebirth / `binding-of-isaac-rebirth` | Setup refused with `zink-provider-missing` before Wine started. Profile requests OpenGL. The 02.94 PKG extraction contains both architecture providers, so this is a runtime path/visibility or provider-validation issue, not missing package content and not a guest crash. |
+| Vampire: The Masquerade – Bloodlines / `bloodlines-gog` | Reached the game's main menu. |
+| Fallout: New Vegas / `fallout-new-vegas` | Reached the game's main menu. |
+| Fallout 3 GOTY / `fallout3-gog` | Reached the game's main menu. |
+| Grand Theft Auto IV / `gtaiv-test` | Reached the game's title menu. |
+| Half-Life 2 / `half-life-2` | Reached the main menu after a slow startup. Wait-watchdog snapshots showed long-lived threads during load; no guest exception was recorded. |
+| Half-Life GOTY + Opposing Force / `half-life` | Same `zink-provider-missing` setup refusal as Isaac; profile requests OpenGL. The provider DLLs are in the extracted 02.94 PKG. |
+| Left 4 Dead 2 / `left-4-dead-2` | Reached the `-insecure` warning screen. Cross did not dismiss it, so controller navigation past this dialog is unverified. |
+| MDK / `mdk-windows` | Rendered its intro credits; main-menu reach was not checked. |
+| The Elder Scrolls IV: Oblivion / `oblivion-gog` | Reached the game's title menu. |
+| Space Cadet Pinball / `pinball` | Game table rendered and ran at 800x600. |
+| Splinter Cell Conviction / `splinter-cell-conviction` | Reached its red intro, then a black loading screen with a spinner. It remained alive for about a minute, with no guest exception; the latest stall snapshot had `frames_put=6, shown=0`. Closed from PS Quick Menu. This matches the previously known load stall and was not investigated further. |
+| Titan Quest Anniversary / `titan-quest-anniversary` | Reached the main menu in both 02.94 runs, including the quiet-logging rerun. Gameplay beyond the menu was not validated; attempted controller/mouse input did not activate Play. |
+
+Hollow Knight and Risk of Rain 2 are PE64 and were outside this PE32 validation
+pass. This is not an all-library compatibility claim.
+
+The OpenGL provider is present in the actual 02.94 package, not only in its
+staging directory: `PkgTool.Core pkg_extract` at
+`/home/zpeirce/ps4-package-scratch/orbis-0294-alert-rebuild/pkg-extracted`
+shows `uroot/win/mesa-zink/{i386-windows,x86_64-windows}/{opengl32.dll,libgallium_wgl.dll}`.
+Both console failures logged `zink provider=not-found`; that result currently
+collapses a missing runtime directory, missing core DLLs, and provider-open
+failures into one status. The 02.95 diagnostic package now logs each attempted
+runtime root, provider path, and `stat` result before the provider install call.
+
+The PS4 MCP transport is running locally through Chiaki Remote Play. Current
+API tools did not expose PS4 controls, so the console was driven through the
+installed `ps4-mcp` Linux Chiaki client. The user authorized package install and
+testing; keep the parity and PKG validation gates for every next candidate.
+
+02.94 was a targeted A/B package, not a finished 0.0.8 release. The
+working source trees and unpushed repo state are recorded below; no push or
+release has been made.
+
+Source working trees to preserve:
+
+- `/home/zpeirce/junk/orbis-fromsource/prospero-win-abi4`, branch
+  `codex/wowprospero-pinned-ancestor-20261119`, has local edits in
+  `native/wine64_main.c` (02.95 Zink path diagnostics),
+  `tools/build_wine_ps5.sh`, `tools/build_wowprospero.sh`, and
+  `wine/ps5/pw_ws2_32_libc.c`.
+- Its nested PS4 Wine source at `.deps/wine-ps5/source`, branch
+  `codex/orbit-osi-pipe-trace-20261119`, has local diagnostics edits in
+  `server/async.c`, `server/fd.c`, and `server/named_pipe.c`. The alert-latch
+  fix is committed as `ee7b06d`.
+- `/home/zpeirce/ps4-package-scratch/wine-host-1043-20261119/source` is also on
+  `codex/orbit-osi-pipe-trace-20261119` with those same three server diagnostic
+  files modified. Preserve these edits; do not reset or clean these trees.
 
 ## The bug, end to end
 
@@ -114,14 +253,19 @@ parity FAIL ("sce_module and win/wine/lib/wine/x86_64-unix copies differ").
   (it previously pointed at the wrong lead, 1040/1041, and named a non-existent
   env var; the real knob is `PW_PS4_ALERT_LOG`).
 
-Branch `launcher-settings`, 2 commits ahead of `origin/main` beyond the earlier
-merge. Working tree clean. **Nothing pushed.**
+At the time this handoff was first written, `launcher-settings` had two commits
+beyond its earlier merge and nothing was pushed. On the latest check it tracks
+`origin/launcher-settings` and is **95 commits ahead** (`git rev-list
+origin/launcher-settings...HEAD` reported `0 95`). This count differs from the
+earlier note and should be reconciled before any push; do not push the whole
+ahead range without reviewing it. Current dirty repo files are this handoff and
+`src/native/pw_wine_dmem_glue_ps4.c` (sampler bounds restored to 400/16).
 
 Also fixed on disk, not in git: `build/ps4-wine-sdk/libps4stubs.a` regenerated
 (16 KB Oct 7 -> 102 KB, now carrying the current glue). The original is kept at
 `/home/zpeirce/ps4-package-scratch/libps4stubs.a.oct07-backup`.
 
-## Where to pick up: the 0.0.8 build is blocked
+## Original build failure and reproducible command
 
 A full from-source build was started to get an honest marker and a package built
 from the pins. Both trees are already **at** their pins, so no cold restore is
@@ -145,11 +289,11 @@ Command used (recorded so it need not be re-derived):
     WOW64NATIVE_ABI4_PRX_SHA256=$(sha256sum <prx>/sce_module/wow64native.prx) \
       ./scripts/build-app-ps4.sh --pkg
 
-**It stops here:**
+**The first attempt stopped here:**
 
     X no wowprospero.dll in the PE runtime
 
-and building that from the pinned tree is refused by a pristine-revision
+and building that from the pinned tree was refused by a pristine-revision
 assertion -- a **fourth** instance of the defect already recorded in
 `orbis-win-builds-from-source`:
 
@@ -160,32 +304,42 @@ assertion -- a **fourth** instance of the defect already recorded in
 The same hardcoded base commit appears in `tools/build_wine_ps5.sh`,
 `tools/build_wow64native.sh`, `tools/build_wine_runtime.sh` and
 `build_wine_ps5.sh.orig`. The pinned `wine-host` is a **descendant** of that base,
-which is correct and expected; the assertion simply has not been taught about
-pins. Decide whether to relax it to an ancestry check
-(`git merge-base --is-ancestor $WINE_COMMIT HEAD`) or to pass an override. Do not
-work around it by copying the shipped `wowprospero.dll` out of the 02.92 stage
-without recording why -- that would make the "built from pins" claim false.
+which is correct and expected. The `build_wowprospero.sh` assertion is now an
+ancestry check (`git merge-base --is-ancestor $WINE_COMMIT HEAD`); the other
+build scripts were not changed as part of this targeted unblock. Do not work
+around it by copying the shipped `wowprospero.dll` out of the 02.92 stage --
+that would make the "built from pins" claim false.
 
-### Remaining for 0.0.8, after that unblocks
+### Remaining for 0.0.8
 
-1. Finish the 02.93 full build; confirm `build_marker=GLDS10043-02.93-glue-fix`
-   and `PW_RELEASE_VERSION` 0.0.8 reach the binary.
-2. Parity gate vs the 02.92 stage, then `pkg_validate`.
-3. **Run the 12-title suite.** The exec path changed for *every* 32-bit title,
-   not just GTA -- FNV, Titan Quest, Half-Life and MDK are all `pe32` and were all
-   taking the per-page path until now. Titan Quest especially: its fix is in the
-   same module.
-4. **Decide the sampler limits.** `launcher-settings` carries
-   `PW_GUEST_SAMPLE_MAX = 20000` and 128 tracked threads (commented "debugging a
-   wedge: we want the data, not a tidy log") against 400/16 on `main`. That is a
-   debugging configuration and it is baked into the `ntdll.prx` now on the
-   console. Probably should not ship in a release.
-5. Push, in the agreed order: prospero-win, then orbis-win, then playden. Then
-   tag v0.0.8.
+1. The former Zink-provider refusal is resolved: both OpenGL profiles find the
+   provider. Half-Life reached its menu in 02.95, and Half-Life 2 reached its
+   menu in 02.96. Isaac still exits before rendering in both 02.95 and 02.96;
+   the 02.96 log shows provider discovery, native OpenGL DLL loads, one WGL
+   thread-context error, and a normal guest exit with no exception. This is not
+   enough to identify why the game exits. Decide separately whether to pursue
+   L4D2's controller warning and Splinter Cell's loading stall.
+2. Titan Quest reaches its menu with alert tracing disabled, but gameplay is
+   not validated because the current input attempt did not activate Play.
+3. Sampler limits were restored to the main-branch release values
+   (`PW_GUEST_SAMPLE_MAX=400`, 16 tracked threads), and `libps4stubs.a` was
+   rebuilt for 02.95. Keep the rebuilt archive when making the next package.
+4. **02.96 is a built, gated, and installed 0.0.8 candidate** with a correct
+   marker. The smoke checks passed for the launcher and Half-Life 2; Isaac's
+   early exit remains unresolved. It is not a release: do not tag or publish
+   it until the remaining release review and chosen validation scope are done.
+5. Review the 95-commit `launcher-settings` ahead range before pushing anything.
+   No push, tag, or release has happened in this session.
 
-## Console state as left
+## Previous console state after 02.94 (superseded by 02.95 below)
 
-- Orbis-Win **02.92** installed; GTA IV launches and the controller works.
+- Orbis-Win **02.94 targeted A/B** installed. It retains the 02.93 marker; the
+  installed `app.json` package digest was verified against this 02.94 PKG.
+- Console is at the PS4 home screen with Orbis-Win selected, after closing the
+  final Titan Quest run from Quick Menu. Original `settings.conf` and
+  `titan-quest-anniversary.profile` were restored and byte-verified on-console.
+- Latest Orbis-Win launcher run reported 15 game entries and
+  `video=ok pad=ok hid=ok`. The 9300 collector is armed at `10.168.2.188:9300`.
 - `gtaiv-test.profile` **restored to its original 679 bytes** (the
   `PW_PS4_EXEC_MIGRATE_RANGE_MAX` override removed). Backup of the modified copy
   is at `/data/prospero-win/profiles/gtaiv-test.profile.bak-20261119`.
@@ -194,10 +348,139 @@ without recording why -- that would make the "built from pins" claim false.
   preserved beside it as `xinput1_4.dll.bak-20261119`. This was a dead-end test --
   the replacement failed identically before the real fix -- but the current file
   is the correct one, so it was left in place.
-- The `ps5logd` collector on **9300 died mid-session** and one GTA run produced no
-  log at all (the title never blocks when the listener is missing, so the game
-  looks fine and tells you nothing). Confirm it is listening before any test:
-  `ss -lntp | grep 9300`.
+- The 9300 collector remains listening after the last title closed; confirm it
+  is still active before the next test with `ss -lntp | grep 9300`.
+
+## 02.95 Zink lookup diagnostic candidate (2026-11-19)
+
+02.95 is installed for a focused test of the two profiles that failed with
+`zink-provider-missing` under 02.94. Both now pass provider discovery. The
+remaining Isaac exit is downstream of Zink provider lookup; Half-Life proves
+the same OpenGL path can reach a game's menu.
+
+- Exact installer:
+  `/home/zpeirce/ps4-package-scratch/orbis-0295-zink-diagnostics/app/IV0000-GLDS10043_00-GLDS100430000000.pkg`
+  (532,414,464 bytes; SHA-256
+  `1771b65b0ef9e6f7ae326e09cd01607080019d837968e484beedd554bbf16810`). The
+  console copy is `/data/pkg/IV0000-GLDS10043_00-GLDS100430000000.pkg`; its FTP
+  size matched the local artifact.
+- Installed identity was verified through
+  `/user/app/GLDS10043/app.json`: `packageDigest` is
+  `14A673602D48F18271BF53B6503E4554D9A1442D5B2D53DF1034204D80FE2148`, matching
+  the digest in the local PKG header at offset `0xFE0`.
+- `scripts/check-ps4-package-parity.py` passed with zero FAILs against the
+  02.94 stage, using the ABI4 PRX build directory and upstream source tree.
+  `PkgTool.Core pkg_validate` also passed. Evidence is in
+  `/home/zpeirce/ps4-package-scratch/orbis-0295-zink-diagnostics/{parity.txt,pkg_validate.txt}`.
+- 02.95 carries the known-good 02.92 `wow64native.prx` / DLL pair. A freshly
+  rebuilt PRX had a different hash from the pinned expected binary, so it was
+  preserved as evidence at
+  `/home/zpeirce/ps4-package-scratch/orbis-0295-zink-diagnostics/evidence/wow64native.prx.rebuilt-700f96c6`
+  and excluded from this candidate. Do not treat 02.95 as a validation of that
+  rebuilt native-WoW64 PRX.
+- The fresh `libvulkan.prx` initially failed the parity rule because it linked
+  the pinned compatibility archive. It was rebuilt with the SDK bundle archive
+  as the link input, then parity passed. The SDK bundle's `signal.h` cannot be
+  used as the compile header for this build: it omits the PS4 `SIG_UNBLOCK=2`
+  ABI delta and `prospero-clang` rejects it. The build therefore retained the
+  PS4-compatible headers from `orbis-compat-src` and temporarily substituted
+  only the bundle archive for the RADV link; the pinned archive was restored
+  immediately after the link. See
+  `/home/zpeirce/ps4-package-scratch/orbis-0295-zink-diagnostics/evidence/`.
+- `build/ps4-wine-sdk/libps4stubs.a` was regenerated from the restored glue
+  source with `PW_GUEST_SAMPLE_MAX=400` and `seen_tid[16]`. The older archive is
+  retained at `/home/zpeirce/ps4-package-scratch/libps4stubs.a.oct07-backup`.
+- ABI4 `native/wine64_main.c` now logs the Zink root, candidate path, `stat`
+  result and errno for each attempted provider before installation. The source
+  edit is local and uncommitted. This should distinguish an absent/invisible
+  runtime path from a provider-open or install failure.
+- Isaac (`binding-of-isaac-rebirth`) was launched at 20:54:51.738. It logged
+  `zink root=/app0 path=/app0/win/mesa-zink/i386-windows stat=0 errno=0
+  result=ok copied=2`, then `zink provider=ok copied=2 architecture=pe32`.
+  Wine loaded both `libgallium_wgl.dll` and `OPENGL32.dll`. The process exited
+  to the launcher at 20:55:01.874 with `reason=guest-exit`, after about 10 s;
+  `frames_put` remained zero and there was no guest exception. This no longer
+  reproduces the former setup refusal; Isaac's early exit remains a separate
+  game-start issue.
+- Half-Life GOTY + Opposing Force (`half-life`) was launched at 20:59:24.785.
+  It logged `zink root=/app0 path=/app0/win/mesa-zink/i386-windows stat=0
+  errno=0 result=ok copied=0` and `zink provider=ok copied=0 architecture=pe32`;
+  `copied=0` is expected when the provider files are already present. The log
+  reports `dll_overrides=opengl32=n`. Wine logged
+  `err:wgl:internal_context_create Failed to create internal thread context`
+  at 20:59:32.557, then continued. By 20:59:59 it had produced 203 frames at
+  640x480, and Remote Play showed the Half-Life main menu. Treat this WGL error
+  as nonfatal in this run; the title-menu result is positive.
+- An intervening run selected Half-Life 2 (DXVK), not the OpenGL `half-life`
+  profile. It is not part of the Zink validation.
+- After verifying the Half-Life menu, the Orbis-Win app was closed through the
+  PS4 close-application dialog. The console is now at the PS4 home screen with
+  Orbis-Win 02.95 selected; it is not running a title. The 9300 receiver is
+  still listening, and the run evidence is in
+  `/home/zpeirce/ps4-gladius/build-ps4-logs/ps5log-20261119-161212.log` (last
+  connection closed at 21:03:53). Next useful step: inspect Isaac's final
+  process-exit path with provider presence confirmed; do not retry Half-Life
+  merely to establish Zink discovery again.
+- Candidate title text is `Orbis-Win 0.0.8 Candidate 02.95`; this is a focused
+  diagnostic build, not a release candidate. No push, tag, or release was made.
+
+## 02.96 correctly marked 0.0.8 candidate (2026-11-19)
+
+02.96 rebuilds the launcher/app layer from the current `ps4-gladius` sources,
+using the 02.95 tested runtime as input. This replaces the 02.95 diagnostic
+repackage's stale app marker with `GLDS10043-02.96-release-candidate`; it does
+not rebuild the Wine runtime or native WoW64 pair.
+
+- Exact installer:
+  `/home/zpeirce/ps4-package-scratch/orbis-0296-release-candidate/app/IV0000-GLDS10043_00-GLDS100430000000.pkg`
+  (532,414,464 bytes; SHA-256
+  `47f7bc263e5caf1ba56645e62f34c9c91f90f7d429f211f422193abee456ac2a`).
+- 02.96 carries the exact tested ABI-4 PE/PRX pair from 02.95:
+  `wow64native.dll` SHA-256
+  `e531a51bb19ae4f92e65556f0f6d4f89e930b9c7490d8a02988feb1d5ee9c044`, and
+  `wow64native.prx` SHA-256
+  `20eee436ae5856f06d39b9f9fa57720806612f15e1ebea4ab15b4638da5b729d`. It also
+  carries the tested 02.95 `libvulkan.prx`, Zink providers, and i386
+  `kernelbase.dll` diagnostics.
+- The complete stage comparison against 02.95 found exactly three changed
+  files: `pkg.gp4`, `sce_sys/param.sfo` (title text), and
+  `sce_module/relocated_wine_app.prx` (fresh app code/build marker). All other
+  staged payload files, including every Wine/RADV PRX and PE DLL, are
+  byte-identical to 02.95. The package keeps APP_VER `01.00` and the standard
+  PS4 attribute (`ATTRIBUTE=0`), matching 02.95.
+- `scripts/check-ps4-package-parity.py` against the 02.95 stage passed with **0
+  FAILs**. It emitted one known WARN: the host source tree lacks
+  `dlls/kernelbase/debug.c`, so the gate cannot inspect PW_EXCEPTION32
+  reachability; the packaged i386 `kernelbase.dll` contains 25 diagnostic
+  strings. `PkgTool.Core pkg_validate` passed every check.
+- Uploaded to `/data/pkg/IV0000-GLDS10043_00-GLDS100430000000.pkg`; FTP size
+  matched. The PS4 installer displayed `Orbis-Win 0.0.8 Candidate 02.96` and
+  completed the reinstall. `/user/app/GLDS10043/app.json` now contains package
+  digest `C94912479F744D0D60244541F25323776A0817B738979834C698E863D0C86040`,
+  equal to the local PKG header digest at `0xFE0`.
+- Orbis-Win started with
+  `build_marker=GLDS10043-02.96-release-candidate`, 15 games, and
+  `video=ok pad=ok hid=ok`.
+- Binding of Isaac Rebirth (`binding-of-isaac-rebirth`) launched at
+  21:22:50.814. Zink provider lookup succeeded (`stat=0`, `copied=0`, provider
+  `ok`); Wine loaded `steam_api.dll`, `libgallium_wgl.dll`, and `OPENGL32.dll`.
+  At 21:22:55.600 it logged
+  `err:wgl:internal_context_create Failed to create internal thread context`.
+  At 21:22:58.930 the runtime returned to the launcher with
+  `reason=guest-exit`; `frames_put=0`, `vk_shown=0`, and no guest exception was
+  recorded. This matches the 02.95 result. The WGL error is correlated but
+  does not prove the exit cause.
+- Half-Life 2 (`half-life-2`, DXVK) launched at 21:24:13.437 with the 02.96
+  marker and native WoW64. Remote Play showed the Half-Life 2 main menu by
+  21:27. The Wine internal-context WGL error also appeared during this run, but
+  was nonfatal. DXVK reported 701 Vulkan presents, and no guest exception was
+  logged.
+- The console is currently left at the Half-Life 2 main menu in the installed
+  02.96 app. The 9300 receiver is listening. Both current runs are in
+  `/home/zpeirce/ps4-gladius/build-ps4-logs/ps5log-20261119-161212.log`.
+  `wait_watchdog=1` generated many `wake_up` records; the log has grown to about
+  727 MB, so disable it for later tests if they need extended waits. No push,
+  tag, or release was made.
 
 ## Not pursued
 

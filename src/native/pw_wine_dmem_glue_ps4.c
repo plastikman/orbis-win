@@ -1979,7 +1979,7 @@ static void watch_oblivion_rx_pages(unsigned int sample)
 #include "../freebsd-compat/machine/fbsd_mcontext.h"
 
 #define PW_GUEST_SAMPLE_OFFSET 64        /* mcontext within ucontext, measured (fault_probe) */
-#define PW_GUEST_SAMPLE_MAX    20000     /* debugging a wedge: we want the data, not a tidy log */
+#define PW_GUEST_SAMPLE_MAX    400       /* bounded: a wedge would otherwise log forever */
 
 static volatile unsigned int guest_samples;
 static volatile unsigned int guest_sample_logged;
@@ -2003,7 +2003,7 @@ static int guest_code_pointer(uint64_t w)
  * is truly stuck at one rip or merely slow. */
 static int guest_stack_want(unsigned long tid)
 {
-    static volatile unsigned long seen_tid[128];
+    static volatile unsigned long seen_tid[16];
     static volatile unsigned int  seen_hits[128];
     unsigned int i;
 
