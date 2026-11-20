@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: orbis-win <orbis-win@invalid>
+Subject: [PATCH] radv/orbis: the per-submit trace lines are opt-in (ORBIS_TRACE_SUBMIT=1)
+
+radv_queue_submit logged "queue submit enter" and "queue submit return" to
+radv.log on every submit (const bool orbis_trace_submit = true, 0036). That
+is two fprintf+fflush to /data per submit, about six submits a frame: 99% of
+radv.log's lines in a Psychonauts run, and the "enter" line is written inside
+vkQueueSubmit2. With the game streaming from the same HDD one of those
+fflushes took 102 ms, a visible hitch.
+
+The two lines are now written only with ORBIS_TRACE_SUBMIT=1 (radv.env). Off
+by default. The env is read once and radv_queue_init logs one line:
+"ORBIS_TRACE_SUBMIT=0 - per-submit trace off" or "=1 - per-submit trace on".
+A failed submit still logs its "return" line whatever the setting.
+ac_orbis_drm.c's per-stage trace is already bounded (ORBIS_TRACE_SUBMITS,
+default 8 submissions) and is not touched.
+---
+diff --git a/src/amd/vulkan/radv_queue.c b/src/amd/vulkan/radv_queue.c
+--- a/src/amd/vulkan/radv_queue.c
++++ b/src/amd/vulkan/radv_queue.c
+@@ -47,6 +47,26 @@
+ static uint8_t *orbis_sony_tf_tail;      /* first byte past VGT_TF_RING_SIZE */
+ static uint64_t orbis_sony_tf_tail_size; /* how much of the mapping is past it */
+ static uint32_t orbis_sony_tf_ring_bytes;
++
++/* ORBIS_TRACE_SUBMIT=1 turns the per-submit "queue submit enter/return" radv.log lines back on. Off by default:
++ * they were two fprintf+fflush to /data per submit (about 6 submits a frame), the "enter" one written inside
++ * vkQueueSubmit2, where one fflush took 102 ms in Psychonauts; they were 99% of radv.log. Failures are still
++ * logged. Read once; the answer is logged once, from radv_queue_init. */
++static bool
++orbis_trace_submit_enabled(void)
++{
++   static int cached = -1;
++   if (cached < 0) {
++      const char *const e = getenv("ORBIS_TRACE_SUBMIT");
++      const int on = (e != NULL && *e != '\0' && *e != '0') ? 1 : 0;
++      if (on)
++         mesa_logi("radv/orbis: ORBIS_TRACE_SUBMIT=1 - per-submit trace on");
++      else
++         mesa_logi("radv/orbis: ORBIS_TRACE_SUBMIT=0 - per-submit trace off");
++      cached = on;
++   }
++   return cached == 1;
++}
+ #endif
+ 
+ 
+@@ -2587,7 +2607,7 @@
+    static uint64_t orbis_submit_trace_count;
+    const uint64_t orbis_submit_trace_n =
+       __atomic_add_fetch(&orbis_submit_trace_count, 1, __ATOMIC_RELAXED);
+-   const bool orbis_trace_submit = true;
++   const bool orbis_trace_submit = orbis_trace_submit_enabled();
+ 
+    if (orbis_trace_submit)
+       mesa_logi("radv/orbis: queue submit enter #%" PRIu64 " command_buffers=%u waits=%u signals=%u",
+@@ -2660,6 +2680,9 @@
+ {
+    const struct radv_physical_device *pdev = radv_device_physical(device);
+ 
++#ifdef HAVE_ORBIS_PLATFORM
++   (void)orbis_trace_submit_enabled();
++#endif
+    queue->priority = radv_get_queue_global_priority(global_priority);
+    queue->state.qf = vk_queue_to_radv(pdev, create_info->queueFamilyIndex);
+ 

@@ -1,0 +1,311 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: orbis-win <orbis-win@invalid>
+Subject: [PATCH] wsi/orbis: a deeper video-out flip queue at a reduced flip rate
+ (ORBIS_WSI_FLIP_QUEUE=N)
+
+With ORBIS_WSI_FLIP_RATE=30 the present blocks until the previous flip is on
+screen (0045: at most one flip queued). A game-thread stall longer than about
+one 30 Hz period then runs the queue dry and the frame on screen gets a third
+refresh: in Psychonauts one ~100 ms stall gave one 3-refresh interval in
+3595.
+
+ORBIS_WSI_FLIP_QUEUE=N (1..3, radv.env) lets up to N flips wait on video-out
+before the present blocks, so the producer runs N frames ahead and a stall up
+to about N periods is absorbed, at N-1 periods (33 ms each) more latency once
+the queue is full. Unset, empty or 1 is 0045's behaviour bit for bit; other
+values warn and stay at 1. Only with FLIP_RATE 30 or 20.
+
+No image is written while queued or on screen:
+- copy path: with N > 1 the scan-out buffers are taken in turn instead of by
+  swapchain image index (the headless acquire repeats an index within three
+  presents), and the depth is capped at count-1 buffers. The turn advances
+  only after sceVideoOutSubmitFlip succeeds, so a failed or detached present
+  never makes the next copy write the buffer on screen;
+- zero copy: the depth is capped at count-1-R, as at 60 Hz.
+- Both: the surface's minImageCount becomes N + 3 (4 to 6 at N = 3), so the
+  cap does not bite. DXVK makes one image more, 7 instead of 5: on the copy
+  path that is two more swapchain images and two more 8 MiB scan-out
+  buffers at 1080p.
+
+One line per swapchain on its first present:
+"ORBIS_WSI_FLIP_QUEUE=N - up to N flips queued (swapchain images M)".
+The ORBIS_WSI_FLIP_STATS cadence line gains the flips still queued at each
+submit (min, max, histogram 0..3+) and the limit.
+---
+diff --git a/src/vulkan/wsi/wsi_common_headless.c b/src/vulkan/wsi/wsi_common_headless.c
+--- a/src/vulkan/wsi/wsi_common_headless.c
++++ b/src/vulkan/wsi/wsi_common_headless.c
+@@ -94,7 +94,12 @@
+     *  3) One to be currently held by the Wayland compositor
+     *  4) One to render to
+     */
++#ifdef HAVE_ORBIS_PLATFORM
++   /* 4 unless ORBIS_WSI_FLIP_QUEUE asks for a deeper flip queue (Mesa patch 0046, wsi_orbis.c). */
++   caps->surfaceCapabilities.minImageCount = wsi_orbis_min_image_count();
++#else
+    caps->surfaceCapabilities.minImageCount = 4;
++#endif
+    /* There is no real maximum */
+    caps->surfaceCapabilities.maxImageCount = 0;
+ 
+diff --git a/src/vulkan/wsi/wsi_orbis.c b/src/vulkan/wsi/wsi_orbis.c
+--- a/src/vulkan/wsi/wsi_orbis.c
++++ b/src/vulkan/wsi/wsi_orbis.c
+@@ -350,6 +350,39 @@
+  * something absurd is refused with a number in the log rather than by an allocator. */
+ #define WSI_ORBIS_MAX_BUFFERS 8
+ 
++/* ⚠ HOW MANY FLIPS MAY WAIT ON VIDEO-OUT AT A REDUCED FLIP RATE (ORBIS_WSI_FLIP_QUEUE=N, Mesa patch 0046).
++ *
++ * With one queued flip the present blocks until the previous flip is on screen, so the display holds one finished
++ * frame beyond the one it shows. A game-thread stall longer than about one 30 Hz period then runs the queue dry
++ * and the frame on screen is shown for a third refresh (Psychonauts, 2026-11-17: one 100 ms game-thread stall,
++ * one 3-refresh interval in 3595). N queued flips let the producer run N frames ahead of the display, and a stall up
++ * to about N periods is absorbed, at N-1 periods (33 ms each at 30 Hz) more latency once the queue is full.
++ *
++ * 1..3, read once; unset, empty or 1 is the old behaviour bit for bit, anything else warns and stays at 1. Only
++ * with ORBIS_WSI_FLIP_RATE=30 or 20: at 60 Hz the queue is already count-1-R deep. Clamped per swapchain so no
++ * image is ever written while queued or on screen - see wsi_orbis_queue_limit. */
++#define WSI_ORBIS_FLIP_QUEUE_MAX 3
++
++static int32_t
++wsi_orbis_flip_queue(void)
++{
++   static int32_t depth = -1;
++
++   if (depth < 0) {
++      const char *const e = getenv("ORBIS_WSI_FLIP_QUEUE");
++      char *endp = NULL;
++      const long n = e != NULL && *e != '\0' ? strtol(e, &endp, 10) : 1;
++
++      depth = 1;
++      if (e != NULL && *e != '\0' && (endp == NULL || *endp != '\0' || n < 1 || n > WSI_ORBIS_FLIP_QUEUE_MAX))
++         mesa_logw("wsi/orbis: ORBIS_WSI_FLIP_QUEUE=%s - wants 1..%d, keeping one queued flip", e,
++                   WSI_ORBIS_FLIP_QUEUE_MAX);
++      else
++         depth = (int32_t)n;
++   }
++   return depth;
++}
++
+ /* ⚠ A SWAP INTERVAL THE DISPLAY KEEPS, NOT ONE A TIMER GUESSES AT.
+  *
+  * Vulkan has no swap interval, so DXVK runs d3d9 PresentationInterval 2 and d3d9.maxFrameRate = 30 the same way:
+@@ -381,14 +414,33 @@
+       const long hz = e != NULL ? strtol(e, NULL, 10) : 0;
+ 
+       rate = hz == 30 ? ORBIS_VIDEO_OUT_FLIP_30HZ : hz == 20 ? ORBIS_VIDEO_OUT_FLIP_20HZ : ORBIS_VIDEO_OUT_FLIP_60HZ;
+-      if (e != NULL && *e != '\0')
+-         mesa_logi("wsi/orbis: ORBIS_WSI_FLIP_RATE=%s - video-out flip rate %s%s", e,
+-                   rate == ORBIS_VIDEO_OUT_FLIP_30HZ ? "30 Hz" : rate == ORBIS_VIDEO_OUT_FLIP_20HZ ? "20 Hz" : "60 Hz",
+-                   rate != ORBIS_VIDEO_OUT_FLIP_60HZ ? ", at most one flip queued" : " (30 and 20 are the others)");
++      if (e != NULL && *e != '\0') {
++         const int32_t q = rate != ORBIS_VIDEO_OUT_FLIP_60HZ ? wsi_orbis_flip_queue() : 1;
++         if (q > 1)
++            mesa_logi("wsi/orbis: ORBIS_WSI_FLIP_RATE=%s - video-out flip rate %s, up to %d flips queued "
++                      "(ORBIS_WSI_FLIP_QUEUE)", e, rate == ORBIS_VIDEO_OUT_FLIP_30HZ ? "30 Hz" : "20 Hz", (int)q);
++         else
++            mesa_logi("wsi/orbis: ORBIS_WSI_FLIP_RATE=%s - video-out flip rate %s%s", e,
++                      rate == ORBIS_VIDEO_OUT_FLIP_30HZ ? "30 Hz" : rate == ORBIS_VIDEO_OUT_FLIP_20HZ ? "20 Hz" : "60 Hz",
++                      rate != ORBIS_VIDEO_OUT_FLIP_60HZ ? ", at most one flip queued" : " (30 and 20 are the others)");
++      }
+    }
+    return rate;
+ }
+ 
++/* See wsi_orbis_flip_queue. Reads ORBIS_WSI_FLIP_QUEUE first, so with it unset or 1 the flip rate is not read
++ * (or logged) any earlier than before. A zero-copy swapchain needs N queued + 1 on screen + the deferred present +
++ * the image being drawn, which is N + 3; the copy path needs only N + 1 scan-out buffers, fewer than that. */
++uint32_t
++wsi_orbis_min_image_count(void)
++{
++   const int32_t q = wsi_orbis_flip_queue();
++
++   if (q <= 1 || wsi_orbis_flip_rate() == ORBIS_VIDEO_OUT_FLIP_60HZ)
++      return 4;
++   return MAX2(4u, (uint32_t)q + 3u);
++}
++
+ struct wsi_orbis_scanout {
+    int32_t  video;
+    uint32_t width, height, count;
+@@ -418,6 +470,10 @@
+    uint32_t src_width, src_height;
+    uint32_t fit_x, fit_y, fit_w, fit_h;
+    uint32_t *scale_x;
++   /* ORBIS_WSI_FLIP_QUEUE > 1 on the copy path (Mesa patch 0046): the scan-out buffer the next copy goes into,
++    * taken in turn rather than by swapchain image index. See wsi_orbis_queue_limit. */
++   uint64_t ring;
++   bool     queue_said;
+ };
+ 
+ /* ⚠ ONE DISPLAY, ONE OWNER. Each swapchain opens video-out for itself, and the console has one main
+@@ -727,6 +783,32 @@
+  * nanosleep does not return on this platform - a fact this project paid for once already. */
+ #define WSI_ORBIS_THROTTLE_NS (2ull * 1000 * 1000 * 1000)
+ 
++/* ⚠ HOW DEEP THE QUEUE MAY GET AT A REDUCED FLIP RATE (ORBIS_WSI_FLIP_QUEUE=N, Mesa patch 0046), and why no image
++ * is ever written while the display holds it. The present proceeds while numFlipPending < limit, so when it
++ * writes, the display holds at most `limit` buffers: limit-1 queued and the one on screen.
++ *
++ *   ZERO COPY. The invariant below (P + 2 + R <= count) caps the limit at count-1-R, as at 60 Hz; the flip queue
++ *     in wsi_common_headless.c holds the queued and on-screen images and hands back only older ones.
++ *     wsi_orbis_min_image_count asks for N + 3 images so the clamp does not bite.
++ *   COPY. The scan-out buffers are this file's, but the copy used to pick one by swapchain image index, and the
++ *     headless acquire hands indices out in an order that repeats within three presents (0 1 2 0 3 1 ...). Safe
++ *     while the display held one buffer, not with three. So with N > 1 the copy takes the buffers in turn
++ *     (so->ring, advanced only by a submitted flip): the one it writes was last flipped `count` flips ago, and
++ *     the display holds the newest `limit`, so limit <= count-1 keeps it free. Swapchain images are still
++ *     released as soon as their copy is done.
++ *
++ * N = 1 returns 1 and keeps the index-based buffer, exactly as before. */
++static int32_t
++wsi_orbis_queue_limit(const struct wsi_orbis_scanout *so)
++{
++   const int32_t reserve = so->owns_buffers ? 0 : (int32_t)so->reserve;
++   const int32_t q = wsi_orbis_flip_queue();
++
++   if (q <= 1)
++      return 1;
++   return MAX2(MIN2(q, so->owns_buffers ? (int32_t)so->count - 1 : (int32_t)so->count - 1 - reserve), 1);
++}
++
+ static bool
+ wsi_orbis_wait_for_flip_slot(struct wsi_orbis_scanout *so)
+ {
+@@ -761,8 +843,17 @@
+     * count-1 would hold three of them. One is enough for the cadence: the next present waits until the previous
+     * flip is on screen, and then has two refreshes to arrive before its own slot. */
+    const int32_t  limit = wsi_orbis_flip_rate() != ORBIS_VIDEO_OUT_FLIP_60HZ
+-                             ? 1
++                             ? wsi_orbis_queue_limit(so)
+                              : MAX2((int32_t)so->count - 1 - reserve, 1);
++   /* One line per swapchain, on its first present, when ORBIS_WSI_FLIP_QUEUE was set at a reduced flip rate:
++    * by now the zero-copy reserve is known. */
++   if (!so->queue_said && wsi_orbis_flip_rate() != ORBIS_VIDEO_OUT_FLIP_60HZ && wsi_orbis_flip_queue() > 1) {
++      so->queue_said = true;
++      mesa_logi("wsi/orbis: ORBIS_WSI_FLIP_QUEUE=%d - up to %d flips queued (swapchain images %u)%s%s",
++                (int)wsi_orbis_flip_queue(), (int)limit, so->count,
++                so->owns_buffers ? ", scan-out buffers taken in turn" : ", zero copy",
++                limit < wsi_orbis_flip_queue() ? " - clamped: too few images for the depth asked" : "");
++   }
+    const uint64_t deadline = os_time_get_nano() + WSI_ORBIS_THROTTLE_NS;
+ 
+    for (;;) {
+@@ -886,6 +977,9 @@
+    static int64_t  last_arg;
+    static uint64_t last_ptime, flips, skipped, hist[6], phase[17], deltas[64];
+    static unsigned ndeltas;
++   /* Mesa patch 0046: flips still queued on video-out when this one was submitted. 0 is a display that ran dry. */
++   static uint64_t qhist[4];
++   static int32_t  qmin = INT32_MAX, qmax = -1;
+ 
+    if (every < 0) {
+       const char *const e = getenv("ORBIS_WSI_FLIP_STATS");
+@@ -923,6 +1017,12 @@
+    }
+    if (st.ptime != 0 && now >= st.ptime && now - st.ptime < 1000000)
+       phase[MIN2(((now - st.ptime) % WSI_ORBIS_REFRESH_US) / 1000, 16)]++;
++   {
++      const int32_t q = MAX2(st.numFlipPending, 0);
++      qhist[MIN2(q, 3)]++;
++      qmin = MIN2(qmin, q);
++      qmax = MAX2(qmax, q);
++   }
+ 
+    if (++flips % (uint64_t)every != 0)
+       return;
+@@ -940,7 +1040,8 @@
+    }
+    mesa_logi("wsi/orbis: flip cadence over %lld flips: 0:%llu 1:%llu 2:%llu 3:%llu 4:%llu 5+:%llu skipped %llu, "
+              "median %llu us (first %u); submit ms past vblank 0-16: %llu %llu %llu %llu %llu %llu %llu %llu %llu "
+-             "%llu %llu %llu %llu %llu %llu %llu %llu",
++             "%llu %llu %llu %llu %llu %llu %llu %llu; queued at submit min %d max %d, 0:%llu 1:%llu 2:%llu 3+:%llu "
++             "(limit %d)",
+              (long long)every, (unsigned long long)hist[0], (unsigned long long)hist[1],
+              (unsigned long long)hist[2], (unsigned long long)hist[3], (unsigned long long)hist[4],
+              (unsigned long long)hist[5], (unsigned long long)skipped, (unsigned long long)median, ndeltas,
+@@ -949,9 +1050,17 @@
+              (unsigned long long)phase[6], (unsigned long long)phase[7], (unsigned long long)phase[8],
+              (unsigned long long)phase[9], (unsigned long long)phase[10], (unsigned long long)phase[11],
+              (unsigned long long)phase[12], (unsigned long long)phase[13], (unsigned long long)phase[14],
+-             (unsigned long long)phase[15], (unsigned long long)phase[16]);
++             (unsigned long long)phase[15], (unsigned long long)phase[16], (int)(qmax >= 0 ? qmin : 0), (int)qmax,
++             (unsigned long long)qhist[0], (unsigned long long)qhist[1], (unsigned long long)qhist[2],
++             (unsigned long long)qhist[3],
++             (int)(wsi_orbis_flip_rate() != ORBIS_VIDEO_OUT_FLIP_60HZ
++                      ? wsi_orbis_queue_limit(so)
++                      : MAX2((int32_t)so->count - 1 - (so->owns_buffers ? 0 : (int32_t)so->reserve), 1)));
+    memset(hist, 0, sizeof(hist));
+    memset(phase, 0, sizeof(phase));
++   memset(qhist, 0, sizeof(qhist));
++   qmin = INT32_MAX;
++   qmax = -1;
+    skipped = 0;
+    ndeltas = 0;
+ }
+@@ -1123,7 +1232,14 @@
+     * aligns a linear image's pitch to the hardware's requirement. One flat memcpy would then shift every row
+     * and produce a sheared picture, which looks like a tiling bug and is not one. */
+    const uint32_t dst_pitch = so->width * 4;
+-   uint8_t *const dst = (uint8_t *)so->map[index];
++   /* The scan-out buffer this frame goes into and is flipped from: the swapchain image's own index, except on the
++    * copy path with ORBIS_WSI_FLIP_QUEUE > 1, where the buffers are taken in turn (see wsi_orbis_queue_limit).
++    * The ring moves on only after a flip was submitted: a failed or detached present must not make the next copy
++    * write into the buffer that is still on screen. */
++   const bool ring_buf = so->owns_buffers && wsi_orbis_flip_rate() != ORBIS_VIDEO_OUT_FLIP_60HZ &&
++                         wsi_orbis_queue_limit(so) > 1;
++   const uint32_t buf = ring_buf ? (uint32_t)(so->ring % so->count) : index;
++   uint8_t *const dst = (uint8_t *)so->map[buf];
+    /* ⚠ TIME THIS, BECAUSE IT IS THE LEADING SUSPECT FOR THE FRAME RATE AND NOBODY HAS EVER MEASURED IT.
+     *
+     * Eight megabytes, CPU, every frame, into memory the display controller owns - and CPU writes to scan-out memory
+@@ -1333,7 +1449,7 @@
+ 
+    if (trace)
+       mesa_logi("wsi/orbis: present copied %u KiB, flipping index %u",
+-                (unsigned)((uint64_t)dst_pitch * so->height / 1024), index);
++                (unsigned)((uint64_t)dst_pitch * so->height / 1024), buf);
+ 
+    pthread_mutex_lock(&wsi_orbis_owner_lock);
+    if (so->detached) {
+@@ -1341,10 +1457,13 @@
+       ORBIS_BOOK_RETURN(ORBIS_ID_WSI_PRESENT, orbis_pr_t0, true);
+    }
+    wsi_orbis_flip_stats(so);
+-   int32_t err = sceVideoOutSubmitFlip(so->video, (int32_t)index, ORBIS_VIDEO_OUT_FLIP_VSYNC,
++   int32_t err = sceVideoOutSubmitFlip(so->video, (int32_t)buf, ORBIS_VIDEO_OUT_FLIP_VSYNC,
+                                        (int64_t)++so->flips);
+-   if (err == 0)
++   if (err == 0) {
+       so->last_flip_ns = os_time_get_nano();
++      if (ring_buf)
++         so->ring++;
++   }
+    pthread_mutex_unlock(&wsi_orbis_owner_lock);
+    /* After the call, not instead of it: the flip really is submitted and the display really does take
+     * it, so the state this leaves behind is the state a genuine late failure leaves behind. Only the
+@@ -1361,7 +1480,7 @@
+       static unsigned said;
+       if (said < 8) {
+          ++said;
+-         mesa_loge("wsi/orbis: sceVideoOutSubmitFlip(index %u, flip %llu) -> 0x%08x", index,
++         mesa_loge("wsi/orbis: sceVideoOutSubmitFlip(index %u, flip %llu) -> 0x%08x", buf,
+                    (unsigned long long)so->flips, (unsigned)err);
+       }
+       ORBIS_BOOK_RETURN(ORBIS_ID_WSI_PRESENT, orbis_pr_t0, false);
+diff --git a/src/vulkan/wsi/wsi_orbis.h b/src/vulkan/wsi/wsi_orbis.h
+--- a/src/vulkan/wsi/wsi_orbis.h
++++ b/src/vulkan/wsi/wsi_orbis.h
+@@ -61,6 +61,11 @@
+  * buffers and the one on screen are all still the display's and must not be handed back. */
+ uint32_t wsi_orbis_flips_pending(struct wsi_orbis_scanout *so);
+ 
++/* The surface's minImageCount (Mesa patch 0046): 4, or N + 3 with ORBIS_WSI_FLIP_QUEUE=N > 1 at a reduced
++ * ORBIS_WSI_FLIP_RATE, so a zero-copy swapchain can hold N queued flips, the one on screen, the deferred present
++ * and the image being drawn. */
++uint32_t wsi_orbis_min_image_count(void);
++
+ /* The title's own frames while no swapchain presents (wsi_orbis.c, "The title's own frames"); exported to the
+  * title as pw_videoout_idle / pw_videoout_show_tiled / pw_videoout_quiesce by src/native/pw_vulkan_radv_ps4.c. */
+ /* The scan-out every swapchain is shown on (win32u ps5drv: "the scanout is 1920x1080, not any size"). A swapchain of

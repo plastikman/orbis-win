@@ -1,0 +1,47 @@
+From 07492ab46eca09edf5e4ddc8dd03001bacef5b4f Mon Sep 17 00:00:00 2001
+From: Zak Peirce <plastikman@gmail.com>
+Date: Tue, 17 Nov 2026 10:34:51 -0800
+Subject: [PATCH] trace Orbit OSI named pipe traffic
+
+
+diff --git a/server/named_pipe.c b/server/named_pipe.c
+index 1e51158a1c..4edf1ca14a 100644
+--- a/server/named_pipe.c
++++ b/server/named_pipe.c
+@@ -894,0 +895,28 @@ static void pipe_end_get_volume_info( struct fd *fd, struct async *async, unsign
++static int is_orbit_osi_pipe( struct pipe_end *pipe_end )
++{
++    static const WCHAR suffix[] = { 'o', 'r', 'b', 'i', 't', '_', 'o', 's', 'i', '_', 'p', 'i', 'p', 'e' };
++    const WCHAR *name;
++    data_size_t name_len, units;
++
++    if (!pipe_end->pipe || !(name = get_object_name( &pipe_end->pipe->obj, &name_len ))) return 0;
++    units = name_len / sizeof(WCHAR);
++    if (units < sizeof(suffix) / sizeof(suffix[0])) return 0;
++    return !memcmp( name + units - sizeof(suffix) / sizeof(suffix[0]), suffix, sizeof(suffix) );
++}
++
++static void trace_orbit_osi_pipe_io( const char *event, struct pipe_end *pipe_end,
++                                     unsigned int status, data_size_t size, const void *data )
++{
++    const unsigned char *bytes = data;
++    unsigned int hash = 2166136261u, i, prefix = min( size, 4 );
++
++    if (!is_orbit_osi_pipe( pipe_end )) return;
++    for (i = 0; data && i < size; i++) hash = (hash ^ bytes[i]) * 16777619u;
++    fprintf( stderr, "wine-ps5: PW_ORBIT_OSI_PIPE event=%s end=%s tid=%04x status=%08x size=%u prefix=",
++             event, pipe_end->obj.ops == &pipe_server_ops ? "server" : "client",
++             current ? current->id : 0, status, size );
++    if (!data) fprintf( stderr, "-" );
++    else for (i = 0; i < prefix; i++) fprintf( stderr, "%02x", bytes[i] );
++    fprintf( stderr, " hash=%08x\n", hash );
++}
++
+@@ -923,0 +952 @@ static void message_queue_read( struct pipe_end *pipe_end, struct async *async )
++        trace_orbit_osi_pipe_io( "read-complete", pipe_end, status, out_size, message->iosb->in_data );
+@@ -954,0 +984 @@ static void message_queue_read( struct pipe_end *pipe_end, struct async *async )
++        trace_orbit_osi_pipe_io( "read-complete", pipe_end, status, out_size, buf );
+@@ -1051,0 +1082 @@ static void pipe_end_read( struct fd *fd, struct async *async, file_pos_t pos )
++    trace_orbit_osi_pipe_io( "read-queued", pipe_end, STATUS_PENDING, 0, NULL );
+@@ -1083,0 +1115 @@ static void pipe_end_write( struct fd *fd, struct async *async, file_pos_t pos )
++    trace_orbit_osi_pipe_io( "write-queued", pipe_end, STATUS_PENDING, message->iosb->in_size, message->iosb->in_data );

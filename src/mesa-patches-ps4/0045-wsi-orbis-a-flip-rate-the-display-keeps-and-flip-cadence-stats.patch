@@ -1,0 +1,261 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: orbis-win <orbis-win@invalid>
+Subject: [PATCH] wsi/orbis: a flip rate the display keeps, and flip cadence stats
+
+A 30 fps cap on the Slim showed 90-92% of new frames 2 refreshes apart, with
+the rest in 3-then-1 pairs (Psychonauts, HDMI capture, 2026-11-17), with
+d3d9.maxFrameRate = 30 and with d3d9.presentInterval = 2 alike. Vulkan has no
+swap interval: DXVK clamps the sync interval to 1 and paces with a CPU timer
+(30.000 Hz against a 59.94 Hz output, so its phase walks across the vblank
+window every ~17 s). Each present became one VSYNC flip at a 60 Hz flip rate,
+shown at the first vblank after it was submitted, and the submit itself comes
+one tick plus a variable frame of CPU work later (presents are deferred by
+one). Whenever that straddles a vblank, one frame is shown a refresh late and
+the next on time.
+
+ORBIS_WSI_FLIP_RATE=30 (or 20) sets the video-out flip rate of the
+swapchain's scan-out and allows one queued flip, so the display, not a timer,
+holds each frame for two refreshes and back-pressures the producer. Unset, or
+60, nothing changes. The launcher's own title frames stay at 60 Hz.
+
+ORBIS_WSI_FLIP_STATS=N (1 = 600) writes the display's own cadence to the
+driver log every N flips: intervals between shown flips in refreshes (as an
+HDMI capture counts them), the median raw interval (to check the unit of the
+flip status' process time), and how far past the last shown vblank each flip
+was submitted, in 1 ms bins. Off by default; it reads the flip status once
+per present.
+---
+diff --git a/src/vulkan/wsi/wsi_orbis.c b/src/vulkan/wsi/wsi_orbis.c
+--- a/src/vulkan/wsi/wsi_orbis.c
++++ b/src/vulkan/wsi/wsi_orbis.c
+@@ -162,6 +162,8 @@
+ #define ORBIS_VIDEO_OUT_BUS_MAIN                   0
+ #define ORBIS_VIDEO_OUT_FLIP_VSYNC                 1
+ #define ORBIS_VIDEO_OUT_FLIP_60HZ                  0
++#define ORBIS_VIDEO_OUT_FLIP_30HZ                  1
++#define ORBIS_VIDEO_OUT_FLIP_20HZ                  2
+ #define ORBIS_VIDEO_OUT_TILING_MODE_LINEAR         0x1
+ #define ORBIS_VIDEO_OUT_ASPECT_RATIO_16_9          0x0
+ #define ORBIS_VIDEO_OUT_PIXEL_FORMAT_A8B8G8R8_SRGB 0x80002200
+@@ -171,10 +173,21 @@
+    uint32_t pixelFormat, tilingMode, aspectRatio, width, height, pitchInPixel;
+ } OrbisVideoOutBufferAttribute;
+ 
++/* The SDK's layout (orbis/_types/video.h), so the cadence statistics read the same fields on both arms. */
+ typedef struct {
+-   int32_t numFlipPending;
++   uint64_t num;
++   uint64_t ptime;
++   uint64_t stime;
++   int64_t  flipArg;
++   uint64_t reserved[2];
++   int32_t  numGpuFlipPending;
++   int32_t  numFlipPending;
++   int32_t  currentBuffer;
++   uint32_t reserved1;
+ } OrbisVideoOutFlipStatus;
+ 
++static uint64_t sceKernelGetProcessTime(void) { return os_time_get_nano() / 1000; }
++
+ /* A HOST FLIP SUCCEEDS AND SHOWS NOTHING. Reporting failure instead would make every host swapchain go
+  * OUT_OF_DATE, which is an alarm about the platform rather than a fact about the code - and the point of this
+  * arm is to let a defect in the code be the only thing that fails. */
+@@ -337,6 +350,45 @@
+  * something absurd is refused with a number in the log rather than by an allocator. */
+ #define WSI_ORBIS_MAX_BUFFERS 8
+ 
++/* ⚠ A SWAP INTERVAL THE DISPLAY KEEPS, NOT ONE A TIMER GUESSES AT.
++ *
++ * Vulkan has no swap interval, so DXVK runs d3d9 PresentationInterval 2 and d3d9.maxFrameRate = 30 the same way:
++ * FIFO with a sync interval of 1 (dxvk_presenter.cpp setSyncInterval clamps to 1) and a CPU timer that releases
++ * the application every 33.333 ms (util_fps_limiter.cpp; without VK_KHR_present_wait, which this ICD does not
++ * expose, it runs in signalFrame). Each present then becomes one VSYNC flip at the 60 Hz flip rate below, and the
++ * display shows it at the FIRST vblank after the flip is submitted. Nothing ties the submit to a vblank:
++ *
++ *   - the timer runs at 30.000 Hz against a 59.94 Hz output (one refresh measures 16682 us on the console;
++ *     an HDMI capture records 59.94), so its phase walks across the whole 16.7 ms window every ~17 s;
++ *   - the flip is submitted when the NEXT frame's present arrives (presents are deferred by one), i.e. one
++ *     timer tick plus that frame's CPU time, which varies by milliseconds with the scene.
++ *
++ * Whenever tick + work straddles a vblank, consecutive flips land 3 and then 1 refreshes apart: measured
++ * 2026-11-17 in Psychonauts, 90-92% of intervals at 2 refreshes, ~4-5% at 1 and ~3-4% at 3, in pairs.
++ *
++ * sceVideoOutSetFlipRate(30 Hz) moves the interval into the display: a flip is shown at most every second vblank,
++ * so an early frame waits instead of being shown one refresh early, and with the flip queue bounded (see
++ * wsi_orbis_wait_for_flip_slot) the producer is paced by scan-out rather than by a timer.
++ *
++ * ORBIS_WSI_FLIP_RATE=30 (or 20) turns it on; 60, 0 or unset keeps the old behaviour. Read once, logged once. */
++static int32_t
++wsi_orbis_flip_rate(void)
++{
++   static int32_t rate = -1;
++
++   if (rate < 0) {
++      const char *const e = getenv("ORBIS_WSI_FLIP_RATE");
++      const long hz = e != NULL ? strtol(e, NULL, 10) : 0;
++
++      rate = hz == 30 ? ORBIS_VIDEO_OUT_FLIP_30HZ : hz == 20 ? ORBIS_VIDEO_OUT_FLIP_20HZ : ORBIS_VIDEO_OUT_FLIP_60HZ;
++      if (e != NULL && *e != '\0')
++         mesa_logi("wsi/orbis: ORBIS_WSI_FLIP_RATE=%s - video-out flip rate %s%s", e,
++                   rate == ORBIS_VIDEO_OUT_FLIP_30HZ ? "30 Hz" : rate == ORBIS_VIDEO_OUT_FLIP_20HZ ? "20 Hz" : "60 Hz",
++                   rate != ORBIS_VIDEO_OUT_FLIP_60HZ ? ", at most one flip queued" : " (30 and 20 are the others)");
++   }
++   return rate;
++}
++
+ struct wsi_orbis_scanout {
+    int32_t  video;
+    uint32_t width, height, count;
+@@ -380,6 +432,8 @@
+ #define WSI_ORBIS_VIDEO_OUT_BUSY ((int32_t)0x80290009)
+ static pthread_mutex_t wsi_orbis_owner_lock = PTHREAD_MUTEX_INITIALIZER;
+ static struct wsi_orbis_scanout *wsi_orbis_owner;
++/* Defined with the title-frame path below; declared here for the attach path's flip rate. */
++static struct wsi_orbis_scanout wsi_orbis_title;
+ /* The owner's video-out handle, readable without the lock: wsi_orbis_quiesce runs at exit, when a thread Wine
+  * ended may still hold wsi_orbis_owner_lock. -1 with no output open. */
+ static int32_t wsi_orbis_video_handle = -1;
+@@ -453,7 +507,7 @@
+       so->detached = true;
+       return false;
+    }
+-   (void)sceVideoOutSetFlipRate(so->video, ORBIS_VIDEO_OUT_FLIP_60HZ);
++   (void)sceVideoOutSetFlipRate(so->video, so == &wsi_orbis_title ? ORBIS_VIDEO_OUT_FLIP_60HZ : wsi_orbis_flip_rate());
+    so->detached = false;
+    so->last_flip_ns = os_time_get_nano();   /* attaching counts as activity, so the title does not take it straight back */
+    wsi_orbis_owner = so;
+@@ -605,10 +659,10 @@
+                    (unsigned)err);
+       goto fail;
+    }
+-   err = sceVideoOutSetFlipRate(so->video, ORBIS_VIDEO_OUT_FLIP_60HZ);
++   err = sceVideoOutSetFlipRate(so->video, wsi_orbis_flip_rate());
+    if (err < 0)
+-      mesa_logw("wsi/orbis: sceVideoOutSetFlipRate -> 0x%08x (continuing; the flip rate is not correctness)",
+-                (unsigned)err);
++      mesa_logw("wsi/orbis: sceVideoOutSetFlipRate(%d) -> 0x%08x (continuing; the flip rate is not correctness)",
++                (int)wsi_orbis_flip_rate(), (unsigned)err);
+ 
+    mesa_logi("wsi/orbis: scan-out up - %ux%u pitch %u, %u %s buffer(s), A8B8G8R8_SRGB linear%s", width, height,
+              pitch_px != 0 ? pitch_px : width, count, so->owns_buffers ? "GARLIC" : "swapchain",
+@@ -703,7 +757,12 @@
+    if (so->video < 0)
+       ORBIS_BOOK_RETURN(ORBIS_ID_WSI_FLIP_WAIT, orbis_fs_t0, true);   /* detached: a newer swapchain owns the display */
+    const int32_t  reserve = so->owns_buffers ? 0 : (int32_t)so->reserve;
+-   const int32_t  limit = MAX2((int32_t)so->count - 1 - reserve, 1);
++   /* ⚠ ONE QUEUED FLIP AT A REDUCED FLIP RATE. At 30 Hz each queued flip is 33 ms of latency, and the copy path's
++    * count-1 would hold three of them. One is enough for the cadence: the next present waits until the previous
++    * flip is on screen, and then has two refreshes to arrive before its own slot. */
++   const int32_t  limit = wsi_orbis_flip_rate() != ORBIS_VIDEO_OUT_FLIP_60HZ
++                             ? 1
++                             : MAX2((int32_t)so->count - 1 - reserve, 1);
+    const uint64_t deadline = os_time_get_nano() + WSI_ORBIS_THROTTLE_NS;
+ 
+    for (;;) {
+@@ -805,6 +864,98 @@
+                 (unsigned long long)(still_frames != 0 ? still_sum / still_frames : 0));
+ }
+ 
++/* ⚠ WHAT THE DISPLAY DID, ASKED OF THE DISPLAY. The HDMI capture says which refresh each new picture landed on;
++ * this says the same from inside, with the reason next to it, at the cost of the one flip-status call
++ * wsi_orbis_wait_for_flip_slot already makes.
++ *
++ * At each submit the status names the newest flip already shown (flipArg, which is our flip number) and when it
++ * was shown (ptime, process time in microseconds). Two consecutive flip numbers give one interval, booked in whole
++ * refreshes of the 59.94 Hz output - the same histogram an HDMI capture gives. The submit's own distance
++ * past that vblank (mod one refresh) is booked in 1 ms bins: submits piling up in the last bins before 16 are the
++ * flips that will be shown one refresh late, which is the mechanism this patch is about.
++ *
++ * ORBIS_WSI_FLIP_STATS=N writes one line to the driver log (radv.log, not klog) every N flips; 1 means 600.
++ * Off by default. The median interval is printed raw, so the unit of ptime is checked rather than assumed:
++ * a 2-refresh cadence must read ~33367. */
++#define WSI_ORBIS_REFRESH_US 16683u
++
++static void
++wsi_orbis_flip_stats(struct wsi_orbis_scanout *so)
++{
++   static int64_t  every = -1;
++   static int64_t  last_arg;
++   static uint64_t last_ptime, flips, skipped, hist[6], phase[17], deltas[64];
++   static unsigned ndeltas;
++
++   if (every < 0) {
++      const char *const e = getenv("ORBIS_WSI_FLIP_STATS");
++      every = e != NULL ? (int64_t)strtoll(e, NULL, 10) : 0;
++      if (every == 1)
++         every = 600;
++      if (every < 0)
++         every = 0;
++      if (every > 0)
++         mesa_logi("wsi/orbis: ORBIS_WSI_FLIP_STATS - display cadence every %lld flips: intervals in %u us "
++                   "refreshes, and each submit's distance past the last shown vblank in 1 ms bins",
++                   (long long)every, WSI_ORBIS_REFRESH_US);
++   }
++   if (every == 0 || so->video < 0)
++      return;
++
++   OrbisVideoOutFlipStatus st;
++   memset(&st, 0, sizeof(st));
++   if (sceVideoOutGetFlipStatus(so->video, &st) != 0)
++      return;
++   const uint64_t now = sceKernelGetProcessTime();
++
++   if (st.flipArg != last_arg) {
++      if (last_arg > 0 && st.flipArg == last_arg + 1 && st.ptime > last_ptime) {
++         const uint64_t d = st.ptime - last_ptime;
++         const uint64_t r = (d + WSI_ORBIS_REFRESH_US / 2) / WSI_ORBIS_REFRESH_US;
++         hist[MIN2(r, 5)]++;
++         if (ndeltas < ARRAY_SIZE(deltas))
++            deltas[ndeltas++] = d;
++      } else if (last_arg > 0) {
++         skipped++;
++      }
++      last_arg = st.flipArg;
++      last_ptime = st.ptime;
++   }
++   if (st.ptime != 0 && now >= st.ptime && now - st.ptime < 1000000)
++      phase[MIN2(((now - st.ptime) % WSI_ORBIS_REFRESH_US) / 1000, 16)]++;
++
++   if (++flips % (uint64_t)every != 0)
++      return;
++
++   uint64_t median = 0;
++   if (ndeltas != 0) {
++      /* 64 values, once per report: an insertion sort is plenty. */
++      for (unsigned i = 1; i < ndeltas; i++)
++         for (unsigned j = i; j > 0 && deltas[j - 1] > deltas[j]; j--) {
++            const uint64_t t = deltas[j];
++            deltas[j] = deltas[j - 1];
++            deltas[j - 1] = t;
++         }
++      median = deltas[ndeltas / 2];
++   }
++   mesa_logi("wsi/orbis: flip cadence over %lld flips: 0:%llu 1:%llu 2:%llu 3:%llu 4:%llu 5+:%llu skipped %llu, "
++             "median %llu us (first %u); submit ms past vblank 0-16: %llu %llu %llu %llu %llu %llu %llu %llu %llu "
++             "%llu %llu %llu %llu %llu %llu %llu %llu",
++             (long long)every, (unsigned long long)hist[0], (unsigned long long)hist[1],
++             (unsigned long long)hist[2], (unsigned long long)hist[3], (unsigned long long)hist[4],
++             (unsigned long long)hist[5], (unsigned long long)skipped, (unsigned long long)median, ndeltas,
++             (unsigned long long)phase[0], (unsigned long long)phase[1], (unsigned long long)phase[2],
++             (unsigned long long)phase[3], (unsigned long long)phase[4], (unsigned long long)phase[5],
++             (unsigned long long)phase[6], (unsigned long long)phase[7], (unsigned long long)phase[8],
++             (unsigned long long)phase[9], (unsigned long long)phase[10], (unsigned long long)phase[11],
++             (unsigned long long)phase[12], (unsigned long long)phase[13], (unsigned long long)phase[14],
++             (unsigned long long)phase[15], (unsigned long long)phase[16]);
++   memset(hist, 0, sizeof(hist));
++   memset(phase, 0, sizeof(phase));
++   skipped = 0;
++   ndeltas = 0;
++}
++
+ /* ⚠ FLIPS FAIL ON THIS PLATFORM, AND NOTHING IN THIS TREE HAS EVER MADE ONE FAIL ON PURPOSE.
+  *
+  * They fail for real: 21 flips went out in 110 ms and presentation stopped, which is the measurement
+@@ -1189,6 +1340,7 @@
+       pthread_mutex_unlock(&wsi_orbis_owner_lock);
+       ORBIS_BOOK_RETURN(ORBIS_ID_WSI_PRESENT, orbis_pr_t0, true);
+    }
++   wsi_orbis_flip_stats(so);
+    int32_t err = sceVideoOutSubmitFlip(so->video, (int32_t)index, ORBIS_VIDEO_OUT_FLIP_VSYNC,
+                                        (int64_t)++so->flips);
+    if (err == 0)

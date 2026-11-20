@@ -1,0 +1,90 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: prospero-win <prospero-win@invalid>
+Date: Sun, 16 Nov 2026 13:00:00 +0100
+Subject: [PATCH] server: Sample the thread the wait watchdog says is wedged.
+
+The watchdog already finds it: a thread in no wait that has asked the
+server for nothing for over a second. What it cannot do is say where that
+thread is. dump_guest_stack() reads the WoW64 CPU area and requires
+IMAGE_FILE_MACHINE_I386, so on a 64-bit title it prints nothing at all,
+which is why Hollow Knight's main thread -- silent for 90 seconds with
+every other thread parked on a semaphore -- has never had a stack.
+
+The glue's SIGALRM sampler can print rip/rsp and a bounded stack for a
+64-bit thread. It just never lands on the right one: ITIMER_REAL is
+process-directed, and across 473 samples the kernel chose threads sitting
+in waits every time. The server knows exactly which thread is wedged and
+runs in the same process, so it can signal that one.
+
+Guarded by PW_PS4_GUEST_SAMPLER=1, the same switch that installs the
+handler: without it nothing handles SIGALRM and the default action would
+end the game. Bounded to eight pokes, because a wedge does not end.
+---
+ server/thread.c | 46 ++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 46 insertions(+)
+
+diff --git a/server/thread.c b/server/thread.c
+index 1111111..2222222 100644
+--- a/server/thread.c
++++ b/server/thread.c
+@@ -1191,6 +1191,49 @@
+     }
+ }
+ 
++#ifdef __PROSPERO__
++/* The console has no thr_kill2 of its own: the wineserver PRX's platform shim maps the id
++ * ntdll registered for each thread to its pthread_t and calls pthread_kill (ptrace.c). */
++extern int thr_kill2( pid_t pid, long id, int sig );
++
++/* A thread in no wait that has asked the server for nothing for over a second is wedged in
++ * host code, and dump_guest_stack() cannot say where: it reads the WoW64 CPU area, which
++ * only a 32-bit guest has, so on a 64-bit title every such thread has been invisible.
++ * The glue's SIGALRM sampler does print rip/rsp and a bounded stack, but ITIMER_REAL is
++ * process-directed and the kernel kept delivering to threads parked in waits -- 473 samples
++ * on Hollow Knight, not one of them the wedged thread. Send the signal to this exact
++ * thread; the handler the sampler already installed then runs on it.
++ *
++ * Once per thread, not a global budget: Hollow Knight has 32 threads outside any wait, and
++ * a budget of eight was spent on Unity's workers before the main thread -- the only one
++ * that matters -- was ever reached. Remembering ids costs nothing and samples each once.
++ *
++ * Only with PW_PS4_GUEST_SAMPLER=1: without the sampler nothing handles SIGALRM and the
++ * default action would end the game. */
++static void ps5_poke_silent_thread( struct thread *thread )
++{
++    static unsigned int poked[512];
++    static unsigned int npoked;
++    static int armed = -1;
++    unsigned int i;
++
++    if (armed < 0)
++    {
++        const char *text = getenv( "PW_PS4_GUEST_SAMPLER" );
++        armed = text && text[0] == '1';
++    }
++    if (!armed || thread->unix_pid == -1 || thread->unix_tid == -1) return;
++    for (i = 0; i < npoked; i++) if (poked[i] == thread->id) return;
++    if (npoked >= sizeof(poked) / sizeof(poked[0])) return;
++    poked[npoked++] = thread->id;
++    fprintf( stderr, "wine-ps5: poke silent tid=%04x unix_tid=%d n=%u rc=%d\n",
++             thread->id, thread->unix_tid, npoked,
++             thr_kill2( thread->unix_pid, thread->unix_tid, SIGALRM ) );
++}
++#else
++static void ps5_poke_silent_thread( struct thread *thread ) { (void)thread; }
++#endif
++
+ static void wait_watchdog( void *arg )
+ {
+     struct thread *thread;
+@@ -1207,7 +1250,10 @@
+          * from the WoW64 CPU area (TEB64 TlsSlots[WOW64_TLS_CPURESERVED]).
+          * The server runs in the game's process, so it can read it. */
+         if (!thread->wait && thread->teb && monotonic_time - thread->ps5_last_req_time > TICKS_PER_SEC)
++        {
+             dump_guest_stack( thread, 32, 128 );
++            ps5_poke_silent_thread( thread );
++        }
+         /* In one wait for over three seconds: its i386 stack once per wait,
+          * deeper, so that the frames and the critical sections held further
+          * up (a DllMain under the loader lock) show. */

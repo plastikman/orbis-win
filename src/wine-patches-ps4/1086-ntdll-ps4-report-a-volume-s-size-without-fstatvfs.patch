@@ -1,0 +1,157 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: prospero-win <prospero-win@invalid>
+Date: Tue, 17 Nov 2026 03:00:00 +0100
+Subject: [PATCH] ntdll: Size a PS4 title's volume without fstatvfs.
+
+get_full_size_info calls fstatvfs off Linux. The PS4 SDK's libc.a
+fstatvfs calls libkernel's _fstatfs into a 0x928-byte buffer in its own
+frame and returns only 0 or -1 (statvfs.lo, disassembled), so it never
+fills the caller's struct statvfs: on success ntdll read uninitialised
+stack. And a title gets EPERM from _fstatfs (measured on a PS4 Slim,
+2026-11-03: rc=-1 errno=1), so the call failed and GetDiskFreeSpace with
+it. Psychonauts then says there is not enough free space to create a
+save profile.
+
+On __ORBIS__ the size now comes from _fstatfs into a FreeBSD struct
+statfs of ntdll's own (its leading fields only), or 65 GiB free of
+130 GiB when that fails or reports no blocks. Not 64 GiB: Psychonauts
+multiplies GetDiskFreeSpaceA's three DWORDs in 32 bits, so 64 GiB would
+read as 0 bytes and 65 GiB reads as 1 GiB. WINE_PS5_DISK_FREE_GIB, a
+whole number of GiB, overrides both (that much free, twice that in
+total). The first query logs _fstatfs's rc and errno, f_version,
+f_bavail and the answer (PW_DISK_FREE). The PS5 is unchanged.
+
+This answers before 1055's statvfs_for_size, which now builds only for
+__PROSPERO__ without __ORBIS__: the PS4 title has one answer for every
+directory, so the /data redirect for the root would be dead code there.
+
+From Maxikozie/ps4-wine's 1150 and wine/orbis/pw_disk_size_orbis.c (efdfeae,
+written by the author of this patch, relicensed LGPL-2.1-or-later),
+folded into file.c so the PRX link needs no new object.
+---
+ dlls/ntdll/unix/file.c | 89 +++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 87 insertions(+), 2 deletions(-)
+
+diff --git a/dlls/ntdll/unix/file.c b/dlls/ntdll/unix/file.c
+index 41a28596f8..ba49059cb7 100644
+--- a/dlls/ntdll/unix/file.c
++++ b/dlls/ntdll/unix/file.c
+@@ -2216,7 +2216,86 @@ done:
+ }
+ #endif
+ 
+-#ifdef __PROSPERO__
++#ifdef __ORBIS__
++/* From: Maxikozie/ps4-wine third_party/prospero-win/wine/orbis/pw_disk_size_orbis.c and
++ * wine/patches/1150-ntdll-orbis-volume-size-from-fstatfs.patch @ efdfeae
++ * (relicensed LGPL-2.1-or-later by its author) */
++
++/* libkernel's (FreeBSD's) fstatfs: fills a struct statfs, 0 or -1 with errno. */
++extern int _fstatfs( int fd, void *buf );
++
++/***********************************************************************
++ *           orbis_volume_size
++ *
++ * ⚠ ON PS4 fstatvfs NEVER FILLS ITS STRUCT. The SDK's libc.a fstatvfs calls
++ * libkernel's _fstatfs into a 0x928-byte buffer in its own frame and returns
++ * only 0 or -1, so on success Wine read uninitialised stack. And a title gets
++ * EPERM from _fstatfs anyway (measured on a PS4 Slim, ps4-wine 2026-11-03), so
++ * GetDiskFreeSpace failed: Psychonauts says there is not enough free space to
++ * create a save profile.
++ *
++ * So _fstatfs fills a FreeBSD struct statfs of our own, of which only the
++ * leading fields are read (the same in FreeBSD 9 and 12; 12's struct is 0x928
++ * bytes): +0 f_version (u32), +16 f_bsize, +32 f_blocks, +40 f_bfree (u64),
++ * +48 f_bavail (s64). When it fails or reports no blocks, the answer is 65 GiB
++ * free of 130 GiB. Not 64: Psychonauts multiplies GetDiskFreeSpaceA's three
++ * DWORDs in 32 bits, so 64 GiB would read as 0 bytes and 65 GiB reads as 1 GiB.
++ * WINE_PS5_DISK_FREE_GIB, a whole number of GiB, overrides both: that much
++ * free, twice that in total. The first call logs what it saw (PW_DISK_FREE).
++ */
++static void orbis_volume_size( int fd, ULONGLONG *bsize, ULONGLONG *blocks,
++                               ULONGLONG *bfree, ULONGLONG *bavail )
++{
++    static const char * const sources[] = { "statfs", "fallback", "override" };
++    static LONG logged;
++    union { unsigned char bytes[0x1000]; ULONGLONG align; } buf;
++    const char *env = getenv( "WINE_PS5_DISK_FREE_GIB" );
++    ULONGLONG gib = 0, free_gib = 65, total_gib = 130;
++    unsigned int version;
++    LONGLONG avail;
++    int rc, err, source = 0;
++
++    memset( &buf, 0, sizeof(buf) );
++    errno = 0;
++    rc = _fstatfs( fd, buf.bytes );
++    err = rc ? errno : 0;
++    memcpy( &version, buf.bytes, sizeof(version) );
++    memcpy( bsize, buf.bytes + 16, sizeof(*bsize) );
++    memcpy( blocks, buf.bytes + 32, sizeof(*blocks) );
++    memcpy( bfree, buf.bytes + 40, sizeof(*bfree) );
++    memcpy( &avail, buf.bytes + 48, sizeof(avail) );
++    *bavail = avail > 0 ? avail : 0;
++
++    if (env && *env)
++    {
++        char *end;
++        gib = strtoull( env, &end, 10 );
++        if (*end || gib > (1ull << 20)) gib = 0;
++    }
++    if (gib)
++    {
++        free_gib = gib;
++        total_gib = 2 * gib;
++        source = 2;
++    }
++    else if (rc || !*blocks || !*bsize) source = 1;
++
++    if (source)
++    {
++        *bsize = 4096;
++        *blocks = total_gib << 18;  /* GiB in 4 KiB blocks */
++        *bfree = *bavail = free_gib << 18;
++    }
++    if (!InterlockedExchange( &logged, 1 ))
++        ERR( "PW_DISK_FREE rc=%d errno=%d f_version=%#x f_bavail=%lld source=%s free_gib=%llu total_gib=%llu\n",
++             rc, err, version, (long long)avail, sources[source],
++             (unsigned long long)(*bsize * *bavail >> 30), (unsigned long long)(*bsize * *blocks >> 30) );
++}
++#endif
++
++/* The PS4 title answers through orbis_volume_size above, whatever the directory,
++ * so this is the PS5 and Linux-on-PROSPERO build only. */
++#if defined(__PROSPERO__) && !defined(__ORBIS__)
+ /***********************************************************************
+  *           statvfs_for_size
+  *
+@@ -2245,7 +2324,9 @@ static NTSTATUS get_full_size_info(int fd, FILE_FS_FULL_SIZE_INFORMATION *info)
+     struct stat st;
+     ULONGLONG bsize;
+ 
+-#if !defined(linux) || !defined(HAVE_FSTATFS)
++#ifdef __ORBIS__
++    struct { ULONGLONG f_blocks, f_bfree, f_bavail; } stfs;  /* orbis_volume_size fills it */
++#elif !defined(linux) || !defined(HAVE_FSTATFS)
+     struct statvfs stfs;
+ #else
+     struct statfs stfs;
+@@ -2258,6 +2339,9 @@ static NTSTATUS get_full_size_info(int fd, FILE_FS_FULL_SIZE_INFORMATION *info)
+     if (fstat( fd, &st ) < 0) return errno_to_status( errno );
+     if (!S_ISREG(st.st_mode) && !S_ISDIR(st.st_mode)) return STATUS_INVALID_DEVICE_REQUEST;
+ 
++#ifdef __ORBIS__
++    orbis_volume_size( fd, &bsize, &stfs.f_blocks, &stfs.f_bfree, &stfs.f_bavail );
++#else
+     /* Linux's fstatvfs is buggy */
+ #if !defined(linux) || !defined(HAVE_FSTATFS)
+ #ifdef __PROSPERO__
+@@ -2270,6 +2354,7 @@ static NTSTATUS get_full_size_info(int fd, FILE_FS_FULL_SIZE_INFORMATION *info)
+     if (fstatfs( fd, &stfs ) < 0) return errno_to_status( errno );
+     bsize = stfs.f_bsize;
+ #endif
++#endif
+ 
+ #ifdef __APPLE__
+     important_free_bytes = get_free_bytes_for_important_data( fd );
+-- 
+2.43.0

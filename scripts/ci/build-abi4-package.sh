@@ -8,18 +8,40 @@
 #
 # Inputs (environment):
 #   PW_ABI4_ROOT          ABI-v4 sync directory: source/ (prospero-win ABI-v4
-#                         with .deps/wine-host), build/wine-ps5/, native/.
-#                         Its generated makefiles embed this absolute path; the
-#                         runner symlinks it to the cache (prepare-runner.sh).
+#                         with .deps/wine-host), build/wine-ps5/, native/,
+#                         mesa-zink/. Its generated makefiles embed this
+#                         absolute path; the runner symlinks it to the cache
+#                         (prepare-runner.sh), which also exports this variable
+#                         to the later workflow steps.
+#   PW_ROOT               without PW_ABI4_ROOT: the prospero-win tree (default
+#                         this checkout's prospero-win/), built in place by
+#                         its tools/build_host_wine.sh and build_wine_ps5.sh.
+#   WOW64NATIVE_DLL       without PW_ABI4_ROOT: the ABI-v4 wow64native.dll
+#                         (default PW_ROOT/.deps/wow64native/x86_64-windows/...).
+#                         Its hash stays pinned below.
+#   PW_MESA_ZINK_DIR      without PW_ABI4_ROOT: tools/build_mesa_zink.sh's
+#                         artifacts (default PW_ROOT/.deps/mesa-zink).
+#                         With PW_ABI4_ROOT both come from that directory and
+#                         these two variables are ignored, as before.
 #   OUT                   output directory (required)
 #   TITLE_ID, TITLE, PKG_VERSION
 #   PS4_BASELINE_STAGE    known-good stage the parity check compares against
 #   PS4_PKGTOOL_OPENSSL_LIB  directory holding libssl.so.1.1 for PkgTool.Core
 set -euo pipefail
+case ${1:-} in -h|--help) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;; esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-ABI4=${PW_ABI4_ROOT:-/home/zpeirce/codex_scratch/abi4-upstream-port-20261104}
-PW=$ABI4/source
+# Two layouts: the synced ABI-v4 directory (CI, the workstation that fills its
+# cache), or a prospero-win tree built in place (any other host).
+if [[ -n ${PW_ABI4_ROOT:-} ]]; then
+  PW=$PW_ABI4_ROOT/source
+  WOW64NATIVE_DLL=$PW_ABI4_ROOT/native/x86_64-windows/wow64native.dll
+  MESA_ZINK=$PW_ABI4_ROOT/mesa-zink
+else
+  PW=${PW_ROOT:-$ROOT/prospero-win}
+  WOW64NATIVE_DLL=${WOW64NATIVE_DLL:-$PW/.deps/wow64native/x86_64-windows/wow64native.dll}
+  MESA_ZINK=${PW_MESA_ZINK_DIR:-$PW/.deps/mesa-zink}
+fi
 OUT=${OUT:?set OUT to the output directory}
 TITLE_ID=${TITLE_ID:-GLDS10043}
 TITLE=${TITLE:-Orbis Wine ABI-v4}
@@ -27,7 +49,14 @@ PKG_VERSION=${PKG_VERSION:-01.00}
 # pkgout/baseline -> the promoted known-good build (GLDS10043 01.21 since
 # 2026-11-05; the 1090 stage before it stays in pkgout for history).
 BASELINE=${PS4_BASELINE_STAGE:-$ROOT/pkgout/baseline/pkg-stage}
-OPENSSL_LIB=${PS4_PKGTOOL_OPENSSL_LIB:-$HOME/.cache/orbis-ports/openssl11/lib}
+# One lookup for every package script (scripts/find-openssl11.sh). A hit is
+# exported, so the bundle's make-pkg.sh uses the same directory instead of
+# fetching a copy; on a miss the old default stays and make-pkg.sh fetches one.
+if OPENSSL_LIB=$("$ROOT/scripts/find-openssl11.sh"); then
+  export PS4_PKGTOOL_OPENSSL_LIB=$OPENSSL_LIB
+else
+  OPENSSL_LIB=${XDG_CACHE_HOME:-$HOME/.cache}/orbis-ports/openssl11/lib
+fi
 SDKBIN=$ROOT/sdk/orbis-sdk-v1/sdk/bin/linux
 
 # The matched ABI-v4 native WoW64 pair that 01.06 shipped. The PE side is built
@@ -36,7 +65,6 @@ SDKBIN=$ROOT/sdk/orbis-sdk-v1/sdk/bin/linux
 # going through scripts/create-fself-repro.sh. The code is unchanged (its
 # loaded sections are identical); only the fself's digests of .comment/.debug_*
 # and the embedded -in path changed, which made CI builds differ from local ones.
-WOW64NATIVE_DLL=$ABI4/native/x86_64-windows/wow64native.dll
 WOW64NATIVE_ABI4_SHA256=e531a51bb19ae4f92e65556f0f6d4f89e930b9c7490d8a02988feb1d5ee9c044
 WOW64NATIVE_ABI4_PRX_SHA256=20eee436ae5856f06d39b9f9fa57720806612f15e1ebea4ab15b4638da5b729d
 
@@ -49,7 +77,12 @@ HOST_WINE=${PW_HOST_WINE:-$PW/.deps/wine-host}
 export PW_HOST_WINE=$HOST_WINE
 for p in "$HOST_WINE/build" "$HOST_WINE/install/usr/lib/wine" \
          "$PW/.deps/wine-ps5/build" "$WOW64NATIVE_DLL" "$BASELINE/eboot.bin" \
-         "$ABI4/mesa-zink/i386-windows/opengl32.dll" "$ABI4/mesa-zink/x86_64-windows/opengl32.dll"; do
+         "$MESA_ZINK/i386-windows/opengl32.dll" "$MESA_ZINK/x86_64-windows/opengl32.dll" \
+         "$PW/.deps/wine-runtime/nls/locale.nls" "$PW/.deps/wine-runtime/nls/l_intl.nls" \
+         "$HOST_WINE/install/usr/lib/wine/x86_64-windows/wowprospero.dll"; do
+  # wine-runtime/nls: prospero-win tools/build_wine_runtime.sh. wowprospero.dll:
+  # tools/build_wowprospero.sh, stripped into the host install. build-app-ps4.sh
+  # stages both and refuses the package without them, after every PRX is linked.
   [[ -e $p ]] || { echo "missing ABI-v4 build input: $p" >&2; exit 1; }
 done
 mkdir -p "$OUT"
@@ -81,7 +114,7 @@ env -u PW_SHARED_LIBC \
   WOW64NATIVE_ABI4_SHA256=$WOW64NATIVE_ABI4_SHA256 \
   WOW64NATIVE_ABI4_PRX_SHA256=$WOW64NATIVE_ABI4_PRX_SHA256 \
   PS4_KERNELBASE32_DLL="$OUT/pe/kernelbase.dll" \
-  PW_MESA_ZINK_DIR="$ABI4/mesa-zink" \
+  PW_MESA_ZINK_DIR="$MESA_ZINK" \
   PKG_OUT="$OUT/app" PKG_BASE_OUT="$OUT/base" \
   PW_BUILD_ROOT="$OUT/build" PW_APP_OBJ="$OUT/app-obj" \
   bash "$ROOT/scripts/build-relocatable-wine-ps4.sh"

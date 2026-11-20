@@ -32,7 +32,11 @@ def writable_loads(path):
 def main():
     elf, oelf = writable_loads(sys.argv[1]), writable_loads(sys.argv[2])
     va, ms = max(elf, key=lambda s: s[0] + s[1])
-    end = max((ov + om for ov, om in oelf if ov == va), default=0)
+    # create-fself may MOVE the writable segment's start, so an exact va match
+    # finds nothing and end falls back to 0 -- which makes the shortfall look
+    # like the entire segment and reports a pad that can never succeed.
+    # Match the writable segment by its end instead.
+    end = max((ov + om for ov, om in oelf), default=0)
     if ((end + 0x3fff) & ~0x3fff) >= va + ms:
         print(0)
     else:

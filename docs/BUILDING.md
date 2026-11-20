@@ -70,6 +70,10 @@ PW_RADV_MESA_SRC="$MESA_SRC" PW_RADV_MESA_BUILD="$MESA_BUILD" \
 sh ./scripts/wineps5-prx-ps4.sh
 ```
 
+`scripts/build-wine-ps4.sh [--host|--ps5|--all]` runs the two Wine builds
+(`prospero-win/tools/build_host_wine.sh` and `build_wine_ps5.sh`) in one command,
+with the `PW_PRX_LINK=1` that the PS4 cross link needs.
+
 `prepare-ps4-toolchain.sh` creates `libwineshim.a`, `libps4stubs.a`, the
 16-bit-WCHAR compatibility archive, and the module-parameter object under the
 ignored `build/ps4-wine-sdk/` directory. `prx-ps4.sh` clears and rebuilds its

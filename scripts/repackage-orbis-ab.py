@@ -36,6 +36,7 @@ def main() -> None:
     parser.add_argument("--title", required=True)
     parser.add_argument("--version",
                         help="APP_VER/VERSION for param.sfo (make-pkg.sh default: 01.00)")
+    parser.add_argument("--icon", type=Path, help="home-screen icon to package")
     parser.add_argument("--eboot-source", type=Path,
                         help="replace the base stage EBOOT with this file")
     parser.add_argument("--replace", action="append", default=[], metavar="REL=SOURCE")
@@ -62,7 +63,7 @@ def main() -> None:
         if not path.is_file() or path.suffix == ".pkg":
             continue
         rel = path.relative_to(base).as_posix()
-        if rel not in SKIP:
+        if rel not in SKIP and not (args.icon and rel == "sce_sys/icon0.png"):
             payload[rel] = path
     for rel, source in replacements.items():
         if rel not in payload:
@@ -76,6 +77,10 @@ def main() -> None:
                "--title", args.title]
     if args.version:
         command.extend(("--version", args.version))
+    if args.icon:
+        if not args.icon.is_file():
+            parser.error(f"icon missing: {args.icon}")
+        command.extend(("--icon", str(args.icon.resolve())))
     for rel, source in sorted(payload.items()):
         command.extend(("--extra", f"{source}:{rel}"))
     out.mkdir(parents=True, exist_ok=True)

@@ -1657,28 +1657,14 @@ static int protect_exec_page(unsigned int call, uintptr_t page, int protection)
         }
     }
 
-    /* Every executable page of a large range migrates direct -> flexible, so
-     * migrate_rc == 0 is the ordinary case, not an anomaly: logging it costs a
-     * synchronous sceKernelDebugOutText per 16 KiB page and dominated startup
-     * (5708 such lines in one Fallout: New Vegas launch). Report anomalies
-     * always, and sample the first few ordinary migrations so the path stays
-     * visible; exec_rx_metrics still counts every one. */
+    if (protect_rc || query_rc || !(effective & PROT_EXEC) || migrate_rc != -2 ||
+        host_retry_rc != -2)
     {
-        static unsigned int migrate_sampled;
-        int anomaly = protect_rc || query_rc || !(effective & PROT_EXEC) ||
-                      host_retry_rc != -2 ||
-                      (migrate_rc != -2 && migrate_rc != 0);
-        int sample = migrate_rc == 0 &&
-                     __atomic_add_fetch(&migrate_sampled, 1, __ATOMIC_RELAXED) <= 16;
-
-        if (anomaly || sample)
-        {
-            snprintf(line, sizeof(line),
-                     "wine-ps4: exec-protect-verify build=0975 call=%u page=%p dmem-before=%zu protect=%d query=%d effective=%#x host-retry=%d migrate=%d retry=%d\n",
-                     call, (void *)page, dmem_bytes, protect_rc, query_rc,
-                     effective, host_retry_rc, migrate_rc, retry_rc);
-            sceKernelDebugOutText(0, line);
-        }
+        snprintf(line, sizeof(line),
+                 "wine-ps4: exec-protect-verify build=0975 call=%u page=%p dmem-before=%zu protect=%d query=%d effective=%#x host-retry=%d migrate=%d retry=%d\n",
+                 call, (void *)page, dmem_bytes, protect_rc, query_rc,
+                 effective, host_retry_rc, migrate_rc, retry_rc);
+        sceKernelDebugOutText(0, line);
     }
 
     if ((protect_rc && retry_rc) || query_rc || !(effective & PROT_EXEC))
@@ -1726,20 +1712,22 @@ static int protect_exec_page(unsigned int call, uintptr_t page, int protection)
  * So do not migrate a large range eagerly. Above this size the range falls to
  * the per-page path below, which migrates a page at a time and leaves any
  * page that never needs PROT_EXEC in direct memory. */
-#ifndef PW_PS4_EXEC_MIGRATE_RANGE_MAX
-#define PW_PS4_EXEC_MIGRATE_RANGE_MAX (256u * 1024u)
-#endif
-
-/* The threshold is a per-title tuning question, not a constant: the per-page
- * path costs a protect plus two sceKernelVirtualQuery calls for every 16 KiB,
- * which a game that maps executable code while it runs pays per frame. Hollow
- * Knight needs the low threshold; a 32-bit game that never approaches the
- * shadow pool does not. PW_PS4_EXEC_MIGRATE_RANGE_MAX in the environment
- * overrides the built-in default, so an A/B needs no rebuild:
- *   unset  -> the built-in default (256 KiB)
- *   0      -> no limit; always migrate a dmem-backed span as one range
- *   N      -> that many bytes (strtoull, so 0x... and decimal both work)
- * Read once, on the first protect; getenv is not called per range. */
+/* The threshold is per-title, and OFF by default.
+ *
+ * 2026-11-12: as a compile-time 256 KiB constant this crashed Fallout: New
+ * Vegas. The patch reasoned "32-bit games never reached this because WoW64
+ * maps their images low and in smaller pieces"; they do reach it -- FNV emits
+ * exec-range-per-page records -- and it died ~5-10 s in with SIGSEGV at fault
+ * 0x1f88, rip 0x80000c742 in libkernel.sprx.
+ *
+ * So the default is (size_t)-1: no limit, every dmem-backed span migrates as
+ * one range, which is exactly the behaviour shipped in v0.0.6 and tested
+ * across all seven titles. Only a title whose profile sets
+ * PW_PS4_EXEC_MIGRATE_RANGE_MAX takes the per-page path:
+ *   unset / 0  -> no limit (default; 32-bit titles must stay here)
+ *   N          -> spans above N bytes fall to the per-page path
+ * Hollow Knight needs a low value to clear
+ * SYSTEM_DEBUG_RUNTIME_SHADOW_MEMORY_ALLOC_ERROR. Read once, on first use. */
 static size_t exec_migrate_range_max(void)
 {
     static size_t cached;
@@ -1750,24 +1738,24 @@ static size_t exec_migrate_range_max(void)
         const char *text = getenv("PW_PS4_EXEC_MIGRATE_RANGE_MAX");
         char *end = NULL;
         unsigned long long value;
+        char line[160];
 
         looked = 1;
-        cached = PW_PS4_EXEC_MIGRATE_RANGE_MAX;
+        cached = (size_t)-1;
         if (text && *text)
         {
             value = strtoull(text, &end, 0);
-            if (end && !*end) cached = value ? (size_t)value : (size_t)-1;
+            if (end && !*end && value) cached = (size_t)value;
         }
-        {
-            char line[160];
-            snprintf(line, sizeof(line),
-                     "wine-ps4: exec-migrate-range-max bytes=%#zx source=%s\n",
-                     cached, (text && *text) ? "env" : "default");
-            sceKernelDebugOutText(0, line);
-        }
+        snprintf(line, sizeof(line),
+                 "wine-ps4: exec-migrate-range-max bytes=%#zx source=%s\n",
+                 cached, (cached == (size_t)-1) ? "default-unlimited" : "env");
+        sceKernelDebugOutText(0, line);
     }
     return cached;
 }
+
+#define PW_PS4_EXEC_MIGRATE_RANGE_MAX (exec_migrate_range_max())
 
 static uintptr_t page_down(const void *address) { return (uintptr_t)address & ~(uintptr_t)(PAGE - 1); }
 static size_t page_span(const void *address, size_t bytes)
@@ -1817,7 +1805,7 @@ static int protect_exec_range(unsigned int call, uintptr_t address, size_t bytes
 
         backed = pw_wine_dmem_backed(&dmem, at, span);
         if (!query_rc && backed == span && !PW_PS4_EXEC_MIGRATE_PER_PAGE_ONLY &&
-            span <= exec_migrate_range_max())
+            span <= PW_PS4_EXEC_MIGRATE_RANGE_MAX)
         {
             int migrate_rc = migrate_exec_range_to_flex(at, span);
             int retry_rc = migrate_rc ? -1 :
@@ -1834,7 +1822,7 @@ static int protect_exec_range(unsigned int call, uintptr_t address, size_t bytes
             continue;
         }
 
-        if (span > exec_migrate_range_max()) {
+        if (span > PW_PS4_EXEC_MIGRATE_RANGE_MAX) {
             char line[180];
             snprintf(line, sizeof(line),
                      "wine-ps4: exec-range-per-page addr=%p span=%#zx prot=%#x backed=%#zx\n",
@@ -1991,10 +1979,47 @@ static void watch_oblivion_rx_pages(unsigned int sample)
 #include "../freebsd-compat/machine/fbsd_mcontext.h"
 
 #define PW_GUEST_SAMPLE_OFFSET 64        /* mcontext within ucontext, measured (fault_probe) */
-#define PW_GUEST_SAMPLE_MAX    100000       /* bounded: a wedge would otherwise log forever */
+#define PW_GUEST_SAMPLE_MAX    20000     /* debugging a wedge: we want the data, not a tidy log */
 
 static volatile unsigned int guest_samples;
 static volatile unsigned int guest_sample_logged;
+
+/* Which addresses on the stack are worth printing. The original window took only the PRX
+ * text range, which is right for a 32-bit title whose callers are all in this port -- but
+ * Hollow Knight wedges with its last traced calls inside DXVK, and every guest PE (the exe
+ * at 0x140000000, Wine's builtins and DXVK up at 0x6ffff.......) was filtered out, so the
+ * one caller that would name the wedge could never appear. Take the guest ranges too. */
+static int guest_code_pointer(uint64_t w)
+{
+    return (w >= 0x800000000ull   && w < 0x900000000ull)      /* this port's PRX text */
+        || (w >= 0x140000000ull   && w < 0x200000000ull)      /* the guest executable */
+        || (w >= 0x6ffff0000000ull && w < 0x700000000000ull); /* Wine builtins, DXVK */
+}
+
+/* Stacks for the first samples OF EACH THREAD, not the first samples overall. SIGALRM from
+ * ITIMER_REAL is process-directed, so the kernel picks whichever thread answers: the global
+ * first three can all be idle workers, and the wedged thread -- the only one worth a stack --
+ * would never print one. 128 threads, 6 stacks each: enough to show whether a thread
+ * is truly stuck at one rip or merely slow. */
+static int guest_stack_want(unsigned long tid)
+{
+    static volatile unsigned long seen_tid[128];
+    static volatile unsigned int  seen_hits[128];
+    unsigned int i;
+
+    for (i = 0; i < 128; i++)
+        if (__atomic_load_n(&seen_tid[i], __ATOMIC_ACQUIRE) == tid)
+            return __atomic_add_fetch(&seen_hits[i], 1, __ATOMIC_ACQ_REL) <= 6;
+    for (i = 0; i < 128; i++) {
+        unsigned long expected = 0;
+        if (__atomic_compare_exchange_n(&seen_tid[i], &expected, tid, 0,
+                                        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+            __atomic_store_n(&seen_hits[i], 1, __ATOMIC_RELEASE);
+            return 1;
+        }
+    }
+    return 0;
+}
 
 static void guest_sample_handler(int sig, siginfo_t *info, void *uc)
 {
@@ -2036,15 +2061,14 @@ static void guest_sample_handler(int sig, siginfo_t *info, void *uc)
      * can symbolize. Walk a bounded window of the stack and print the words -- one caller is
      * enough to say WHICH wait the thread is parked in. Only for the first few samples: a wedged
      * thread repeats the same stack forever and flooding klog buys nothing. */
-    if (n <= 200 || pw_poked) {
+    if (guest_stack_want(glue_tid())) {
         const uint64_t *sp = (const uint64_t *)(uintptr_t)mc->mc_rsp;
         char words[200];
         int used = 0, i;
 
-        for (i = 0; i < 12 && used < (int)sizeof(words) - 24; i++) {
-            /* Only plausible code pointers: the PRX text range starts at 0x800000000 here. */
+        for (i = 0; i < 32 && used < (int)sizeof(words) - 24; i++) {
             uint64_t w = sp[i];
-            if (w < 0x800000000ull || w > 0x900000000ull) continue;
+            if (!guest_code_pointer(w)) continue;
             used += snprintf(words + used, sizeof(words) - used, " %llx", (unsigned long long)w);
         }
         snprintf(line, sizeof(line), "wine-ps4: guest-stack %u tid=%lu callers:%s\n",
@@ -2184,7 +2208,28 @@ void __wine_ps5_dmem_region(void *base, size_t size)
                 if (!pthread_attr_init(&attr)) {
                     (void)pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
                     beating = !pthread_create(&beat, &attr, exec_heartbeat, NULL);
-                    if (beating) (void)guest_sampler_start();
+                    /* Sampling sends asynchronous signals to guest threads.
+                     *
+                     * ⚠ Matched on the first character, not strcmp(…, "1"). On 2026-11-13
+                     * the LAST [debug] env entry reached the guest with a trailing junk
+                     * character: DXVK logged
+                     *   Found config env: dxvk.enableGraphicsPipelineLibrary=Falsel
+                     * so DXVK could not parse the boolean, fell back to the default, and
+                     * the workaround silently did nothing. An exact compare here would
+                     * fail the same way on "1l" and the sampler would never arm, which
+                     * looks identical to the console not delivering the signal. The raw
+                     * bytes are logged so the corruption is measurable rather than
+                     * inferred -- it is still a bug, it is just no longer in the way. */
+                    const char *sample = getenv("PW_PS4_GUEST_SAMPLER");
+                    if (beating && sample) {
+                        char raw[96];
+                        snprintf(raw, sizeof(raw),
+                                 "wine-ps4: guest-sampler env=\"%.48s\" len=%u\n",
+                                 sample, (unsigned)strlen(sample));
+                        sceKernelDebugOutText(0, raw);
+                    }
+                    if (beating && sample && sample[0] == '1')
+                        (void)guest_sampler_start();
                     pthread_attr_destroy(&attr);
                 }
             }

@@ -1,0 +1,446 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: orbis-win <orbis-win@invalid>
+Subject: [PATCH] util/log, wsi/orbis: radv.log lines are written by a thread of
+ their own (ORBIS_LOG_ASYNC)
+
+Every Mesa log line was an fprintf+fflush to radv.log (MESA_LOG_FILE, on
+/data, the HDD the game streams from) on the thread that logged it. In
+Psychonauts at a 30 fps lock the only hitch in two minutes indoors was one
+155 ms frame, 121 ms of it a single radv.log line written inside
+vkQueuePresentKHR.
+
+logger_file now copies each formatted line into an in-memory ring (64 KiB)
+under a mutex the writer holds only for a memcpy, and one writer thread
+writes the ring to the same FILE, so radv.log's bytes do not change. The
+writer has a 64 KiB stack: scePthreadCreate with an explicit attr, which
+neither orbis-compat's pthread_create floor (16 MiB) nor the libvulkan
+link's scePthreadCreate wrap (keeps a chosen stack up to 4 MiB) raises. The
+host build of the orbis arm uses pthread_create with the same attr.
+
+- ERROR lines are still written on the logging thread, after it writes out
+  what the ring holds under the writer's I/O mutex: the order in the file is
+  kept, and an error is on disk before a crash can lose the ring.
+- A full ring drops the line and counts it; the next line that fits follows
+  one warning, "mesa log: N line(s) dropped - the async log ring (K KiB) was
+  full". Nothing waits for the disk to queue a line.
+- A write of 50 ms or more on the writer logs "mesa log: a radv.log write of
+  B bytes took N us on the async log writer, off the logging thread", at
+  most once a second.
+- A crash that logs no ERROR line first can lose what the ring holds: up
+  to 64 KiB of the newest INFO and WARN lines.
+- ORBIS_LOG_ASYNC=0 (radv.env) writes every line on its own thread as
+  before; ORBIS_LOG_ASYNC=N (16..4096) sets the ring in KiB; unset or 1 is
+  64 KiB.
+- The hung-submit report (ORBIS_DUMP_HUNG, set by DEV_GPU_HANG_REPORT=1)
+  keeps every line synchronous for the whole run: its dumps are megabytes of
+  INFO lines just before the process dies, which a ring would drop or lose.
+- The first swapchain logs "wsi/orbis: async log on (ring 64 KiB) ..." (or
+  "async log off ..." when ORBIS_LOG_ASYNC=0 or ORBIS_DUMP_HUNG is on). Swapchain teardown waits up to 250 ms, and atexit up
+  to 500 ms, for the ring to empty.
+- Not routed: mesa_log_get_file() users (nir_print_shader and other debug
+  dumps) still write the FILE directly, unordered against the ring.
+---
+diff --git a/src/util/log.c b/src/util/log.c
+--- a/src/util/log.c
++++ b/src/util/log.c
+@@ -30,6 +30,11 @@
+ #include "util/log.h"
+ #include "util/ralloc.h"
+ #include "util/u_debug.h"
++#ifdef HAVE_ORBIS_PLATFORM
++#include <inttypes.h>
++#include <pthread.h>
++#include "util/os_time.h"
++#endif
+ 
+ #if DETECT_OS_POSIX
+ #include <syslog.h>
+@@ -110,6 +115,10 @@
+    DEBUG_NAMED_VALUE_END
+ };
+ 
++#ifdef HAVE_ORBIS_PLATFORM
++static void mesa_log_async_init(void);
++#endif
++
+ static void
+ mesa_log_init_once(void)
+ {
+@@ -172,6 +181,10 @@
+    if (mesa_log_control & MESA_LOG_CONTROL_SYSLOG)
+       openlog(util_get_process_name(), LOG_NDELAY | LOG_PID, LOG_USER);
+ #endif
++
++#ifdef HAVE_ORBIS_PLATFORM
++   mesa_log_async_init();
++#endif
+ }
+ 
+ static void
+@@ -296,6 +309,272 @@
+    return buf;
+ }
+ 
++#ifdef HAVE_ORBIS_PLATFORM
++/* ⚠ RADV.LOG IS WRITTEN BY A THREAD OF ITS OWN (Mesa patch 0048), BECAUSE ONE WRITE TOOK 121 MS INSIDE THE PRESENT.
++ *
++ * Psychonauts at a 30 fps lock (2026-11-17): the only hitch in two minutes indoors was one 155 ms frame, 121 ms
++ * of it a single line's fprintf+fflush to /data/prospero-win/radv.log inside vkQueuePresentKHR, while the game
++ * streamed from the same HDD. Every log line is such a write, on whichever thread logged it. So every
++ * line now goes into a ring in memory, and one writer thread copies the ring to the same FILE with the same
++ * bytes, so radv.log reads exactly as before. The logging thread pays a vsnprintf, a mutex and a memcpy.
++ *
++ *  - ERROR lines are still written on the logging thread, after it has written whatever the ring still holds
++ *    (under the same I/O mutex as the writer, so the order of lines in the file is the order they were logged).
++ *    An error can be the last thing a process says before it dies, and a ring is lost with it.
++ *  - A full ring drops the line and counts it; the next line that fits is preceded by one warning naming how
++ *    many were dropped. Nothing ever waits for the disk to queue a line.
++ *  - mesa_log_get_file() callers (nir_print_shader and friends, debug options only) still write the FILE
++ *    directly, so their output is not ordered against the ring's.
++ *  - A crash that logs no ERROR line first can lose what the ring still holds: up to its size of the newest
++ *    INFO and WARN lines.
++ *  - ORBIS_LOG_ASYNC=0 (radv.env) turns it off: every line is written on the logging thread, as before this patch.
++ *    ORBIS_LOG_ASYNC=N (16..4096) sets the ring to N KiB. Unset or 1: 64 KiB.
++ *  - The hung-submit report (ORBIS_DUMP_HUNG, any value but 0) turns it off too, for the whole run. A hang dump is
++ *    megabytes of INFO lines written just before the process dies; through the ring most of them would be dropped
++ *    or die unwritten with it.
++ *
++ * The writer's stack is 64 KiB, explicitly: scePthreadCreate with an attr, not pthread_create. orbis-compat's
++ * pthread_create raises any smaller request to the creating thread's stack (16 MiB here), and the libvulkan
++ * link's scePthreadCreate wrap (pw_vulkan_radv_ps4.c) keeps a stack the caller chose at 4 MiB or less. All the
++ * writer runs is fwrite, fflush and one snprintf; its copy buffer is static. The host build of the orbis arm
++ * has no scePthread*, and takes pthread_create with the same attr. */
++#define MESA_LOG_ASYNC_DEFAULT_KIB 64
++#define MESA_LOG_ASYNC_MIN_KIB 16
++#define MESA_LOG_ASYNC_MAX_KIB 4096
++#define MESA_LOG_ASYNC_STACK (64 * 1024)
++#define MESA_LOG_ASYNC_CHUNK (16 * 1024)
++/* A write at least this slow is reported (at most once a second), so a run can see the stalls it no longer feels. */
++#define MESA_LOG_ASYNC_SLOW_NS (50ull * 1000 * 1000)
++
++#if defined(__PS4__)
++int scePthreadAttrInit(pthread_attr_t *attr);
++int scePthreadAttrDestroy(pthread_attr_t *attr);
++int scePthreadAttrSetstacksize(pthread_attr_t *attr, size_t size);
++int scePthreadAttrSetdetachstate(pthread_attr_t *attr, int state);
++int scePthreadCreate(pthread_t *thread, const pthread_attr_t *attr, void *(*entry)(void *), void *arg,
++                     const char *name);
++#else
++#define scePthreadAttrInit pthread_attr_init
++#define scePthreadAttrDestroy pthread_attr_destroy
++#define scePthreadAttrSetstacksize pthread_attr_setstacksize
++#define scePthreadAttrSetdetachstate pthread_attr_setdetachstate
++#define scePthreadCreate(thread, attr, entry, arg, name) pthread_create(thread, attr, entry, arg)
++#endif
++
++static struct {
++   pthread_mutex_t lock; /* the ring: buf, head, tail, dropped, writing */
++   pthread_cond_t wake;  /* the writer sleeps here while the ring is empty */
++   pthread_mutex_t io;   /* mesa_log_file and chunk: the writer, and the lines written synchronously */
++   char *buf;
++   uint32_t size;        /* bytes; 0 = off, every line written on the logging thread (set once, in init) */
++   uint64_t head, tail;  /* bytes ever queued / ever taken out */
++   uint64_t dropped;     /* lines dropped since the last drop warning */
++   bool writing;         /* the writer holds bytes it has taken out but not yet written */
++   char chunk[MESA_LOG_ASYNC_CHUNK];
++} mesa_log_ring;
++
++static uint32_t
++mesa_log_ring_take_locked(void)
++{
++   const uint32_t pending = (uint32_t)(mesa_log_ring.head - mesa_log_ring.tail);
++   const uint32_t n = MIN2(pending, (uint32_t)sizeof(mesa_log_ring.chunk));
++   const uint32_t at = (uint32_t)(mesa_log_ring.tail % mesa_log_ring.size);
++   const uint32_t first = MIN2(n, mesa_log_ring.size - at);
++
++   memcpy(mesa_log_ring.chunk, mesa_log_ring.buf + at, first);
++   memcpy(mesa_log_ring.chunk + first, mesa_log_ring.buf, n - first);
++   mesa_log_ring.tail += n;
++   return n;
++}
++
++static bool
++mesa_log_ring_put_locked(const char *msg, uint32_t len)
++{
++   const uint32_t room = mesa_log_ring.size - (uint32_t)(mesa_log_ring.head - mesa_log_ring.tail);
++   const uint32_t at = (uint32_t)(mesa_log_ring.head % mesa_log_ring.size);
++   const uint32_t first = MIN2(len, mesa_log_ring.size - at);
++
++   if (len > room)
++      return false;
++   memcpy(mesa_log_ring.buf + at, msg, first);
++   memcpy(mesa_log_ring.buf, msg + first, len - first);
++   mesa_log_ring.head += len;
++   return true;
++}
++
++/* A line of the ring's own, formatted as logger_file formats every other line. */
++static uint32_t PRINTFLIKE(4, 5)
++mesa_log_ring_note(char *buf, int size, enum mesa_log_level level, const char *format, ...)
++{
++   va_list va;
++   va_start(va, format);
++   char *msg = logger_vasnprintf(buf, size, mesa_log_file_affixes | LOGGER_VASNPRINTF_AFFIX_NEWLINE, level,
++                                 "MESA", format, va);
++   va_end(va);
++   if (msg != buf) {
++      /* too long for buf: never the case for the notes below, but keep buf the answer */
++      strncpy(buf, msg, size - 1);
++      buf[size - 1] = '\0';
++      free(msg);
++   }
++   return (uint32_t)strlen(buf);
++}
++
++/* Queues one formatted line. Never waits for the disk: a mutex the writer holds only to memcpy. */
++static void
++mesa_log_ring_put(const char *msg, uint32_t len)
++{
++   pthread_mutex_lock(&mesa_log_ring.lock);
++   if (mesa_log_ring.dropped != 0) {
++      char note[256];
++      const uint32_t n = mesa_log_ring_note(note, sizeof(note), MESA_LOG_WARN,
++                                            "mesa log: %" PRIu64 " line(s) dropped - the async log ring (%u KiB) "
++                                            "was full", mesa_log_ring.dropped, mesa_log_ring.size / 1024);
++      if (n + len <= mesa_log_ring.size - (uint32_t)(mesa_log_ring.head - mesa_log_ring.tail)) {
++         mesa_log_ring_put_locked(note, n);
++         mesa_log_ring.dropped = 0;
++      }
++   }
++   if (mesa_log_ring.dropped != 0 || !mesa_log_ring_put_locked(msg, len))
++      mesa_log_ring.dropped++;
++   else
++      pthread_cond_signal(&mesa_log_ring.wake);
++   pthread_mutex_unlock(&mesa_log_ring.lock);
++}
++
++/* Called with io held: writes out everything still in the ring, in order. */
++static void
++mesa_log_ring_drain_io_locked(FILE *fp)
++{
++   for (;;) {
++      pthread_mutex_lock(&mesa_log_ring.lock);
++      const uint32_t n = mesa_log_ring_take_locked();
++      pthread_mutex_unlock(&mesa_log_ring.lock);
++      if (n == 0)
++         return;
++      fwrite(mesa_log_ring.chunk, 1, n, fp);
++   }
++}
++
++static void *
++mesa_log_ring_writer(void *arg)
++{
++   uint64_t last_slow_note = 0;
++
++   (void)arg;
++   for (;;) {
++      pthread_mutex_lock(&mesa_log_ring.lock);
++      while (mesa_log_ring.head == mesa_log_ring.tail) {
++         mesa_log_ring.writing = false;
++         pthread_cond_wait(&mesa_log_ring.wake, &mesa_log_ring.lock);
++      }
++      mesa_log_ring.writing = true;
++      pthread_mutex_unlock(&mesa_log_ring.lock);
++
++      /* io first, then the ring: a synchronous ERROR line, which drains under io, then finds every earlier line
++       * still in the ring or already in the file, never in this thread's hands. */
++      pthread_mutex_lock(&mesa_log_ring.io);
++      pthread_mutex_lock(&mesa_log_ring.lock);
++      const uint32_t n = mesa_log_ring_take_locked();
++      pthread_mutex_unlock(&mesa_log_ring.lock);
++      uint64_t d = 0, t0 = 0;
++      if (n != 0) {
++         t0 = os_time_get_nano();
++         fwrite(mesa_log_ring.chunk, 1, n, mesa_log_file);
++         fflush(mesa_log_file);
++         d = os_time_get_nano() - t0;
++      }
++      pthread_mutex_unlock(&mesa_log_ring.io);
++
++      if (d >= MESA_LOG_ASYNC_SLOW_NS && t0 - last_slow_note >= 1000ull * 1000 * 1000) {
++         char note[256];
++         const uint32_t len = mesa_log_ring_note(note, sizeof(note), MESA_LOG_INFO,
++                                                 "mesa log: a radv.log write of %u bytes took %" PRIu64 " us "
++                                                 "on the async log writer, off the logging thread",
++                                                 n, d / 1000);
++         last_slow_note = t0;
++         mesa_log_ring_put(note, len);
++      }
++   }
++   return NULL;
++}
++
++/* Waits, at most timeout_ms, until every queued line is in the file. For teardown, never for a frame. */
++void
++mesa_log_flush(unsigned timeout_ms)
++{
++   if (mesa_log_ring.size == 0)
++      return;
++   const uint64_t deadline = os_time_get_nano() + (uint64_t)timeout_ms * 1000 * 1000;
++   for (;;) {
++      pthread_mutex_lock(&mesa_log_ring.lock);
++      const bool idle = mesa_log_ring.head == mesa_log_ring.tail && !mesa_log_ring.writing;
++      pthread_mutex_unlock(&mesa_log_ring.lock);
++      if (idle || os_time_get_nano() >= deadline)
++         return;
++      os_time_sleep(1000);
++   }
++}
++
++static void
++mesa_log_flush_at_exit(void)
++{
++   mesa_log_flush(500);
++}
++
++unsigned
++mesa_log_async_kib(void)
++{
++   mesa_log_init();
++   return mesa_log_ring.size / 1024;
++}
++
++/* From mesa_log_init_once, after the FILE is chosen and before any line is logged. Leaves size 0 (synchronous)
++ * on any failure. */
++static void
++mesa_log_async_init(void)
++{
++   const char *e = os_get_option("ORBIS_LOG_ASYNC");
++   const char *hung = os_get_option("ORBIS_DUMP_HUNG");
++   long kib = MESA_LOG_ASYNC_DEFAULT_KIB;
++   pthread_attr_t attr;
++   pthread_t thread;
++
++   if (!(mesa_log_control & MESA_LOG_CONTROL_FILE))
++      return;
++   /* The same rule as orbis_dump_hung_enabled() in ac_orbis_drm.c. */
++   if (hung != NULL && hung[0] != '\0' && !(hung[0] == '0' && hung[1] == '\0'))
++      return;
++   if (e != NULL && *e != '\0') {
++      kib = strtol(e, NULL, 10);
++      if (kib == 0)
++         return;
++      if (kib == 1)
++         kib = MESA_LOG_ASYNC_DEFAULT_KIB;
++      kib = CLAMP(kib, MESA_LOG_ASYNC_MIN_KIB, MESA_LOG_ASYNC_MAX_KIB);
++   }
++   if (pthread_mutex_init(&mesa_log_ring.lock, NULL) != 0 || pthread_mutex_init(&mesa_log_ring.io, NULL) != 0 ||
++       pthread_cond_init(&mesa_log_ring.wake, NULL) != 0)
++      return;
++   if ((mesa_log_ring.buf = malloc((size_t)kib * 1024)) == NULL)
++      return;
++   if (scePthreadAttrInit(&attr) != 0) {
++      free(mesa_log_ring.buf);
++      return;
++   }
++   scePthreadAttrSetstacksize(&attr, MESA_LOG_ASYNC_STACK);
++   scePthreadAttrSetdetachstate(&attr, PTHREAD_CREATE_DETACHED);
++   const int rc = scePthreadCreate(&thread, &attr, mesa_log_ring_writer, NULL, "mesa-log");
++   scePthreadAttrDestroy(&attr);
++   if (rc != 0) {
++      free(mesa_log_ring.buf);
++      return;
++   }
++   mesa_log_ring.size = (uint32_t)kib * 1024;
++   atexit(mesa_log_flush_at_exit);
++}
++#endif
++
+ static void
+ logger_file(enum mesa_log_level level,
+             const char *tag,
+@@ -309,8 +588,23 @@
+          LOGGER_VASNPRINTF_AFFIX_NEWLINE,
+          level, tag, format, va);
+ 
++#ifdef HAVE_ORBIS_PLATFORM
++   if (mesa_log_ring.size != 0 && level != MESA_LOG_ERROR) {
++      mesa_log_ring_put(msg, (uint32_t)strlen(msg));
++   } else if (mesa_log_ring.size != 0) {
++      pthread_mutex_lock(&mesa_log_ring.io);
++      mesa_log_ring_drain_io_locked(fp);
++      fprintf(fp, "%s", msg);
++      fflush(fp);
++      pthread_mutex_unlock(&mesa_log_ring.io);
++   } else {
++      fprintf(fp, "%s", msg);
++      fflush(fp);
++   }
++#else
+    fprintf(fp, "%s", msg);
+    fflush(fp);
++#endif
+ 
+    if (msg != local_msg)
+       free(msg);
+diff --git a/src/util/log.h b/src/util/log.h
+--- a/src/util/log.h
++++ b/src/util/log.h
+@@ -57,6 +57,17 @@
+ FILE *
+ mesa_log_get_file(void);
+ 
++#ifdef HAVE_ORBIS_PLATFORM
++/* Mesa patch 0048: radv.log lines go through a ring and a writer thread of their own (ORBIS_LOG_ASYNC). The
++ * ring's size in KiB, 0 when lines are written on the logging thread. */
++unsigned
++mesa_log_async_kib(void);
++
++/* Waits at most timeout_ms for every queued line to reach the file. Teardown only, never a frame's path. */
++void
++mesa_log_flush(unsigned timeout_ms);
++#endif
++
+ void PRINTFLIKE(3, 4)
+ mesa_log(enum mesa_log_level, const char *tag, const char *format, ...);
+ 
+diff --git a/src/vulkan/wsi/wsi_orbis.c b/src/vulkan/wsi/wsi_orbis.c
+--- a/src/vulkan/wsi/wsi_orbis.c
++++ b/src/vulkan/wsi/wsi_orbis.c
+@@ -461,6 +461,25 @@
+    return true;
+ }
+ 
++/* Mesa patch 0048: which way radv.log lines leave the thread that logs them, said once, by the first swapchain. */
++static void
++wsi_orbis_log_async_note(void)
++{
++#ifdef HAVE_ORBIS_PLATFORM
++   static int said;
++
++   if (__atomic_exchange_n(&said, 1, __ATOMIC_RELAXED))
++      return;
++   const unsigned kib = mesa_log_async_kib();
++   if (kib != 0)
++      mesa_logi("wsi/orbis: async log on (ring %u KiB) - radv.log lines are queued and written by a thread of "
++                "their own; ERROR lines still on the logging thread", kib);
++   else
++      mesa_logi("wsi/orbis: async log off - radv.log lines are written on the thread that logs them "
++                "(ORBIS_LOG_ASYNC=0, ORBIS_DUMP_HUNG on, or the writer did not start)");
++#endif
++}
++
+ /* ⚠ THE COPY IS THE LAST THING BETWEEN THE FRAME AND THE TELEVISION, and it costs 2.3 ms of a
+  * 21.9 ms frame - over a tenth of the frame to move 8100 KiB that the GPU has already written.
+  *
+@@ -482,6 +501,7 @@
+ wsi_orbis_scanout_create(uint32_t width, uint32_t height, uint32_t count, void *const *addrs,
+                          uint32_t pitch_px)
+ {
++   wsi_orbis_log_async_note();
+    if (count == 0 || count > WSI_ORBIS_MAX_BUFFERS) {
+       mesa_loge("wsi/orbis: %u swapchain images is outside 1..%d", count, WSI_ORBIS_MAX_BUFFERS);
+       return NULL;
+@@ -1256,6 +1276,11 @@
+    wsi_orbis_release(so);
+    pthread_mutex_unlock(&wsi_orbis_owner_lock);
+    free(so);
++#ifdef HAVE_ORBIS_PLATFORM
++   /* A swapchain going away may be the title going away: give the async log writer (0048) a moment to put the
++    * queued radv.log lines on disk. Bounded, outside every lock, and teardown is not a frame's path. */
++   mesa_log_flush(250);
++#endif
+ }
+ 
+ /* --- The title's own frames ------------------------------------------------

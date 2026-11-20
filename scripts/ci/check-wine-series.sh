@@ -16,12 +16,18 @@
 # the series (or rebuild the cache from it), never the tree by hand.
 #
 # Usage: scripts/ci/check-wine-series.sh [PW_ROOT] [HOST_WINE]
-#   PW_ROOT    the prospero-win checkout (default $PW_ABI4_ROOT/source)
+#   PW_ROOT    the prospero-win checkout (default $PW_ABI4_ROOT/source when
+#              PW_ABI4_ROOT is set, else this checkout's prospero-win/)
 #   HOST_WINE  host Wine work dir with source/ (default PW_ROOT/.deps/wine-host)
 set -euo pipefail
 
-ABI4=${PW_ABI4_ROOT:-/home/zpeirce/codex_scratch/abi4-upstream-port-20261104}
-PW=${1:-$ABI4/source}
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+case ${1:-} in -h|--help) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;; esac
+if [[ -n ${PW_ABI4_ROOT:-} ]]; then
+  PW=${1:-$PW_ABI4_ROOT/source}
+else
+  PW=${1:-$ROOT/prospero-win}
+fi
 HOST_WINE=${2:-${PW_HOST_WINE:-$PW/.deps/wine-host}}
 SOURCE=$HOST_WINE/source
 # The runner's cache belongs to another user; trust this one repository for

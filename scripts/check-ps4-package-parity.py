@@ -61,6 +61,16 @@ def main():
     args = ap.parse_args()
     base, cand = args.baseline, args.candidate
 
+    # 0. Both stages must exist. A missing baseline used to compare against an empty tree and pass
+    # with "0 baseline payload files absent"; a missing candidate died in a traceback.
+    for label, path in (('baseline', base), ('candidate', cand)):
+        if not os.path.isdir(path):
+            report('FAIL', f"{label} stage {path!r} is not a directory (missing, or a dangling symlink); "
+                           "nothing was compared")
+    if failures:
+        print(f"\nNOT INSTALLABLE: {failures} FAIL")
+        return 1
+
     # 1. Relocation: the eboot must be the no-RELRO stub that loads the app PRX.
     eboot = os.path.join(cand, 'eboot.bin')
     app = module(cand, 'relocated_wine_app')
@@ -293,9 +303,13 @@ def main():
                     out.add(rel)
         return out
     bf, cf = files(base), files(cand)
-    gone = sorted(bf - cf)
-    report('WARN' if gone else 'PASS', f"{len(gone)} baseline payload files absent from candidate"
-           + (': ' + ', '.join(gone[:12]) + (' ...' if len(gone) > 12 else '') if gone else ''))
+    if not bf:
+        report('FAIL', f"baseline stage {base!r} holds no payload files: it is not an unpacked package "
+                       "stage, so the comparison would pass vacuously")
+    else:
+        gone = sorted(bf - cf)
+        report('WARN' if gone else 'PASS', f"{len(gone)} baseline payload files absent from candidate"
+               + (': ' + ', '.join(gone[:12]) + (' ...' if len(gone) > 12 else '') if gone else ''))
 
     # 9. PS4-specific strings present in the baseline but not the candidate (review list).
     for name in ('ntdll', 'win32u', 'wineserver', 'winevulkan', 'libvulkan', 'xinput1_3'):

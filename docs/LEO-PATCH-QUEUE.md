@@ -1,5 +1,39 @@
 # Leo's prospero-win patches not yet in Orbis-Win
 
+## STATUS 2026-11-12: ported, and nothing portable remains
+
+39 of the 66 are ported as `src/wine-patches-ps4/1036-1074`, in five batches,
+each built and tested on hardware (FNV 37.1-39.0 in-world throughout, against
+a 37.8 baseline). The remaining 27 are NOT a backlog of missing features:
+
+| class | count | meaning |
+|---|---|---|
+| already present as our own variant | ~24 | convergence work, not porting |
+| needs Leo's PS5 runtime files | 2 | `0976` wants `wine/ps5/pw_wine_sections.c`; `1010` wants `../pw_title_notify.h` |
+| genuinely absent | **0** | - |
+
+**The `frac` column below is unreliable and must not be used to decide.**
+Measured today: `0510` scored `0.00` while we had it in full (ours is a
+superset with `__x86_64__` and a `WINE_HOST_PAGE_SIZE` override); `0530` and
+`0879` likewise scored low while being fully present, `0879` including Leo's
+own comment text verbatim plus our `poll()` improvement. Content matching
+cannot see through a divergent implementation. Three triage calls were wrong
+because they searched Leo's *prose* terms (`wake_pipe`) instead of the code's
+symbols; the only check that settled each case was reading our implementation
+of the same function.
+
+Ordering is load-bearing when applying: `0989` needs `0987`, and `0966`,
+`0990`, `0992` need `0951`/`0990`, so a single pass makes them look like
+conflicts. Two passes picks them up.
+
+What is left is the convergence decision, not porting: per AGENTS.md, prefer
+upstream's implementation and justify any divergence we keep. The eight
+`ps5drv.c` cursor/window patches are the largest cluster and want their own
+test cycle.
+
+---
+
+
 Audited by content with `scripts/audit-patch-presence.py` against
 `worktrees/playden-ps4-0170/.deps/wine-ps5/source` on 2026-11-12, from `leo/main`
 (`leolobato/prospero-win`, fetched as remote `leo` in `prospero-win/`).

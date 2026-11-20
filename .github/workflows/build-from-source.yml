@@ -1,0 +1,188 @@
+# Build orbis-win from source on a GitHub-hosted runner.
+#
+# This exists because the existing CI (scripts/ci/) assembles from a private
+# 26 GB cache and then symlinks the repo to one person's home directory, so a
+# green run there says nothing about whether anyone else can build. This job
+# starts from nothing: a clone, public pins, and public downloads.
+#
+# It deliberately stops before packaging. eboot packaging needs
+# sce_module/libc.prx and libSceFios2.prx, which are Sony's and are not in this
+# repository. What it does prove is everything up to that point: the SDK, the
+# pinned Wine/Mesa trees, the toolchain, Wine itself and every PRX.
+name: build-from-source
+
+on:
+  push:
+    branches: [ci/build-from-source]
+  workflow_dispatch:
+
+# One run at a time, and a new push cancels the one it supersedes. Without this
+# each push started another multi-hour cold build answering the same question.
+concurrency:
+  group: build-from-source
+  cancel-in-progress: true
+
+jobs:
+  from-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Host packages
+        run: |
+          # ⚠ LLVM 19, FROM apt.llvm.org, LIKE build-ps4-package.yml.
+          # scripts/link-llvm-ps4.sh (PR #17) requires LLVM 19 by design and exits
+          # "no LLVM 19 found" on Ubuntu's unversioned clang, which is what broke
+          # run 44234091715 the moment that script started running inside
+          # prepare-ps4-toolchain.sh. The release build already pins 19.1.7 here
+          # because the PRX platform units are compiled on every build and a
+          # different point release produces different machine code.
+          sudo install -d -m 0755 /etc/apt/keyrings
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key |
+            sudo tee /etc/apt/keyrings/apt.llvm.org.asc >/dev/null
+          echo "deb [signed-by=/etc/apt/keyrings/apt.llvm.org.asc] http://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" |
+            sudo tee /etc/apt/sources.list.d/llvm-19.list >/dev/null
+          printf 'Package: *\nPin: release o=apt.llvm.org\nPin-Priority: 1001\n' |
+            sudo tee /etc/apt/preferences.d/llvm-19 >/dev/null
+          sudo apt-get update -qq
+          # Wine's configure needs bison/flex/perl/pkg-config and a C++
+          # toolchain; the self-hosted runner installs these too
+          # (.github/workflows/build-ps4-package.yml). Without them configure
+          # fails and the only clue is "configure failed; see configure.log".
+          sudo apt-get install -y -qq build-essential clang-19 lld-19 llvm-19 cmake \
+            ninja-build glslang-tools gcc-mingw-w64-x86-64 gcc-mingw-w64-i686 \
+            g++-mingw-w64-i686 bison flex perl pkg-config python3 curl lftp \
+            libx11-dev libxext-dev libxrandr-dev libxi-dev libxcursor-dev \
+            libxcomposite-dev libxinerama-dev libxrender-dev libxfixes-dev \
+            libfreetype-dev libfontconfig1-dev libgnutls28-dev libvulkan-dev \
+            libasound2-dev
+          clang --version | head -1
+
+      - name: LLVM 19 under its plain names
+        run: |
+          for t in clang clang++ lld ld.lld llvm-ar llvm-ranlib llvm-nm \
+                   llvm-objcopy llvm-objdump llvm-readelf llvm-strip; do
+            sudo ln -sfn "/usr/bin/${t}-19" "/usr/local/bin/$t"
+          done
+          clang --version | head -1
+          clang --version | grep -q 'version 19\.' || {
+            echo "clang must be LLVM 19 for the pinned toolchain" >&2; exit 1; }
+
+      - name: Nix (Mesa's build deps come from nix develop nixpkgs#mesa)
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: prereqs.sh
+        run: bash scripts/prereqs.sh
+
+      - name: SDK bundle (public release, checksummed)
+        run: ./scripts/fetch-sdk.sh
+
+      - name: prospero-win
+        run: git clone -q https://github.com/plastikman/prospero-win.git prospero-win
+
+      # ⚠ ntdll MUST link the pin, not the bundle's copy. The bundle predates the
+      # include/signal.h delta, so SIG_UNBLOCK compiles to Linux's 1, which libkernel
+      # reads as SIG_BLOCK: Wine's native-frame probe blocks the signal it is about to
+      # send itself, wow64native reports STATUS_NOT_SUPPORTED (c00000bb), and Wine drops
+      # to the wowprospero translator silently. Measured on hardware 2026-11-17 - and the
+      # parity gate passes such a package 19/0, so nothing downstream catches it.
+      # Mesa/RADV is the exception and keeps the bundle's copy; see the Mesa step.
+      - name: orbis-compat (the pin - every Wine PRX links this)
+        run: |
+          git clone -q https://github.com/orbis-ports/orbis-compat.git orbis-compat
+          git -C orbis-compat checkout -q --detach "$(cat src/orbis-compat-pin/BASE.txt)"
+          git -C orbis-compat apply "$PWD/src/orbis-compat-pin/orbis-compat-delta.patch"
+          cp -r src/orbis-compat-pin/cmake orbis-compat/
+          OO_PS4_TOOLCHAIN="$PWD/sdk/orbis-sdk-v1/sdk" bash orbis-compat/build.sh
+          grep -q 'define[[:space:]]\+SIG_UNBLOCK[[:space:]]\+2' orbis-compat/include/signal.h \
+            || { echo "!! the pin lacks the PS4 signal ABI delta" >&2; exit 1; }
+          echo "PW_ORBIS_COMPAT=$PWD/orbis-compat" >> "$GITHUB_ENV"
+
+      - name: Restore the pinned Wine trees
+        run: |
+          ./scripts/restore-wine-trees.sh "$PWD/wine-trees"
+          mkdir -p prospero-win/.deps/wine-ps5 prospero-win/.deps/wine-host prospero-win/.deps/wine
+          cp -a wine-trees/wine-ps5  prospero-win/.deps/wine-ps5/source
+          cp -a wine-trees/wine-host prospero-win/.deps/wine-host/source
+          git clone -q --no-checkout https://gitlab.winehq.org/wine/wine.git prospero-win/.deps/wine/source
+          git -C prospero-win/.deps/wine/source checkout -q --detach \
+            490f6d5dcbb2a5047345b8af88d114bbcaad69a8
+
+      - name: Restore the pinned mesa-ps4 tree
+        run: ./scripts/restore-mesa-tree.sh "$PWD/mesa-build"
+
+      - name: Toolchain support archives
+        run: |
+          ./scripts/prepare-ps4-toolchain.sh
+          cd build/ps4-wine-sdk/bin
+          for t in llvm-ar llvm-ranlib llvm-nm llvm-objcopy llvm-readelf llvm-strip; do
+            ln -sfn "$(command -v $t || command -v $t-19)" $t
+          done
+          ln -sfn "$(command -v ld.lld || command -v ld.lld-19)" orbis-ld
+          ls -la
+
+      - name: Host Wine runtime
+        run: sh prospero-win/tools/build_wine_runtime.sh --jobs "$(nproc)"
+
+      - name: PS4 Wine (from the pinned tree)
+        run: |
+          PROSPERO_WINE_PREPATCHED=1 PW_PRX_LINK=1 \
+            sh prospero-win/tools/build_wine_ps5.sh --sdk "$PWD/build/ps4-wine-sdk"
+
+      # ⚠ THE BUNDLE'S orbis-compat HERE, ON PURPOSE, and not $PW_ORBIS_COMPAT.
+      # RADV built against the pin faults at run time (see the PRX step). fetch-sdk.sh
+      # says why the bundle pins SDK + orbis-compat + Mesa together: "a Mesa built
+      # against one header tree and linked against another is a struct-layout bug that
+      # compiles cleanly and fails at run time". This also supplies orbis-porting-kit,
+      # which build.sh finds through ORBIS_COMPAT_DIR.
+      - name: Mesa / RADV
+        run: |
+          ORBIS_COMPAT_DIR="$PWD/sdk/orbis-sdk-v1/orbis-compat" \
+          OO_PS4_TOOLCHAIN="$PWD/sdk/orbis-sdk-v1/sdk" \
+            bash mesa-build/mesa-ps4/ps4/build.sh
+
+      - name: PRX modules
+        run: |
+          sh scripts/prx-ps4.sh
+          sh scripts/freetype-prx-ps4.sh
+          # ⚠ RADV is the one module that must link the BUNDLE's orbis-compat: against
+          # the pin, libvulkan.prx faults 0xc0000005 at +0x16a6dba and every title sits on
+          # the spinner (measured on hardware 2026-11-17, Fallout: New Vegas, one variable
+          # changed). The PRX link reads the STAGED archive, not $PW_ORBIS_COMPAT, so swap
+          # it for this one link and put the pin back straight after.
+          OC=build/ps4-wine-sdk/liborbis-compat-16bit-wchar.a
+          cp "$OC" "$OC.pin"
+          cp sdk/orbis-sdk-v1/orbis-compat/build/liborbis-compat.a "$OC"
+          M="$PWD/mesa-build/mesa-ps4"
+          PW_RADV_MESA_SRC="$M" PW_RADV_MESA_BUILD="$M/build-orbis" sh scripts/radv-prx-ps4.sh
+          mv "$OC.pin" "$OC"
+          sh scripts/wineps5-prx-ps4.sh
+
+      - name: What was built
+        run: |
+          echo "## PRX modules" >> "$GITHUB_STEP_SUMMARY"
+          ls -la prospero-win/.deps/wine-ps5/prx/sce_module/ | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "## ntdll carries the PS4 port" >> "$GITHUB_STEP_SUMMARY"
+          strings prospero-win/.deps/wine-ps5/build/dlls/ntdll/ntdll.so \
+            | grep -c 'PW_PS4\|pw_wine' | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Without these a failure says only "configure failed; see configure.log",
+      # and the log dies with the runner.
+      - name: Build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            prospero-win/.deps/wine/configure.log
+            prospero-win/.deps/wine/make.log
+            prospero-win/.deps/wine-ps5/configure.log
+            prospero-win/.deps/wine-ps5/make.log
+          if-no-files-found: warn
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prx-modules
+          path: prospero-win/.deps/wine-ps5/prx/sce_module/*.prx
+          if-no-files-found: error
