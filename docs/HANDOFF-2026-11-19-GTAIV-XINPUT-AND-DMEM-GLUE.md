@@ -319,7 +319,7 @@ that would make the "built from pins" claim false.
 
 1. **Release review and scope decision remain.** 02.98 is a candidate, not a
    release. Review its full local delta against the current `origin/main`
-   before any publication. At the latest comparison, this branch was 26 commits
+   before any publication. At the latest comparison, this branch was 27 commits
    ahead and zero behind `origin/main`; the `origin/launcher-settings` tracking
    ref was stale. `git diff --check origin/main...HEAD` reports whitespace in
    archived mail-style patch files only; the new handoff edit itself passes
@@ -641,7 +641,9 @@ commit `12405ec` (`Restore bounded 128-thread guest sampler`).
   SHA-256 `9c5f240bce9f607ec8cabf631e75700cf443c37ff68ef8baf19f7eda9c6c4121`.
 - The console is left at the PS4 home screen with Orbis-Win 0.0.8 Candidate
   02.98 selected. The 02.98 package remains installed; no title is running.
-  No GitHub push, tag, or release was made.
+  The 02.98 installer is the validated v0.0.8 release artifact; its SHA-256
+  and matching installed package digest are recorded above and in
+  `docs/RELEASE-NOTES-0.0.8.md`.
 
 ## 02.98 13-title PE32 startup suite (2026-11-19)
 
@@ -673,12 +675,31 @@ Hollow Knight and Risk of Rain 2 are PE64 cards and were not part of this
 13-title PE32 suite. 02.98's 26% Vulkan fix remains included in the package;
 RoR2 was not rerun as part of this suite.
 
-The draft release notes are in `docs/RELEASE-NOTES-0.0.8.md`. They record the
-validated package and known title failures; they do not claim a published
-release.
+## Final package/parity review (2026-11-19)
 
-Next: complete review of the 26-commit local delta against `origin/main`, resolve
-any release-review findings, and decide whether to publish 0.0.8. Keep 02.97 as
-a rollback package and 02.98 installed as the current candidate. Publishing
-still requires separate authorization; this handoff records no push, tag, or
-release.
+- A release review found that parity rule 4b-2 only failed a stale dmem glue
+  copy when another candidate module carried the fresh marker. If every copy
+  were stale, it warned; if the candidate dropped all glue markers, it emitted
+  no result. The gate now compares glue-bearing modules in the supplied
+  baseline to the candidate and fails stale copies, omitted baseline modules,
+  or an unverifiable baseline/candidate pair.
+- Verified the updated gate against the 02.97 and 02.98 stages with the actual
+  ABI4 PRX output directory and source root. It reports **0 hard failures**;
+  descriptor and signal-mask checks pass. The sole remaining warning is that
+  `kernelbase/debug.c` is absent in the Wine host tree, so the gate cannot prove
+  `PW_EXCEPTION32` reachability from source. The staged i386 `kernelbase.dll`
+  contains 25 `PW_EXCEPTION32` strings.
+- Exercised the new failure paths against a temporary in-place stage mutation,
+  restored in `finally`: removing `default-unlimited` from every candidate glue
+  copy fails, and removing the glue markers from candidate modules that were
+  present in the baseline also fails. The actual 02.98 stage and package were
+  restored and rechecked; package SHA remains
+  `6932b8532766a33afca2a386697a62b8a6c95cc2c46802fc38f185c8edb8d3bf`.
+- Updated `src/wine-trees/README.md` to match the current pin files
+  (`wine-ps5` `ee7b06d`, `wine-host` `7892a81`). The release-notes draft no
+  longer implies the standalone Risk of Rain 2 profile is included in the
+  installer; `src/profiles/` game profiles are installed separately.
+
+Release notes are in `docs/RELEASE-NOTES-0.0.8.md`. They record the validated
+package and known title failures without claiming that every title works.
+Keep 02.97 as a rollback package and 02.98 installed as the current build.

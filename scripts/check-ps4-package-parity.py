@@ -401,29 +401,35 @@ def main():
     # without the label was built from an older glue.
     GLUE_FORMAT = 'exec-migrate-range-max'
     GLUE_CURRENT = 'default-unlimited'
-    stale_glue, fresh_glue = [], []
+    glue_format_bytes = GLUE_FORMAT.encode('ascii')
+    glue_current_bytes = GLUE_CURRENT.encode('ascii')
+    baseline_glue = set()
+    for prx in sorted(glob.glob(os.path.join(base, 'sce_module', '*.prx'))):
+        if glue_format_bytes in read(prx):
+            baseline_glue.add(os.path.basename(prx))
+
+    candidate_glue = {}
     for prx in sorted(glob.glob(os.path.join(cand, 'sce_module', '*.prx'))):
         data = read(prx)
-        if GLUE_FORMAT.encode('ascii') not in data:
-            continue
-        (fresh_glue if GLUE_CURRENT.encode('ascii') in data else stale_glue).append(
-            os.path.basename(prx))
-    if stale_glue and fresh_glue:
-        report('FAIL', f"dmem glue mismatch: {', '.join(stale_glue)} carries an older "
-                       f"pw_wine_dmem_glue_ps4 than {', '.join(fresh_glue)} (no "
-                       f"'{GLUE_CURRENT}'). ntdll.prx's copy is the one that governs "
-                       'exec protection, so a stale one silently caps exec-migrate at 256 KiB '
-                       'and breaks 32-bit titles. Delete the objects AND '
+        if glue_format_bytes in data:
+            candidate_glue[os.path.basename(prx)] = glue_current_bytes in data
+
+    missing_glue = sorted(name for name in baseline_glue if name not in candidate_glue)
+    stale_glue = sorted(name for name, current in candidate_glue.items() if not current)
+    if missing_glue or stale_glue:
+        report('FAIL', f"dmem glue is missing or stale: baseline modules omitted={missing_glue}, "
+                       f"candidate modules without '{GLUE_CURRENT}'={stale_glue}. "
+                       "ntdll.prx's copy governs exec protection; the stale copy silently caps "
+                       'exec-migrate at 256 KiB and breaks 32-bit titles. Delete the objects AND '
                        'build/ps4-wine-sdk/libps4stubs.a, re-run prepare-ps4-toolchain.sh + '
                        'prx-ps4.sh, and confirm with: strings <pkg>/sce_module/ntdll.prx | '
                        f'grep -c {GLUE_CURRENT}')
-    elif stale_glue:
-        report('WARN', f"every module with the dmem glue ({', '.join(stale_glue)}) lacks "
-                       f"'{GLUE_CURRENT}'; if the current source still emits that label they "
-                       'were all built from a stale libps4stubs.a')
-    elif fresh_glue:
-        report('PASS', f"the dmem glue agrees across {len(fresh_glue)} module(s) "
-                       f"({', '.join(fresh_glue)})")
+    elif baseline_glue or candidate_glue:
+        report('PASS', f"dmem glue is current in all {len(candidate_glue)} candidate module(s); "
+                       f"all {len(baseline_glue)} baseline glue module(s) are preserved")
+    else:
+        report('FAIL', 'neither baseline nor candidate contains the dmem glue marker; '
+                       'the expected direct-memory glue cannot be verified')
 
     print(f"\n{'NOT INSTALLABLE' if failures else 'hard gates passed'}: {failures} FAIL")
     return 1 if failures else 0

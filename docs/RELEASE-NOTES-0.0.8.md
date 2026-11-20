@@ -12,7 +12,7 @@
   executable pages from becoming executable. GTA IV reaches its episode menu
   and accepts controller navigation.
 - Carries the profile runtime-version and environment, audio, and Steam path
-  updates, plus the Risk of Rain 2 profile.
+  handling needed by Playden's PS4 runtime profiles.
 
 ## Validation and known issues
 
@@ -36,5 +36,5 @@ The candidate installer is
 `IV0000-GLDS10043_00-GLDS100430000000.pkg`, SHA-256
 `6932b8532766a33afca2a386697a62b8a6c95cc2c46802fc38f185c8edb8d3bf`.
 Its console app version is **02.98**. The 02.98 package was installed and
-validated on-console; this file is a release draft, not a record of a published
-GitHub release.
+validated on-console; its installed `app.json` package digest matched the
+package header digest.

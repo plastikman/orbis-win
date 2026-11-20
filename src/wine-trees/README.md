@@ -5,8 +5,8 @@ patch series. These pins make both reproducible from public sources.
 
 | tree | builds | pinned HEAD |
 |---|---|---|
-| `.deps/wine-ps5/source`  | unix/PRX side: `ntdll.prx`, `win32u.prx`, `wineserver.prx`, `libvulkan.prx` | `b5acab7bff83d68b4d069cf67b0c41976dadd9d6` |
-| `.deps/wine-host/source` | PE side: every DLL under `win/wine/lib/wine/<arch>-windows/` | `0f6e2e67f19abe47266d9816102711a63b124598` |
+| `.deps/wine-ps5/source`  | unix/PRX side: `ntdll.prx`, `win32u.prx`, `wineserver.prx`, `libvulkan.prx` | `ee7b06d32113629e28234bf6d1e1011cc8152203` |
+| `.deps/wine-host/source` | PE side: every DLL under `win/wine/lib/wine/<arch>-windows/` | `7892a817125cfc1c428b2351ca2e725756017a9d` |
 
 Both sit on the **same** upstream Wine base:
 
@@ -14,7 +14,8 @@ Both sit on the **same** upstream Wine base:
     d3dx: Check for NULL new_data in convert_dib_to_bmp()   (Andrey Gusev, 2026-09-07)
 
 That commit is in public WineHQ `wine/wine`, so a pin is just that SHA plus the
-delta bundle in this directory. Each bundle is ~0.5 MB.
+delta bundle in this directory. The current host bundle is 466,819 bytes and
+the PS5 bundle is 626,935 bytes.
 
 ## Restore
 
