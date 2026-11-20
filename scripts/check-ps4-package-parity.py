@@ -359,10 +359,12 @@ def main():
         for arch in ('i386-windows', 'x86_64-windows'):
             rel = os.path.join('win', 'wine', 'lib', 'wine', arch, fname)
             a, b = os.path.join(base, rel), os.path.join(cand, rel)
-            if not (os.path.isfile(a) and os.path.isfile(b)):
+            if not os.path.isfile(a):
                 continue
             if marker_in(a, marker):
-                if marker_in(b, marker):
+                if not os.path.isfile(b):
+                    lost.setdefault(cap, []).append(f'{arch}/{fname} (file missing)')
+                elif marker_in(b, marker):
                     kept.add(cap)
                 else:
                     lost.setdefault(cap, []).append(f'{arch}/{fname} ({marker})')

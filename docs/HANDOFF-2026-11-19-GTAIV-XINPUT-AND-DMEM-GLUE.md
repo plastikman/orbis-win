@@ -256,14 +256,14 @@ parity FAIL ("sce_module and win/wine/lib/wine/x86_64-unix copies differ").
 - `f530fcc` -- this 02.96 update and restoration of the bounded guest-sampler
   values (`PW_GUEST_SAMPLE_MAX=400`, 16 tracked threads).
 
-The local branch is **97 commits ahead of `origin/launcher-settings`**, but
-that is a stale comparison point. The remote refs have diverged: relative to
-their merge base, `origin/launcher-settings` has 10 commits and `origin/main`
-has 90. This HEAD contains both histories plus a merge, and is **17 commits
-ahead of `origin/main`** (`git rev-list origin/main..HEAD`). Review the 17-commit
-range against current `origin/main` before publishing; do not treat all 97 as
-new work or push the full range blindly. Nothing has been pushed. The working
-tree is clean.
+At review start (`7fa2b32`), the local branch was **98 commits ahead of
+`origin/launcher-settings`**, but that is a stale comparison point. The remote
+refs have diverged: relative to their merge base, `origin/launcher-settings`
+has 10 commits and `origin/main` has 90. This branch contains both histories
+plus a merge and was **18 commits ahead of `origin/main`**. Review the local
+delta against current `origin/main` before publishing; do not treat the count
+against stale `origin/launcher-settings` as entirely new work. Nothing has
+been pushed.
 
 Also fixed on disk, not in git: `build/ps4-wine-sdk/libps4stubs.a` regenerated
 (16 KB Oct 7 -> 102 KB, now carrying the current glue). The original is kept at
@@ -332,10 +332,10 @@ that would make the "built from pins" claim false.
    marker. The smoke checks passed for the launcher and Half-Life 2; Isaac's
    early exit remains unresolved. It is not a release: do not tag or publish
    it until the remaining release review and chosen validation scope are done.
-5. Review the **17 commits beyond `origin/main`** before pushing anything. The
-   97-commit count against `origin/launcher-settings` includes the newer main
-   history because that tracking ref is behind/diverged. No push, tag, or
-   release has happened in this session.
+5. Review the local delta against `origin/main` before pushing anything. At
+   review start it was 18 commits; the 98-commit count against
+   `origin/launcher-settings` includes the newer main history because that
+   tracking ref is behind/diverged. No push, tag, or release has happened.
 
 ## Previous console state after 02.94 (superseded by 02.95 below)
 
@@ -484,15 +484,15 @@ not rebuild the Wine runtime or native WoW64 pair.
 - The console is currently left at the Half-Life 2 main menu in the installed
   02.96 app. The 9300 receiver is listening. Both current runs are in
   `/home/zpeirce/ps4-gladius/build-ps4-logs/ps5log-20261119-161212.log`.
-  `wait_watchdog=1` generated many `wake_up` records; the log has grown to about
-  727 MB, so disable it for later tests if they need extended waits. No push,
+  `wait_watchdog=1` generated many `wake_up` records; the log reached about
+  749 MB by 21:36, so disable it for later tests if they need extended waits. No push,
   tag, or release was made.
-- Current Git references: local `launcher-settings` is `8c89fb1`; it is 97 commits
-  ahead of the stale `origin/launcher-settings` tracking ref but only 17
-  commits beyond `origin/main`. The refs diverged (10 commits unique to the old
-  branch and 90 unique to main at their merge base); the local branch already
-  includes main via merge. Review the 17-commit `origin/main..HEAD` range before
-  any publication. Working tree is clean.
+- Current Git references at this report: the 02.96 candidate and handoff note
+  were at `7fa2b32`; that branch point was 98 commits beyond the stale
+  `origin/launcher-settings` ref and 18 commits beyond `origin/main`. The refs
+  diverged (10 commits unique to the old branch and 90 unique to main at their
+  merge base); the local branch includes main via merge. Review the local delta
+  against current `origin/main` before publication.
 
 ## Not pursued
 
@@ -501,3 +501,20 @@ Soul Reaver fails separately at OpenGL context creation
 suitable pixel format`, `dll_overrides=-`). Setting it to DXVK did not launch it
 either, and per Zak it has never worked. That is the `opengl-zink` path, unrelated
 to this.
+
+## Parity gate follow-up
+
+During the follow-on review, I found that the PE capability-provider gate only
+checked a candidate DLL when that file existed. If the baseline had the hosted
+driver provider but the candidate omitted the whole PE file, the gate skipped
+that path instead of failing. `scripts/check-ps4-package-parity.py` now reports
+that as a missing `wine-driver-threads` provider.
+
+- The normal 02.95-to-02.96 parity check still reports **0 FAILs** (with the
+  known kernelbase source WARN).
+- A temporary symlinked candidate stage with only the i386 `ntoskrnl.exe`
+  removed correctly fails the gate and identifies
+  `i386-windows/ntoskrnl.exe (file missing)`. The fixture was removed after the
+  check; no package or console files were changed.
+- This local parity-gate correction is not pushed. Review it with the rest of
+  the local delta before publishing.
