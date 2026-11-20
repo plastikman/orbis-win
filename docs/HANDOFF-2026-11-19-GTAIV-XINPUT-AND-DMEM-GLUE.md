@@ -1,10 +1,11 @@
 # GTA IV's dead controller was a stale dmem glue in ntdll.prx (2026-11-19)
 
 The GTA IV controller fix was verified in **02.92**. The current installed
-candidate is **02.96**, built with the real release marker and the tested 02.95
-runtime payload. It passed parity and PKG validation, was installed, and
-reached the Half-Life 2 menu. Binding of Isaac still exits normally before its
-first frame after successfully discovering the Zink provider.
+candidate is **02.97**, built with the real release marker and the tested 02.96
+runtime payload plus the bounded guest-sampler table fix. It passed parity and
+PKG validation, was installed, and reached the Half-Life 2 menu. Binding of
+Isaac still exits normally before its first frame after successfully
+discovering the Zink provider on 02.96; it has not been retested on 02.97.
 
 ## Session update (2026-11-19, latest state)
 
@@ -518,3 +519,71 @@ that as a missing `wine-driver-threads` provider.
   check; no package or console files were changed.
 - This local parity-gate correction is not pushed. Review it with the rest of
   the local delta before publishing.
+
+## 02.97 sampler bounds fix and console smoke test (2026-11-19)
+
+The guest sampler had an out-of-bounds table access: `seen_tid` held 16
+entries, while `seen_hits` held 128 and both lookup loops iterated 128 times.
+The source fix is committed locally as `5aa7c67` (`Fix bounded guest sampler
+thread table`). It defines `PW_GUEST_SAMPLE_THREADS` as 16, sizes both arrays
+from that constant, and uses the same bound in both loops. The path is still
+opt-in; this build does not enable sampling globally.
+
+- Build 02.97 used the ABI4 source tree and the known-tested ABI4 native pair
+  from 02.96. The PE/PRX hashes stayed
+  `e531a51bb19ae4f92e65556f0f6d4f89e930b9c7490d8a02988feb1d5ee9c044` and
+  `20eee436ae5856f06d39b9f9fa57720806612f15e1ebea4ab15b4638da5b729d`.
+- `scripts/prx-ps4.sh` rebuilt `ntdll.prx`. Its matching
+  `.deps/wine-ps5/prx/ntdll.shared.elf` reports `seen_tid` as 128 bytes and
+  `seen_hits` as 64 bytes (16 entries each). The package contains that PRX in
+  both `sce_module/ntdll.prx` and
+  `win/wine/lib/wine/x86_64-unix/ntdll.prx`.
+- The complete 02.96-to-02.97 staged comparison contains exactly five changed
+  files: `pkg.gp4`, `sce_sys/param.sfo`, `sce_module/relocated_wine_app.prx`,
+  and the two `ntdll.prx` copies. No baseline payload is missing.
+- The parity gate passes with 0 hard failures when given the matching PRX
+  directory (`.deps/wine-ps5/prx`) and ABI4 upstream root. It reports the
+  existing warning that the host Wine source lacks `dlls/kernelbase/debug.c`;
+  `kernelbase.dll` in the candidate still has 25 `PW_EXCEPTION32` strings.
+- `PkgTool.Core pkg_validate` passes all package digest and signature checks.
+  On this host the command needs
+  `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` and the library path returned by
+  `scripts/find-openssl11.sh`.
+- Exact installer:
+  `/home/zpeirce/ps4-package-scratch/orbis-0297-sampler-bound/trace/app/IV0000-GLDS10043_00-GLDS100430000000.pkg`
+  (532,414,464 bytes; SHA-256
+  `b5a077eb2ac06c7f9338d9bd9d83d0fbcbf4b1221f61fab34497d14c1a75f8bc`).
+  Build marker: `GLDS10043-02.97-sampler-bound`.
+- Uploaded over GoldHEN FTP to
+  `/data/pkg/IV0000-GLDS10043_00-GLDS100430000000.pkg` and installed through
+  Debug Settings > Game > Package Installer. The app's installed
+  `packageDigest` is
+  `DDE70CF947CADCF57F1737CA186B02FF3178DCBEC8D3F04929D2B37364971C02`, equal
+  to the package header digest at `0xFE0`.
+- Orbis-Win started with the 02.97 marker and reported 15 games plus
+  `video=ok pad=ok hid=ok`. Half-Life 2 (`half-life-2`, XInput) then reached
+  its main menu. At 22:24 it was still running; the log had recurring `alive`
+  records and Vulkan presents, with no guest exception or return-to-launcher
+  record in this run. This is a runtime regression smoke test, not direct
+  validation of the opt-in sampler. The 13-title PE32 startup/UI suite in this
+  handoff was run on 02.94, before 02.97; the only 02.97 title check so far is
+  HL2. The 02.94 suite results remain useful baseline coverage but are not a
+  claim that the full suite was rerun on 02.97.
+- Current log: `build-ps4-logs/ps5log-20261119-161212.log` (about 851 MB at
+  the last check); receiver on port 9300 is still active. The console is left
+  at the Half-Life 2 main menu in 02.97. Avoid extended wait tests with
+  `wait_watchdog=1`, which rapidly grows this log.
+- The first full wrapper attempt stopped at the ABI hash guard. A subsequent
+  `bash -x` run with the same explicit ABI4 pair completed without bypassing
+  the guard; the issue did not reproduce. No GitHub push, tag, or release was
+  made. The handoff and code fixes are local only.
+
+Next: when a targeted sampler validation is useful, enable
+`PW_PS4_GUEST_SAMPLER` only for a controlled diagnostic run that can produce
+guest waits. Confirm the feature flag is actually active in the log and
+inspect thread sampling output. Do not treat the HL2 smoke test as exercising
+that code path. Before a 0.0.8 publication, review the remaining local changes
+against `origin/main`, decide whether the opt-in sampler limits should remain
+at their current bounded values, and complete any requested suite/release
+review. No push, tag, or release is authorized by this handoff. No further
+package install is needed for the 02.97 candidate.
