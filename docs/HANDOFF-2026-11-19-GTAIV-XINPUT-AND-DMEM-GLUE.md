@@ -256,12 +256,14 @@ parity FAIL ("sce_module and win/wine/lib/wine/x86_64-unix copies differ").
 - `f530fcc` -- this 02.96 update and restoration of the bounded guest-sampler
   values (`PW_GUEST_SAMPLE_MAX=400`, 16 tracked threads).
 
-The original handoff check reported 95 commits ahead of
-`origin/launcher-settings`. The branch tracks that remote and is now **97
-commits ahead** (`git rev-list origin/launcher-settings..HEAD` reports `97`)
-after two local 02.96 handoff checkpoints. Nothing has been pushed. Review the
-full ahead range before publishing; do not push it as a unit without that
-review. The working tree is clean.
+The local branch is **97 commits ahead of `origin/launcher-settings`**, but
+that is a stale comparison point. The remote refs have diverged: relative to
+their merge base, `origin/launcher-settings` has 10 commits and `origin/main`
+has 90. This HEAD contains both histories plus a merge, and is **17 commits
+ahead of `origin/main`** (`git rev-list origin/main..HEAD`). Review the 17-commit
+range against current `origin/main` before publishing; do not treat all 97 as
+new work or push the full range blindly. Nothing has been pushed. The working
+tree is clean.
 
 Also fixed on disk, not in git: `build/ps4-wine-sdk/libps4stubs.a` regenerated
 (16 KB Oct 7 -> 102 KB, now carrying the current glue). The original is kept at
@@ -330,8 +332,10 @@ that would make the "built from pins" claim false.
    marker. The smoke checks passed for the launcher and Half-Life 2; Isaac's
    early exit remains unresolved. It is not a release: do not tag or publish
    it until the remaining release review and chosen validation scope are done.
-5. Review the 95-commit `launcher-settings` ahead range before pushing anything.
-   No push, tag, or release has happened in this session.
+5. Review the **17 commits beyond `origin/main`** before pushing anything. The
+   97-commit count against `origin/launcher-settings` includes the newer main
+   history because that tracking ref is behind/diverged. No push, tag, or
+   release has happened in this session.
 
 ## Previous console state after 02.94 (superseded by 02.95 below)
 
@@ -483,6 +487,12 @@ not rebuild the Wine runtime or native WoW64 pair.
   `wait_watchdog=1` generated many `wake_up` records; the log has grown to about
   727 MB, so disable it for later tests if they need extended waits. No push,
   tag, or release was made.
+- Current Git references: local `launcher-settings` is `8c89fb1`; it is 97 commits
+  ahead of the stale `origin/launcher-settings` tracking ref but only 17
+  commits beyond `origin/main`. The refs diverged (10 commits unique to the old
+  branch and 90 unique to main at their merge base); the local branch already
+  includes main via merge. Review the 17-commit `origin/main..HEAD` range before
+  any publication. Working tree is clean.
 
 ## Not pursued
 
