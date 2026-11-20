@@ -578,12 +578,68 @@ opt-in; this build does not enable sampling globally.
   the guard; the issue did not reproduce. No GitHub push, tag, or release was
   made. The handoff and code fixes are local only.
 
-Next: when a targeted sampler validation is useful, enable
-`PW_PS4_GUEST_SAMPLER` only for a controlled diagnostic run that can produce
-guest waits. Confirm the feature flag is actually active in the log and
-inspect thread sampling output. Do not treat the HL2 smoke test as exercising
-that code path. Before a 0.0.8 publication, review the remaining local changes
-against `origin/main`, decide whether the opt-in sampler limits should remain
-at their current bounded values, and complete any requested suite/release
-review. No push, tag, or release is authorized by this handoff. No further
-package install is needed for the 02.97 candidate.
+## 02.98 sampler-table candidate and console test (2026-11-19)
+
+The earlier 02.97 handoff described the sampler table as 16 entries. Review of
+the recent commits and the diagnostic's intended use changed that decision:
+Hollow Knight had 32 worker threads before the target was sampled, so a
+16-entry table can miss the thread of interest. Keep the sampler opt-in and
+bounded, but restore its documented 128-thread table and 20,000 timer-sample
+cap. The 20,000 cap applies only when the separate 10 Hz timer is explicitly
+enabled; ordinary sampler mode leaves that timer off. The code fix is local
+commit `12405ec` (`Restore bounded 128-thread guest sampler`).
+
+- Candidate: **Orbis-Win 0.0.8 Candidate 02.98**, marker
+  `GLDS10043-02.98-guest-sampler-128`.
+- Exact installer:
+  `/home/zpeirce/ps4-package-scratch/orbis-0298-guest-sampler/app/IV0000-GLDS10043_00-GLDS100430000000.pkg`
+  (532,414,464 bytes; SHA-256
+  `6932b8532766a33afca2a386697a62b8a6c95cc2c46802fc38f185c8edb8d3bf`).
+  Package header digest at offset `0xFE0`:
+  `6E8904E78CB916FFD7C28D7F7ED7653C9F5A9C12418A3170DFB2DD50535B6235`.
+- The matching `ntdll.shared.elf` reports `seen_tid` as 1,024 bytes and
+  `seen_hits` as 512 bytes: both arrays have 128 entries. The sampler source
+  and loops use the same `PW_GUEST_SAMPLE_THREADS` bound.
+- 02.97-to-02.98 staged comparison: exactly five changed files, `pkg.gp4`,
+  `sce_sys/param.sfo`, `sce_module/relocated_wine_app.prx`, and both `ntdll.prx`
+  copies. No staged payload files were added or omitted. The 02.98 parity gate
+  passed with zero hard failures (the existing `kernelbase/debug.c` warning
+  remains); `PkgTool.Core pkg_validate` passed all checks. Both `ntdll.prx`
+  copies have SHA-256
+  `d6d9a8aca93a966ea538f993a28e8b8a763e5b222bf0cf62ca3bf5df4558c110`.
+  The known-tested ABI4 pair was retained: DLL SHA-256
+  `e531a51bb19ae4f92e65556f0f6d4f89e930b9c7490d8a02988feb1d5ee9c044`, PRX
+  SHA-256 `20eee436ae5856f06d39b9f9fa57720806612f15e1ebea4ab15b4638da5b729d`.
+- Uploaded to GoldHEN FTP `/data/pkg/IV0000-GLDS10043_00-GLDS100430000000.pkg`
+  and installed through the Package Installer. The installed
+  `/user/app/GLDS10043/app.json` package digest matches the 02.98 header digest.
+- On 02.98, Orbis-Win reported the candidate marker and 15 library entries.
+  Half-Life 2 loaded to its main menu and remained alive, presenting frames.
+  This is a startup/regression smoke test, not evidence that the guest sampler
+  works.
+- A temporary `[debug] env = PW_PS4_GUEST_SAMPLER=1` was added to the HL2
+  profile. The launcher logged `debug_env=PW_PS4_GUEST_SAMPLER`, and klog
+  recorded `guest-sampler env="1" len=1` plus
+  `guest-sampler sigaction=0 setitimer=0`. The sampler emitted 12 samples and
+  12 stack records for 12 distinct threads while HL2 reached its menu and
+  remained running. `setitimer=0` is the return status; the free-running
+  `PW_PS4_SAMPLE_TIMER` was not enabled. The run exercises the sampler but did
+  not exceed 16 distinct threads, so the 128-entry capacity itself is verified
+  by the matching ELF symbol sizes, not by reaching entries above index 15 at
+  runtime. The original 2,808-byte HL2 profile was restored over FTP and its
+  readback SHA-256 matches the pre-test backup
+  (`274061cd737917d04c0d426b256270252e2b997c3c27fd6ee79cf9d400af05e8`).
+- The active klog capture is
+  `build-ps4-logs/ps4-klog-20261119-111421-watch.log`; the relevant records are
+  at 22:48:21.997-22:48:53.019. The separate UDP log is
+  `build-ps4-logs/ps5log-20261119-161212.log`; both receivers remain active.
+  These logs are large and grow quickly under `wait_watchdog=1`.
+- The console is left running 02.98 at the Half-Life 2 menu, with the original
+  profile restored. No GitHub push, tag, or release was made.
+
+Next: investigate why the enabled profile flag did not produce the native
+sampler startup marker before claiming runtime validation. Keep the 02.97
+package as rollback and 02.98 as the installed candidate. Before any 0.0.8
+publication, review the remaining local changes against `origin/main` and
+complete the requested suite/release review. No push, tag, or release is
+authorized by this handoff.
