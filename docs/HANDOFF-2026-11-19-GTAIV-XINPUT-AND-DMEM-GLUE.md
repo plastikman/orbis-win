@@ -319,7 +319,7 @@ that would make the "built from pins" claim false.
 
 1. **Release review and scope decision remain.** 02.98 is a candidate, not a
    release. Review its full local delta against the current `origin/main`
-   before any publication. At the latest comparison, this branch was 25 commits
+   before any publication. At the latest comparison, this branch was 26 commits
    ahead and zero behind `origin/main`; the `origin/launcher-settings` tracking
    ref was stale. `git diff --check origin/main...HEAD` reports whitespace in
    archived mail-style patch files only; the new handoff edit itself passes
@@ -673,8 +673,12 @@ Hollow Knight and Risk of Rain 2 are PE64 cards and were not part of this
 13-title PE32 suite. 02.98's 26% Vulkan fix remains included in the package;
 RoR2 was not rerun as part of this suite.
 
-Next: complete review of the 25-commit local delta against `origin/main`, resolve
-any release-review findings, and decide whether to publish 0.0.8. Keep 02.97 as a
-rollback package and 02.98 installed as the current candidate. Publishing
+The draft release notes are in `docs/RELEASE-NOTES-0.0.8.md`. They record the
+validated package and known title failures; they do not claim a published
+release.
+
+Next: complete review of the 26-commit local delta against `origin/main`, resolve
+any release-review findings, and decide whether to publish 0.0.8. Keep 02.97 as
+a rollback package and 02.98 installed as the current candidate. Publishing
 still requires separate authorization; this handoff records no push, tag, or
 release.
