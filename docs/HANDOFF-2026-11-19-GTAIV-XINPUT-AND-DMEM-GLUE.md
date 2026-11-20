@@ -252,14 +252,16 @@ parity FAIL ("sce_module and win/wine/lib/wine/x86_64-unix copies differ").
   and `docs/HANDOFF-2026-11-19-TITAN-QUEST-NTDLL.md` rewritten with the root cause
   (it previously pointed at the wrong lead, 1040/1041, and named a non-existent
   env var; the real knob is `PW_PS4_ALERT_LOG`).
+- `166cd14` -- the original GTA IV / stale-dmem handoff.
+- `f530fcc` -- this 02.96 update and restoration of the bounded guest-sampler
+  values (`PW_GUEST_SAMPLE_MAX=400`, 16 tracked threads).
 
-At the time this handoff was first written, `launcher-settings` had two commits
-beyond its earlier merge and nothing was pushed. On the latest check it tracks
-`origin/launcher-settings` and is **95 commits ahead** (`git rev-list
-origin/launcher-settings...HEAD` reported `0 95`). This count differs from the
-earlier note and should be reconciled before any push; do not push the whole
-ahead range without reviewing it. Current dirty repo files are this handoff and
-`src/native/pw_wine_dmem_glue_ps4.c` (sampler bounds restored to 400/16).
+The original handoff check reported 95 commits ahead of
+`origin/launcher-settings`. The branch tracks that remote and is now **97
+commits ahead** (`git rev-list origin/launcher-settings..HEAD` reports `97`)
+after two local 02.96 handoff checkpoints. Nothing has been pushed. Review the
+full ahead range before publishing; do not push it as a unit without that
+review. The working tree is clean.
 
 Also fixed on disk, not in git: `build/ps4-wine-sdk/libps4stubs.a` regenerated
 (16 KB Oct 7 -> 102 KB, now carrying the current glue). The original is kept at
