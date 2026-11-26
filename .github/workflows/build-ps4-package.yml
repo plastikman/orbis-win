@@ -123,9 +123,12 @@ jobs:
       # source-build refreshes the pinned Wine, PE and PS4 module outputs, then
       # packages those outputs with the still-validated ABI-v4 WoW64 pair and
       # the known-good OpenGL provider from the baseline stage. The generic
-      # ABI-v4 cache remains available for ordinary cache-backed builds.
+      # ABI-v4 cache remains available for ordinary cache-backed builds. Keep
+      # the source clone out of the shared (older, mutable) prospero-win cache.
       - name: Rebuild the pinned Wine inputs for the source package
         if: ${{ inputs.build_mode == 'source-build' }}
+        env:
+          PW_PROSPERO_ROOT: ${{ github.workspace }}/prospero-win-source-build
         run: scripts/ci/prepare-from-source.sh
 
       - name: Preserve source build logs on failure
@@ -142,6 +145,14 @@ jobs:
             prospero-win/.deps/wine-host/make.log
             prospero-win/.deps/wine-host/make-host.log
             prospero-win/.deps/wine-host/install.log
+            prospero-win-source-build/.deps/wine/configure.log
+            prospero-win-source-build/.deps/wine/make.log
+            prospero-win-source-build/.deps/wine-ps5/configure.log
+            prospero-win-source-build/.deps/wine-ps5/make.log
+            prospero-win-source-build/.deps/wine-host/configure.log
+            prospero-win-source-build/.deps/wine-host/make.log
+            prospero-win-source-build/.deps/wine-host/make-host.log
+            prospero-win-source-build/.deps/wine-host/install.log
           if-no-files-found: ignore
 
       - name: Check build prerequisites
@@ -200,7 +211,7 @@ jobs:
           scripts/build-openorbis-module-stubs.sh
           if [[ "${{ inputs.build_mode }}" == source-build ]]; then
             PW_ABI4_ROOT= \
-            PW_ROOT="$GITHUB_WORKSPACE/prospero-win" \
+            PW_ROOT="$GITHUB_WORKSPACE/prospero-win-source-build" \
             WOW64NATIVE_DLL=/orbis-cache/deps/abi4/native/x86_64-windows/wow64native.dll \
             PW_MESA_ZINK_DIR="$GITHUB_WORKSPACE/pkgout/baseline/win/mesa-zink" \
               scripts/ci/build-abi4-package.sh
