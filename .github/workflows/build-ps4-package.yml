@@ -108,10 +108,10 @@ jobs:
         if: ${{ inputs.build_mode != 'from-source' }}
         run: scripts/ci/prepare-runner.sh
 
-      # The source package mode runs the same Mesa build as build-from-source.yml.
-      # Mesa's pinned dependency environment is provided by nix develop nixpkgs#mesa.
+      # Package builds require Nix for the pinned Mesa dependency environment.
+      # The tested-stage repackage does not build Mesa and skips this setup.
       - name: Nix (Mesa's build deps come from nix develop nixpkgs#mesa)
-        if: ${{ inputs.build_mode == 'from-source' }}
+        if: ${{ inputs.build_mode != 'tested-stage' }}
         uses: DeterminateSystems/nix-installer-action@main
 
       # The from-source path: every input built from the pins in this repo.
