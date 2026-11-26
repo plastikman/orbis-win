@@ -41,9 +41,10 @@ An older Prosperowin checkout does not produce all required PE inputs.
 
 ## Console validation
 
-Use the same known-good Conviction install and prefix. Remove `dinput8=n,b`
-from the profile and remove `WINE_CPU_TOPOLOGY=1` if it is present. Then verify
-one run end to end: the loading-tier hook reports that it installed, logs tier
+Use the same known-good Conviction install and prefix. Move the game-local
+`dinput8.dll` proxy out of the game directory, remove `dinput8=n,b` from the
+profile, and remove `WINE_CPU_TOPOLOGY=1` if it is present. Then verify one run
+end to end: the loading-tier hook reports that it installed, logs tier
 1 on load start and restores the saved tier on load completion; the adapter
 fallback marker appears, the game
 reaches its menu on repeated starts, DirectInput lists and accepts the
