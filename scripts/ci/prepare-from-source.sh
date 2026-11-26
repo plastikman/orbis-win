@@ -163,12 +163,13 @@ stamped wine-host "$(pin_stamp "$ROOT/src/wine-trees/wine-host-HEAD.txt" \
 # install it where build-abi4-package.sh validates and stages it.
 build_wowprospero() {
     sh "$PW/tools/build_wowprospero.sh" \
-        --source "$PW/.deps/wine-host/source" \
-        --build "$PW/.deps/wine-host/build" \
+        --source "$PW/.deps/wine/source" \
+        --build "$PW/.deps/wine/build" \
         --output "$PW/.deps/wine-host/install/usr/lib/wine" \
         --jobs "$JOBS"
 }
 stamped wowprospero "$(pin_stamp "$ROOT/src/prospero-win-HEAD.txt" \
+    "$ROOT/src/wine-trees/wine-host-HEAD.txt" "$PW/tools/build_wine_runtime.sh" \
     "$PW/tools/build_wowprospero.sh" "$PW/wine/wowprospero/cpu.c" \
     "$PW/wine/wowprospero/unix.c" "$PW/wine/wowprospero/wowprospero.spec" \
     "$PW/src/pw_x86_engine.c" "$PW/src/pw_x86_block.c" "$PW/src/pw_x86_cache.c" \
