@@ -64,7 +64,11 @@ jobs:
           sudo apt-get install -y \
             build-essential clang-19 lld-19 llvm-19 cmake ninja-build glslang-tools \
             lftp git python3 curl pkg-config bison flex perl gcc-mingw-w64-x86-64 \
-            gcc-mingw-w64-i686 g++-mingw-w64-i686
+            gcc-mingw-w64-i686 g++-mingw-w64-i686 \
+            libx11-dev libxext-dev libxrandr-dev libxi-dev libxcursor-dev \
+            libxcomposite-dev libxinerama-dev libxrender-dev libxfixes-dev \
+            libfreetype-dev libfontconfig1-dev libgnutls28-dev libvulkan-dev \
+            libasound2-dev
           for tool in clang clang++ lld ld.lld llvm-ar llvm-ranlib llvm-nm \
                       llvm-objcopy llvm-readelf llvm-strip; do
             sudo ln -sfn "/usr/bin/${tool}-19" "/usr/local/bin/$tool"
@@ -109,6 +113,18 @@ jobs:
       - name: Build every input from source
         if: ${{ inputs.build_mode == 'from-source' }}
         run: scripts/ci/prepare-from-source.sh
+
+      - name: Preserve source build logs on failure
+        if: ${{ failure() && inputs.build_mode == 'from-source' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: from-source-failure-logs
+          path: |
+            prospero-win/.deps/wine/configure.log
+            prospero-win/.deps/wine/make.log
+            prospero-win/.deps/wine-ps5/configure.log
+            prospero-win/.deps/wine-ps5/make.log
+          if-no-files-found: ignore
 
       - name: Check build prerequisites
         if: ${{ inputs.build_mode != 'tested-stage' }}
