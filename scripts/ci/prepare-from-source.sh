@@ -17,6 +17,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 WORK="${PW_CI_WORK:-$ROOT/.ci-from-source}"
 JOBS="${PW_CI_JOBS:-$(nproc)}"
+MESA_ROOT="${PW_MESA_ROOT:-$ROOT/mesa-build}"
 mkdir -p "$WORK"
 
 say() { echo "== $*"; }
@@ -109,7 +110,7 @@ stamped wine-trees "$(pin_stamp "$ROOT"/src/wine-trees/*-HEAD.txt)" restore_wine
 
 # --------------------------------------------------------------- mesa-ps4
 stamped mesa-tree "$(pin_stamp "$ROOT/src/mesa-trees/mesa-ps4-HEAD.txt")" \
-    "$ROOT/scripts/restore-mesa-tree.sh" "$ROOT/mesa-build"
+    "$ROOT/scripts/restore-mesa-tree.sh" "$MESA_ROOT"
 
 # ------------------------------------------------------------- toolchain
 prepare_toolchain() {
@@ -193,7 +194,7 @@ build_mesa() {
     ORBIS_KIT_DIR="${ORBIS_KIT_DIR:-$MESA_ORBIS_COMPAT}" \
     ORBIS_COMPAT_DIR="$MESA_ORBIS_COMPAT" \
     OO_PS4_TOOLCHAIN="$ROOT/sdk/orbis-sdk-v1/sdk" \
-        bash "$ROOT/mesa-build/mesa-ps4/ps4/build.sh"
+        bash "$MESA_ROOT/mesa-ps4/ps4/build.sh"
 }
 stamped mesa "$(pin_stamp "$ROOT/src/mesa-trees/mesa-ps4-HEAD.txt")" build_mesa
 
@@ -211,8 +212,8 @@ sh "$ROOT/scripts/freetype-prx-ps4.sh"
 OCLIB_STAGED="$ROOT/build/ps4-wine-sdk/liborbis-compat-16bit-wchar.a"
 cp "$OCLIB_STAGED" "$OCLIB_STAGED.pin-backup"
 cp "$MESA_ORBIS_COMPAT/build/liborbis-compat.a" "$OCLIB_STAGED"
-PW_RADV_MESA_SRC="$ROOT/mesa-build/mesa-ps4" \
-PW_RADV_MESA_BUILD="$ROOT/mesa-build/mesa-ps4/build-orbis" \
+PW_RADV_MESA_SRC="$MESA_ROOT/mesa-ps4" \
+PW_RADV_MESA_BUILD="$MESA_ROOT/mesa-ps4/build-orbis" \
     sh "$ROOT/scripts/radv-prx-ps4.sh"
 mv "$OCLIB_STAGED.pin-backup" "$OCLIB_STAGED"
 sh "$ROOT/scripts/wineps5-prx-ps4.sh"

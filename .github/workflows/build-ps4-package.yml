@@ -129,6 +129,7 @@ jobs:
         if: ${{ inputs.build_mode == 'source-build' }}
         env:
           PW_PROSPERO_ROOT: ${{ github.workspace }}/prospero-win-source-build
+          PW_MESA_ROOT: ${{ github.workspace }}/mesa-build-source-build
         run: scripts/ci/prepare-from-source.sh
 
       - name: Preserve source build logs on failure
@@ -212,6 +213,8 @@ jobs:
           if [[ "${{ inputs.build_mode }}" == source-build ]]; then
             PW_ABI4_ROOT= \
             PW_ROOT="$GITHUB_WORKSPACE/prospero-win-source-build" \
+            PW_RADV_MESA_SRC="$GITHUB_WORKSPACE/mesa-build-source-build/mesa-ps4" \
+            PW_RADV_MESA_BUILD="$GITHUB_WORKSPACE/mesa-build-source-build/mesa-ps4/build-orbis" \
             WOW64NATIVE_DLL=/orbis-cache/deps/abi4/native/x86_64-windows/wow64native.dll \
             PW_MESA_ZINK_DIR="$GITHUB_WORKSPACE/pkgout/baseline/win/mesa-zink" \
               scripts/ci/build-abi4-package.sh
