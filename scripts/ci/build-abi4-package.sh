@@ -89,11 +89,26 @@ mkdir -p "$OUT"
 log() { printf '\n== %s\n' "$*"; }
 
 log "32-bit kernelbase.dll with the PW_EXCEPTION32 guest-fault diagnostics"
-# The wine-host tree carries series 1037-1043 (archive 0962-0965, 0973, 1013 and
-# the 1007 fault-page record). Strip exactly as `make install` does.
-# This tree also carries the build-specific Conviction loading-tier hook. Wine's
-# host build can retain objects across source-pin changes, so force main.c to
-# compile here before linking the staged PE DLL.
+# Apply the narrow Conviction hook to the checked patch-series source used by
+# the ABI-v4 cache. Keep the cached source clean after building so the next
+# package run still passes the patch-series/source identity gate.
+KERNELBASE_SOURCE="$HOST_WINE/source/dlls/kernelbase/main.c"
+CONVICTION_PATCH="$ROOT/src/wine-patches-ps4/conviction-loading-tier-abi4.patch"
+conviction_patch_applied=0
+cleanup_conviction_patch() {
+  if [[ $conviction_patch_applied == 1 ]]; then
+    git -C "$HOST_WINE/source" apply --reverse "$CONVICTION_PATCH" || \
+      echo "warning: could not revert the temporary Conviction kernelbase source patch" >&2
+  fi
+}
+trap cleanup_conviction_patch EXIT
+if ! grep -Fq 'init_conviction_loading_tier' "$KERNELBASE_SOURCE"; then
+  git -C "$HOST_WINE/source" apply --check "$CONVICTION_PATCH"
+  git -C "$HOST_WINE/source" apply "$CONVICTION_PATCH"
+  conviction_patch_applied=1
+fi
+# Wine can retain objects across source-pin changes, so force main.c to compile
+# before linking the staged PE DLL.
 rm -f "$HOST_WINE/build/dlls/kernelbase/i386-windows/main.o"
 make -C "$HOST_WINE/build" -j4 dlls/kernelbase/i386-windows/kernelbase.dll
 strings "$HOST_WINE/build/dlls/kernelbase/i386-windows/kernelbase.dll" |

@@ -1,0 +1,302 @@
+--- a/dlls/kernelbase/main.c
++++ b/dlls/kernelbase/main.c
+@@ -19,6 +19,9 @@
+ 
+ #define COBJMACROS
+ 
++#include <stdint.h>
++#include <string.h>
++
+ #include "ntstatus.h"
+ #include "windows.h"
+ #include "appmodel.h"
+@@ -28,6 +31,7 @@
+ #include "winperf.h"
+ 
+ #include "wine/debug.h"
++#include "wine/asm.h"
+ #include "kernelbase.h"
+ #include "wine/list.h"
+ 
+@@ -35,6 +39,273 @@
+ 
+ 
+ BOOL is_wow64 = FALSE;
++
++/* Conviction's Dare job scheduler deadlocks on the PS4 while its loading-screen
++ * ticker occupies one of the workers the current batch is waiting for. Its
++ * internal CPU tier is read for each batch, so temporarily report tier 1 only
++ * while that ticker is running. These two known PE builds are signature-checked
++ * before patching; every other title and unknown game build is left untouched.
++ * This is kept in the PS4 kernelbase build so users do not need a game-local
++ * dinput8 proxy or a permanent single-CPU profile setting. */
++#ifdef __i386__
++
++#define CONVICTION_IMAGE_BASE 0x400000
++#define CONVICTION_RVA(va) ((va) - CONVICTION_IMAGE_BASE)
++
++struct conviction_build
++{
++    const char *name;
++    ULONG tier_fn, getter;
++    ULONG ticker_call, ticker_target;
++    ULONG stop_call1, stop_call2, stop_target;
++};
++
++static const struct conviction_build conviction_builds[] =
++{
++    { "standalone", CONVICTION_RVA(0x45f48e), CONVICTION_RVA(0x45fa0a),
++      CONVICTION_RVA(0x893369), CONVICTION_RVA(0x891e11),
++      CONVICTION_RVA(0x78a288), CONVICTION_RVA(0x891f8d), CONVICTION_RVA(0x891de3) },
++    { "Ubisoft Connect", CONVICTION_RVA(0x45fe1d), CONVICTION_RVA(0x4603b4),
++      CONVICTION_RVA(0x89345c), CONVICTION_RVA(0x891f04),
++      CONVICTION_RVA(0x78a50c), CONVICTION_RVA(0x892080), CONVICTION_RVA(0x891ed6) },
++};
++
++static BYTE *conviction_image;
++static ULONG conviction_image_size;
++static ULONG_PTR conviction_getter;
++ULONG_PTR pw_conviction_ticker_target, pw_conviction_stop_target;
++static volatile LONG conviction_tier_lock;
++static LONG conviction_tier_depth, conviction_saved_tier = -1;
++static volatile LONG *conviction_tier_slot;
++
++static BOOL conviction_image_range(const void *ptr, SIZE_T size)
++{
++    MEMORY_BASIC_INFORMATION info;
++    ULONG_PTR start = (ULONG_PTR)ptr, base = (ULONG_PTR)conviction_image;
++
++    if (!conviction_image || start < base || size > conviction_image_size ||
++        start - base > conviction_image_size - size ||
++        !VirtualQuery(ptr, &info, sizeof(info))) return FALSE;
++    return info.AllocationBase == conviction_image && info.State == MEM_COMMIT &&
++           !(info.Protect & PAGE_GUARD) && (info.Protect & 0xff) != PAGE_NOACCESS;
++}
++
++static BOOL conviction_readable(const void *ptr, SIZE_T size)
++{
++    MEMORY_BASIC_INFORMATION info;
++    ULONG_PTR start = (ULONG_PTR)ptr, region;
++
++    if (!VirtualQuery(ptr, &info, sizeof(info))) return FALSE;
++    region = (ULONG_PTR)info.BaseAddress;
++    return info.State == MEM_COMMIT && !(info.Protect & PAGE_GUARD) &&
++           (info.Protect & 0xff) != PAGE_NOACCESS &&
++           start >= region && size <= info.RegionSize && start - region <= info.RegionSize - size;
++}
++
++static BOOL conviction_call_matches(BYTE *site, BYTE *target)
++{
++    LONG displacement;
++
++    if (!conviction_image_range(site, 5) || site[0] != 0xe8) return FALSE;
++    memcpy(&displacement, site + 1, sizeof(displacement));
++    return (LONG_PTR)(ULONG_PTR)(site + 5) + displacement == (LONG_PTR)(ULONG_PTR)target;
++}
++
++static BOOL conviction_patch_call(BYTE *site, void *stub, BYTE original[5])
++{
++    LONG_PTR displacement = (LONG_PTR)(ULONG_PTR)stub - (LONG_PTR)(ULONG_PTR)(site + 5);
++    DWORD old_protect, ignored;
++    LONG relative;
++
++    if (displacement < INT32_MIN || displacement > INT32_MAX ||
++        !VirtualProtect(site, 5, PAGE_EXECUTE_READWRITE, &old_protect)) return FALSE;
++    memcpy(original, site, 5);
++    relative = (LONG)displacement;
++    site[0] = 0xe8;
++    memcpy(site + 1, &relative, sizeof(relative));
++    FlushInstructionCache(GetCurrentProcess(), site, 5);
++    VirtualProtect(site, 5, old_protect, &ignored);
++    return TRUE;
++}
++
++static void conviction_restore_call(BYTE *site, const BYTE original[5])
++{
++    DWORD old_protect, ignored;
++
++    if (!VirtualProtect(site, 5, PAGE_EXECUTE_READWRITE, &old_protect)) return;
++    memcpy(site, original, 5);
++    FlushInstructionCache(GetCurrentProcess(), site, 5);
++    VirtualProtect(site, 5, old_protect, &ignored);
++}
++
++static BOOL conviction_write_tier(volatile LONG *slot, LONG value, LONG *previous)
++{
++    DWORD old_protect, ignored;
++
++    if (!slot || !conviction_readable((const void *)slot, sizeof(*slot)) ||
++        !VirtualProtect((void *)slot, sizeof(*slot), PAGE_READWRITE, &old_protect)) return FALSE;
++    *previous = InterlockedExchange(slot, value);
++    VirtualProtect((void *)slot, sizeof(*slot), old_protect, &ignored);
++    return TRUE;
++}
++
++static BOOL conviction_restore_tier(volatile LONG *slot, LONG value, LONG *previous)
++{
++    DWORD old_protect, ignored;
++
++    if (!slot || !conviction_readable((const void *)slot, sizeof(*slot)) ||
++        !VirtualProtect((void *)slot, sizeof(*slot), PAGE_READWRITE, &old_protect)) return FALSE;
++    *previous = InterlockedCompareExchange(slot, value, 1);
++    VirtualProtect((void *)slot, sizeof(*slot), old_protect, &ignored);
++    return TRUE;
++}
++
++static volatile LONG *conviction_get_tier_slot(void)
++{
++    void *object;
++    void *(*getter)(void) = (void *(*)(void))conviction_getter;
++
++    if (!conviction_getter || !conviction_image_range((void *)conviction_getter, 1)) return NULL;
++    object = getter();
++    if (!object || !conviction_readable((BYTE *)object + sizeof(LONG), sizeof(LONG))) return NULL;
++    return (volatile LONG *)((BYTE *)object + sizeof(LONG));
++}
++
++void __cdecl pw_conviction_tier_started(void)
++{
++    volatile LONG *slot;
++    LONG previous;
++
++    while (InterlockedCompareExchange(&conviction_tier_lock, 1, 0)) { }
++    slot = conviction_get_tier_slot();
++    if (slot && (!conviction_tier_depth || slot == conviction_tier_slot))
++    {
++        if (conviction_write_tier(slot, 1, &previous))
++        {
++            if (!conviction_tier_depth)
++            {
++                conviction_tier_slot = slot;
++                conviction_saved_tier = previous;
++            }
++            conviction_tier_depth++;
++            TRACE("Conviction loading started: CPU tier %ld -> 1 (depth %ld)\n",
++                  previous, conviction_tier_depth);
++        }
++    }
++    else if (slot)
++        WARN("Conviction loading tier changed singleton while a load was active\n");
++    InterlockedExchange(&conviction_tier_lock, 0);
++}
++
++void __cdecl pw_conviction_tier_stopped(void)
++{
++    LONG previous;
++
++    while (InterlockedCompareExchange(&conviction_tier_lock, 1, 0)) { }
++    if (conviction_tier_depth > 0 && !--conviction_tier_depth)
++    {
++        if (conviction_tier_slot && conviction_saved_tier >= 0 &&
++            conviction_restore_tier(conviction_tier_slot, conviction_saved_tier, &previous) && previous == 1)
++            TRACE("Conviction loading finished: CPU tier 1 -> %ld\n", conviction_saved_tier);
++        else
++            TRACE("Conviction loading finished: saved tier not restored (slot changed or unavailable)\n");
++        conviction_tier_slot = NULL;
++        conviction_saved_tier = -1;
++    }
++    InterlockedExchange(&conviction_tier_lock, 0);
++}
++
++__ASM_GLOBAL_FUNC( pw_conviction_ticker_stub,
++                   "pushl %ecx\n\t"
++                   "call " __ASM_NAME("pw_conviction_tier_started") "\n\t"
++                   "popl %ecx\n\t"
++                   "jmp *" __ASM_NAME("pw_conviction_ticker_target") )
++
++__ASM_GLOBAL_FUNC( pw_conviction_stop_stub,
++                   "pushl 4(%esp)\n\t"
++                   "call *" __ASM_NAME("pw_conviction_stop_target") "\n\t"
++                   "pushl %eax\n\t"
++                   "call " __ASM_NAME("pw_conviction_tier_stopped") "\n\t"
++                   "popl %eax\n\t"
++                   "ret $4" )
++
++extern BYTE pw_conviction_ticker_stub[];
++extern BYTE pw_conviction_stop_stub[];
++
++static void init_conviction_loading_tier(void)
++{
++    const IMAGE_DOS_HEADER *dos;
++    const IMAGE_NT_HEADERS32 *nt;
++    const struct conviction_build *build = NULL;
++    BYTE *base, *ticker_call, *ticker_target, *stop_call1, *stop_call2, *stop_target;
++    BYTE saved_ticker[5], saved_stop1[5], saved_stop2[5];
++    unsigned int i;
++    BOOL ticker_patched = FALSE, stop1_patched = FALSE, stop2_patched = FALSE;
++
++    base = (BYTE *)NtCurrentTeb()->Peb->ImageBaseAddress;
++    if (!base) return;
++    dos = (const IMAGE_DOS_HEADER *)base;
++    if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew <= 0) return;
++    nt = (const IMAGE_NT_HEADERS32 *)(base + dos->e_lfanew);
++    if (nt->Signature != IMAGE_NT_SIGNATURE || nt->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR32_MAGIC ||
++        nt->OptionalHeader.ImageBase != CONVICTION_IMAGE_BASE) return;
++
++    conviction_image = base;
++    conviction_image_size = nt->OptionalHeader.SizeOfImage;
++    for (i = 0; i < sizeof(conviction_builds) / sizeof(conviction_builds[0]); i++)
++    {
++        const struct conviction_build *candidate = &conviction_builds[i];
++        BYTE *candidate_tier = base + candidate->tier_fn;
++        BYTE *candidate_ticker = base + candidate->ticker_call;
++        BYTE *candidate_target = base + candidate->ticker_target;
++        BYTE *candidate_stop1 = base + candidate->stop_call1;
++        BYTE *candidate_stop2 = base + candidate->stop_call2;
++        BYTE *candidate_stop_target = base + candidate->stop_target;
++
++        if (!conviction_image_range(candidate_tier, 8) || candidate_tier[0] != 0x56 ||
++            candidate_tier[1] != 0x68 || candidate_tier[6] != 0xff || candidate_tier[7] != 0x15 ||
++            !conviction_call_matches(candidate_ticker, candidate_target) ||
++            !conviction_call_matches(candidate_stop1, candidate_stop_target) ||
++            !conviction_call_matches(candidate_stop2, candidate_stop_target)) continue;
++        build = candidate;
++        break;
++    }
++    if (!build)
++    {
++        conviction_image = NULL;
++        conviction_image_size = 0;
++        return;
++    }
++
++    ticker_call = base + build->ticker_call;
++    ticker_target = base + build->ticker_target;
++    stop_call1 = base + build->stop_call1;
++    stop_call2 = base + build->stop_call2;
++    stop_target = base + build->stop_target;
++    conviction_getter = (ULONG_PTR)(base + build->getter);
++    pw_conviction_ticker_target = (ULONG_PTR)ticker_target;
++    pw_conviction_stop_target = (ULONG_PTR)stop_target;
++
++    ticker_patched = conviction_patch_call(ticker_call, pw_conviction_ticker_stub, saved_ticker);
++    if (ticker_patched) stop1_patched = conviction_patch_call(stop_call1, pw_conviction_stop_stub, saved_stop1);
++    if (stop1_patched) stop2_patched = conviction_patch_call(stop_call2, pw_conviction_stop_stub, saved_stop2);
++    if (!ticker_patched || !stop1_patched || !stop2_patched)
++    {
++        if (stop2_patched) conviction_restore_call(stop_call2, saved_stop2);
++        if (stop1_patched) conviction_restore_call(stop_call1, saved_stop1);
++        if (ticker_patched) conviction_restore_call(ticker_call, saved_ticker);
++        conviction_image = NULL;
++        conviction_image_size = 0;
++        conviction_getter = 0;
++        WARN("Conviction %s loading-tier hook not installed (callsite protection failed)\n", build->name);
++        return;
++    }
++    TRACE("Conviction %s loading-only CPU tier hook installed\n", build->name);
++}
++
++#else
++static void init_conviction_loading_tier(void) { }
++#endif
+ 
+ /***********************************************************************
+  *           DllMain
+@@ -50,6 +321,7 @@
+         init_startup_info( NtCurrentTeb()->Peb->ProcessParameters );
+         init_console();
+         init_debugger();
++        init_conviction_loading_tier();
+     }
+     return TRUE;
+ }

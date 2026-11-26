@@ -39,6 +39,12 @@ The source/build support for these paired modules is in
 `scripts/ci/checkout-prospero-win.sh` selects it for local and source CI builds.
 An older Prosperowin checkout does not produce all required PE inputs.
 
+The cache-backed ABI-v4 package path applies
+`src/wine-patches-ps4/conviction-loading-tier-abi4.patch` to its Wine host source
+before rebuilding `kernelbase.dll`, then reverts the source edit. This carries
+the same build-specific hook as the pinned host-Wine bundle into the cached
+package build without leaving the cache's patch-series source dirty.
+
 ## Console validation
 
 Use the same known-good Conviction install and prefix. Move the game-local
