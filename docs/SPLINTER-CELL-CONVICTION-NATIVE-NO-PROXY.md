@@ -48,11 +48,12 @@ package build without leaving the cache's patch-series source dirty.
 The first ABI-v4 package attempt with this hook compiled `kernelbase.dll` and
 the PS4 PRXs, but stopped before staging a package: the attached ABI-v4 Wine
 build predates the pinned Prosperowin Winebus patch and has no `winebus.so`
-link input (`Build PS4 package`, run 45782989081). That cache is not a valid
-input for testing the native DirectInput path. Refresh or rebuild the ABI-v4
-Winebus PE and Unix outputs from the pinned patched Wine source, then rerun the
-package parity and package validation gates. No package from this branch has
-been installed or console-tested yet.
+link input (`Build PS4 package`, run 45782989081). The `source-build` package
+path now builds the pinned Prosperowin Wine host and PS4 trees, including
+Winebus, and packages those outputs while retaining the known-good ABI-v4
+WoW64 pair and OpenGL provider from the baseline. The existing package parity
+and signature checks remain required. No package from this branch has yet
+passed those gates or been installed and console-tested.
 
 ## Console validation
 

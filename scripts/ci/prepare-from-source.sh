@@ -157,6 +157,24 @@ stamped wine-host "$(pin_stamp "$ROOT/src/wine-trees/wine-host-HEAD.txt" \
     "$ROOT/src/prospero-win-HEAD.txt" "$PW/tools/build_host_wine.sh" \
     "$PW/tools/build_wine_ps5.sh")" build_host_wine
 
+# The package must include Wine's i386 CPU backend as a PE builtin in addition
+# to the host Wine modules. Build it from this same pinned host source tree and
+# install it where build-abi4-package.sh validates and stages it.
+build_wowprospero() {
+    sh "$PW/tools/build_wowprospero.sh" \
+        --source "$PW/.deps/wine-host/source" \
+        --build "$PW/.deps/wine-host/build" \
+        --output "$PW/.deps/wine-host/install/usr/lib/wine" \
+        --jobs "$JOBS"
+}
+stamped wowprospero "$(pin_stamp "$ROOT/src/prospero-win-HEAD.txt" \
+    "$PW/tools/build_wowprospero.sh" "$PW/wine/wowprospero/cpu.c" \
+    "$PW/wine/wowprospero/unix.c" "$PW/wine/wowprospero/wowprospero.spec" \
+    "$PW/src/pw_x86_engine.c" "$PW/src/pw_x86_block.c" "$PW/src/pw_x86_cache.c" \
+    "$PW/src/pw_x86_hostexec.c" "$PW/src/pw_x86_reencode.c" "$PW/src/pw_x87.c" \
+    "$PW/src/pw_guest_fp.c" "$PW/src/pw_vm.c" "$PW/src/pw_vm_posix.c")" \
+    build_wowprospero
+
 # ------------------------------------------------------------------- Mesa
 # ⚠ RADV IS THE ONE MODULE THAT MUST **NOT** USE THE PIN orbis-compat.
 # Measured on hardware 2026-11-17 (Fallout: New Vegas, one variable changed):

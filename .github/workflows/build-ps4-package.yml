@@ -120,8 +120,16 @@ jobs:
         if: ${{ inputs.build_mode == 'from-source' }}
         run: scripts/ci/prepare-from-source.sh
 
+      # source-build refreshes the pinned Wine, PE and PS4 module outputs, then
+      # packages those outputs with the still-validated ABI-v4 WoW64 pair and
+      # the known-good OpenGL provider from the baseline stage. The generic
+      # ABI-v4 cache remains available for ordinary cache-backed builds.
+      - name: Rebuild the pinned Wine inputs for the source package
+        if: ${{ inputs.build_mode == 'source-build' }}
+        run: scripts/ci/prepare-from-source.sh
+
       - name: Preserve source build logs on failure
-        if: ${{ failure() && inputs.build_mode == 'from-source' }}
+        if: ${{ failure() && (inputs.build_mode == 'from-source' || inputs.build_mode == 'source-build') }}
         uses: actions/upload-artifact@v4
         with:
           name: from-source-failure-logs
@@ -130,6 +138,10 @@ jobs:
             prospero-win/.deps/wine/make.log
             prospero-win/.deps/wine-ps5/configure.log
             prospero-win/.deps/wine-ps5/make.log
+            prospero-win/.deps/wine-host/configure.log
+            prospero-win/.deps/wine-host/make.log
+            prospero-win/.deps/wine-host/make-host.log
+            prospero-win/.deps/wine-host/install.log
           if-no-files-found: ignore
 
       - name: Check build prerequisites
@@ -139,11 +151,11 @@ jobs:
       # The fork's Wine patch series must apply to clean Wine and give exactly
       # the host Wine source the cached PE runtime was built from
       # (scripts/ci/check-wine-series.sh). It did neither before 2026-11-08.
-      # Skipped for from-source: that path builds the PINNED trees, and the
+      # Skipped for source-build paths: those build the PINNED trees, and the
       # series provably does not reproduce them (157 present / 112 absent /
       # 40 partial of 310, and --check-patches does not start on it at all).
       - name: Check the Wine patch series builds the shipped Wine
-        if: ${{ inputs.build_mode != 'tested-stage' && inputs.build_mode != 'from-source' }}
+        if: ${{ inputs.build_mode != 'tested-stage' && inputs.build_mode != 'from-source' && inputs.build_mode != 'source-build' }}
         run: scripts/ci/check-wine-series.sh
 
       # ⚠ Without /app0/dev.conf the title sends its app log nowhere: ps5log
@@ -186,7 +198,15 @@ jobs:
           set -euo pipefail
           scripts/sync-toolchain.sh
           scripts/build-openorbis-module-stubs.sh
-          scripts/ci/build-abi4-package.sh
+          if [[ "${{ inputs.build_mode }}" == source-build ]]; then
+            PW_ABI4_ROOT= \
+            PW_ROOT="$GITHUB_WORKSPACE/prospero-win" \
+            WOW64NATIVE_DLL=/orbis-cache/deps/abi4/native/x86_64-windows/wow64native.dll \
+            PW_MESA_ZINK_DIR="$GITHUB_WORKSPACE/pkgout/baseline/win/mesa-zink" \
+              scripts/ci/build-abi4-package.sh
+          else
+            scripts/ci/build-abi4-package.sh
+          fi
 
       # The user-tested 02.14 stage is kept separately in the private cache.
       # Repackage it byte-for-byte, changing only APP_VER and the repository's
