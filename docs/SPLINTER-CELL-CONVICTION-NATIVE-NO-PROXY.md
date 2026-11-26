@@ -34,8 +34,9 @@ links `winebus.so` as `winebus.prx`. The package gate compares the staged
 
 The source/build support for these paired modules is in
 `plastikman/prospero-win` branch `codex/issue8-native-parity` (commit
-`4ee06c7`). Build from that revision or its merged successor; an older
-Prospero-Win checkout does not produce all required PE inputs.
+`4ee06c7`). `src/prospero-win-HEAD.txt` pins that exact build revision, and
+`scripts/ci/checkout-prospero-win.sh` selects it for local and source CI builds.
+An older Prosperowin checkout does not produce all required PE inputs.
 
 ## Console validation
 

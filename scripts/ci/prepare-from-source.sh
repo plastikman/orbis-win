@@ -41,12 +41,9 @@ stamped sdk "$(sha256sum "$ROOT/scripts/fetch-sdk.sh" | cut -c1-16)" \
     "$ROOT/scripts/fetch-sdk.sh"
 
 # ------------------------------------------------------------- prospero-win
-if [[ ! -d $ROOT/prospero-win/.git ]]; then
-    say "prospero-win: cloning"
-    git clone -q "${PW_PROSPERO_REMOTE:-https://github.com/plastikman/prospero-win.git}" \
-        "$ROOT/prospero-win"
-fi
-PW=$ROOT/prospero-win
+say "prospero-win: checking pinned native-module build source"
+"$ROOT/scripts/ci/checkout-prospero-win.sh"
+PW=${PW_PROSPERO_ROOT:-$ROOT/prospero-win}
 
 # --------------------------------------------------------------- Wine trees
 restore_wine() {
@@ -92,20 +89,24 @@ stamped toolchain \
     prepare_toolchain
 
 # ------------------------------------------------------------------- Wine
-stamped wine-runtime "$(pin_stamp "$ROOT/src/wine-trees/wine-host-HEAD.txt")" \
+stamped wine-runtime "$(pin_stamp "$ROOT/src/wine-trees/wine-host-HEAD.txt" \
+    "$ROOT/src/prospero-win-HEAD.txt" "$PW/tools/build_wine_runtime.sh")" \
     sh "$PW/tools/build_wine_runtime.sh" --jobs "$JOBS"
 
 build_wine_ps5() {
     PROSPERO_WINE_PREPATCHED=1 PW_PRX_LINK=1 \
         sh "$PW/tools/build_wine_ps5.sh" --sdk "$ROOT/build/ps4-wine-sdk"
 }
-stamped wine-ps5 "$(pin_stamp "$ROOT/src/wine-trees/wine-ps5-HEAD.txt")" build_wine_ps5
+stamped wine-ps5 "$(pin_stamp "$ROOT/src/wine-trees/wine-ps5-HEAD.txt" \
+    "$ROOT/src/prospero-win-HEAD.txt" "$PW/tools/build_wine_ps5.sh")" build_wine_ps5
 
 build_host_wine() {
     PROSPERO_WINE_PREPATCHED=1 \
         sh "$PW/tools/build_host_wine.sh" --work "$PW/.deps/wine-host" --jobs "$JOBS"
 }
-stamped wine-host "$(pin_stamp "$ROOT/src/wine-trees/wine-host-HEAD.txt")" build_host_wine
+stamped wine-host "$(pin_stamp "$ROOT/src/wine-trees/wine-host-HEAD.txt" \
+    "$ROOT/src/prospero-win-HEAD.txt" "$PW/tools/build_host_wine.sh" \
+    "$PW/tools/build_wine_ps5.sh")" build_host_wine
 
 # ------------------------------------------------------------------- Mesa
 # ⚠ RADV IS THE ONE MODULE THAT MUST **NOT** USE THE PIN orbis-compat.

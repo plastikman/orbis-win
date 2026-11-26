@@ -79,7 +79,7 @@ jobs:
         run: ./scripts/fetch-sdk.sh
 
       - name: prospero-win
-        run: git clone -q https://github.com/plastikman/prospero-win.git prospero-win
+        run: scripts/ci/checkout-prospero-win.sh
 
       # ⚠ ntdll MUST link the pin, not the bundle's copy. The bundle predates the
       # include/signal.h delta, so SIG_UNBLOCK compiles to Linux's 1, which libkernel
