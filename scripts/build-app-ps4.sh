@@ -18,6 +18,15 @@ PW=${PW_ROOT:-$ROOT/prospero-win}
 BUNDLE=$ROOT/sdk/orbis-sdk-v1
 CC=$ROOT/build/ps4-wine-sdk/bin/prospero-clang
 PRX=$PW/.deps/wine-ps5/prx
+PS4_WINE_PE_DIR=${PS4_WINE_PE_DIR:-$PW/.deps/wine-ps5/pe}
+PS4_KERNELBASE32_DLL=${PS4_KERNELBASE32_DLL:-$PS4_WINE_PE_DIR/i386-windows/kernelbase.dll}
+PS4_KERNELBASE64_DLL=${PS4_KERNELBASE64_DLL:-$PS4_WINE_PE_DIR/x86_64-windows/kernelbase.dll}
+PS4_IPHLPAPI32_DLL=${PS4_IPHLPAPI32_DLL:-$PS4_WINE_PE_DIR/i386-windows/iphlpapi.dll}
+PS4_IPHLPAPI64_DLL=${PS4_IPHLPAPI64_DLL:-$PS4_WINE_PE_DIR/x86_64-windows/iphlpapi.dll}
+PS4_MMDEVAPI32_DLL=${PS4_MMDEVAPI32_DLL:-$PS4_WINE_PE_DIR/i386-windows/mmdevapi.dll}
+PS4_MMDEVAPI64_DLL=${PS4_MMDEVAPI64_DLL:-$PS4_WINE_PE_DIR/x86_64-windows/mmdevapi.dll}
+PS4_WINEBUS32_SYS=${PS4_WINEBUS32_SYS:-$PS4_WINE_PE_DIR/i386-windows/winebus.sys}
+PS4_WINEBUS64_SYS=${PS4_WINEBUS64_SYS:-$PS4_WINE_PE_DIR/x86_64-windows/winebus.sys}
 OBJ=${PW_APP_OBJ:-$ROOT/build/wine-app/obj}
 MODULE_STUBS_DIR=${PW_MODULE_STUBS_DIR:-$ROOT/sce_module}
 # Environment overrides let a comparison build use a distinct install identity
@@ -55,8 +64,11 @@ if (( PKG && !LOW_BASE && !RELOC_STAGE )); then
     PW_WINE64_WAIT_WATCHDOG="$PW_WINE64_WAIT_WATCHDOG" \
     PW_WINE64_SERVER_DIRECT_OFF="$PW_WINE64_SERVER_DIRECT_OFF" \
     PW_WINE64_HEAP_FLEXIBLE="$PW_WINE64_HEAP_FLEXIBLE" \
-    PS4_KERNELBASE32_DLL="${PS4_KERNELBASE32_DLL:-}" \
-    PS4_IPHLPAPI32_DLL="${PS4_IPHLPAPI32_DLL:-}" \
+    PS4_WINE_PE_DIR="$PS4_WINE_PE_DIR" \
+    PS4_KERNELBASE32_DLL="$PS4_KERNELBASE32_DLL" PS4_KERNELBASE64_DLL="$PS4_KERNELBASE64_DLL" \
+    PS4_IPHLPAPI32_DLL="$PS4_IPHLPAPI32_DLL" PS4_IPHLPAPI64_DLL="$PS4_IPHLPAPI64_DLL" \
+    PS4_MMDEVAPI32_DLL="$PS4_MMDEVAPI32_DLL" PS4_MMDEVAPI64_DLL="$PS4_MMDEVAPI64_DLL" \
+    PS4_WINEBUS32_SYS="$PS4_WINEBUS32_SYS" PS4_WINEBUS64_SYS="$PS4_WINEBUS64_SYS" \
     PS4_NTDLL32_DLL="${PS4_NTDLL32_DLL:-}" \
     "$ROOT/scripts/build-relocatable-wine-ps4.sh" "${args[@]}"
 fi
@@ -187,6 +199,10 @@ if (( PKG )); then
     [ -f "$MODULE_STUBS_DIR/$m" ] || { echo "missing package module $MODULE_STUBS_DIR/$m" >&2; exit 1; }
     EXTRA+=(--extra "$MODULE_STUBS_DIR/$m:sce_module/$m")
   done
+  [[ -f "$PRX/sce_module/winebus.prx" ]] || {
+    echo "   X missing winebus.prx: build the PS4 winebus Unix companion before packaging" >&2
+    exit 1
+  }
   # ⚠ dev.conf must be in the PACKAGE, at /app0/dev.conf. ps5log reads its
   # destination in main() BEFORE pw_hid_ps5_preload, which wine64_main.c marks
   # as running "before the /data grant changes the title's credentials" -- so
@@ -283,20 +299,25 @@ if (( PKG )); then
     echo "   X PS4_NTDLL32_DLL does not exist: $PS4_NTDLL32_DLL" >&2
     exit 1
   fi
-  # Optional i386 Wine build containing bounded fault-time exception context.
-  PS4_KERNELBASE32_DLL="${PS4_KERNELBASE32_DLL:-}"
-  if [[ -n "$PS4_KERNELBASE32_DLL" && ! -f "$PS4_KERNELBASE32_DLL" ]]; then
-    echo "   X PS4_KERNELBASE32_DLL does not exist: $PS4_KERNELBASE32_DLL" >&2
-    exit 1
-  fi
-  # Optional PS4 i386 iphlpapi build. The pinned host Wine PE set does not
-  # contain the PS4 NSI fallback, so diagnostics or PS4 adapter behavior must
-  # be selected explicitly for packages that need it.
-  PS4_IPHLPAPI32_DLL="${PS4_IPHLPAPI32_DLL:-}"
-  if [[ -n "$PS4_IPHLPAPI32_DLL" && ! -f "$PS4_IPHLPAPI32_DLL" ]]; then
-    echo "   X PS4_IPHLPAPI32_DLL does not exist: $PS4_IPHLPAPI32_DLL" >&2
-    exit 1
-  fi
+  # The host install tree is not the PS4-patched Wine PE build. Require the
+  # source-built provider DLLs and HID driver for both architectures; silently
+  # falling back to generic PE files makes the native Conviction fixes absent.
+  for required in "$PS4_KERNELBASE32_DLL" "$PS4_KERNELBASE64_DLL" \
+                  "$PS4_IPHLPAPI32_DLL" "$PS4_IPHLPAPI64_DLL" \
+                  "$PS4_MMDEVAPI32_DLL" "$PS4_MMDEVAPI64_DLL" \
+                  "$PS4_WINEBUS32_SYS" "$PS4_WINEBUS64_SYS"; do
+    if [[ ! -f $required ]]; then
+      echo "   X missing PS4-patched PE input: $required" >&2
+      echo "     build the Wine PE targets from the pinned PS4 patch series first" >&2
+      exit 1
+    fi
+  done
+  for adapter in "$PS4_IPHLPAPI32_DLL" "$PS4_IPHLPAPI64_DLL"; do
+    if ! grep -aFq "PW_ADAPTERS_INFO PS4 NetCtl fallback" "$adapter"; then
+      echo "   X iphlpapi.dll lacks the PS4 NetCtl adapter fallback: $adapter" >&2
+      exit 1
+    fi
+  done
   # Native WoW64 PE and Unix companion ABIs must match. Keep ABI v3 as the
   # existing default; an explicit ABI v4 comparison may select the synced
   # companion built from the same source tree as its PS4 PRX.
@@ -367,14 +388,9 @@ if (( PKG )); then
       if [[ -n "$PS4_NTDLL32_DLL" && $arch == i386-windows && ${f##*/} == ntdll.dll ]]; then
         f=$PS4_NTDLL32_DLL
       fi
-      if [[ -n "$PS4_KERNELBASE32_DLL" && $arch == i386-windows && ${f##*/} == kernelbase.dll ]]; then
-        f=$PS4_KERNELBASE32_DLL
-        dest_basename=kernelbase.dll
-      fi
-      if [[ -n "$PS4_IPHLPAPI32_DLL" && $arch == i386-windows && ${f##*/} == iphlpapi.dll ]]; then
-        f=$PS4_IPHLPAPI32_DLL
-        dest_basename=iphlpapi.dll
-      fi
+      case "${f##*/}:$arch" in
+        kernelbase.dll:*|iphlpapi.dll:*|mmdevapi.dll:*|winebus.sys:*) continue ;;
+      esac
       if [[ $arch == x86_64-windows && ${f##*/} == wow64native.dll ]]; then
         # Package only the explicitly selected ABI-matched PS4 override below.
         continue
@@ -382,8 +398,19 @@ if (( PKG )); then
       EXTRA+=(--extra "$f:win/wine/lib/wine/$arch/$dest_basename")
       n=$((n+1))
     done
-    printf '   pe %s: %s modules\n' "$arch" "$n"
+    printf '   pe %s: %s host modules plus PS4 overrides\n' "$arch" "$n"
   done
+  # These modules are built from the same pinned Wine source with PS4 patches.
+  # Stage them explicitly instead of relying on the host install tree to contain
+  # them (notably, some Wine builds install winebus.sys only in the PE build).
+  EXTRA+=(--extra "$PS4_KERNELBASE32_DLL:win/wine/lib/wine/i386-windows/kernelbase.dll")
+  EXTRA+=(--extra "$PS4_KERNELBASE64_DLL:win/wine/lib/wine/x86_64-windows/kernelbase.dll")
+  EXTRA+=(--extra "$PS4_IPHLPAPI32_DLL:win/wine/lib/wine/i386-windows/iphlpapi.dll")
+  EXTRA+=(--extra "$PS4_IPHLPAPI64_DLL:win/wine/lib/wine/x86_64-windows/iphlpapi.dll")
+  EXTRA+=(--extra "$PS4_MMDEVAPI32_DLL:win/wine/lib/wine/i386-windows/mmdevapi.dll")
+  EXTRA+=(--extra "$PS4_MMDEVAPI64_DLL:win/wine/lib/wine/x86_64-windows/mmdevapi.dll")
+  EXTRA+=(--extra "$PS4_WINEBUS32_SYS:win/wine/lib/wine/i386-windows/winebus.sys")
+  EXTRA+=(--extra "$PS4_WINEBUS64_SYS:win/wine/lib/wine/x86_64-windows/winebus.sys")
   # OpenGL (graphics = opengl): the launcher copies Mesa's WGL/Zink provider
   # from win/mesa-zink/<arch>/ into the game's prefix and refuses the game when
   # it is absent (Half-Life, 2026-11-05: no PS4 package had ever carried it).
@@ -418,6 +445,32 @@ if (( PKG )); then
   for m in libc.prx libSceFios2.prx; do
     if [[ ! -f "$OUT/pkg-stage/sce_module/$m" ]] || ! cmp -s "$MODULE_STUBS_DIR/$m" "$OUT/pkg-stage/sce_module/$m"; then
       echo "   X staged $m does not match selected package stub: $MODULE_STUBS_DIR/$m" >&2
+      exit 1
+    fi
+  done
+  for arch in i386-windows x86_64-windows; do
+    case "$arch" in
+      i386-windows)
+        kernelbase=$PS4_KERNELBASE32_DLL; iphlpapi=$PS4_IPHLPAPI32_DLL
+        mmdevapi=$PS4_MMDEVAPI32_DLL; winebus=$PS4_WINEBUS32_SYS ;;
+      x86_64-windows)
+        kernelbase=$PS4_KERNELBASE64_DLL; iphlpapi=$PS4_IPHLPAPI64_DLL
+        mmdevapi=$PS4_MMDEVAPI64_DLL; winebus=$PS4_WINEBUS64_SYS ;;
+    esac
+    for pair in "kernelbase.dll:$kernelbase" "iphlpapi.dll:$iphlpapi" \
+                "mmdevapi.dll:$mmdevapi" "winebus.sys:$winebus"; do
+      name=${pair%%:*}; source_file=${pair#*:}
+      staged="$OUT/pkg-stage/win/wine/lib/wine/$arch/$name"
+      if [[ ! -f $staged ]] || ! cmp -s "$source_file" "$staged"; then
+        echo "   X staged $arch/$name does not match the PS4-patched input $source_file" >&2
+        exit 1
+      fi
+    done
+  done
+  for staged_bus in "$OUT/pkg-stage/sce_module/winebus.prx" \
+                    "$OUT/pkg-stage/win/wine/lib/wine/x86_64-unix/winebus.prx"; do
+    if [[ ! -f $staged_bus ]] || ! cmp -s "$PRX/sce_module/winebus.prx" "$staged_bus"; then
+      echo "   X staged winebus.prx does not match the PS4 companion: $staged_bus" >&2
       exit 1
     fi
   done

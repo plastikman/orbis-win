@@ -125,10 +125,10 @@ else
 fi
 gen "$prx/obj/wowprospero_desc.c" __wine_unix_call_funcs
 gen "$prx/obj/wow64native_desc.c" __wine_unix_call_funcs
-for m in winevulkan opengl32 ws2_32 crypt32 dwrite xinput1_3; do
+for m in winebus winevulkan opengl32 ws2_32 crypt32 dwrite xinput1_3; do
     gen "$prx/obj/${m}_desc.c" __wine_unix_call_funcs __wine_unix_call_wow64_funcs
 done
-for d in ntdll win32u wineserver wowprospero wow64native winevulkan opengl32 ws2_32 crypt32 dwrite xinput1_3; do
+for d in ntdll win32u wineserver wowprospero wow64native winebus winevulkan opengl32 ws2_32 crypt32 dwrite xinput1_3; do
     $CC -std=gnu11 -O2 -fPIC -I"$root/wine/ps5" -c "$prx/obj/${d}_desc.c" -o "$prx/obj/${d}_desc.o"
 done
 
@@ -242,7 +242,8 @@ for step in "ntdll|dlls/ntdll/ntdll.so|$ntdll_shims" \
             "ws2_32|dlls/ws2_32/ws2_32.so|" \
             "crypt32|dlls/crypt32/crypt32.so|" \
             "dwrite|dlls/dwrite/dwrite.so|" \
-            "xinput1_3|-|"; do
+            "xinput1_3|-|" \
+            "winebus|dlls/winebus.sys/winebus.so|"; do
     name=${step%%|*}; rest=${step#*|}; target=${rest%%|*}; shims=${rest#*|}
     # "-": compiled above rather than taken from a .so the build never makes.
     if [ "$target" = - ]; then
