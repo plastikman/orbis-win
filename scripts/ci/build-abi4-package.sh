@@ -91,7 +91,16 @@ log() { printf '\n== %s\n' "$*"; }
 log "32-bit kernelbase.dll with the PW_EXCEPTION32 guest-fault diagnostics"
 # The wine-host tree carries series 1037-1043 (archive 0962-0965, 0973, 1013 and
 # the 1007 fault-page record). Strip exactly as `make install` does.
+# This tree also carries the build-specific Conviction loading-tier hook. Wine's
+# host build can retain objects across source-pin changes, so force main.c to
+# compile here before linking the staged PE DLL.
+rm -f "$HOST_WINE/build/dlls/kernelbase/i386-windows/main.o"
 make -C "$HOST_WINE/build" -j4 dlls/kernelbase/i386-windows/kernelbase.dll
+strings "$HOST_WINE/build/dlls/kernelbase/i386-windows/kernelbase.dll" |
+  grep -Fq 'loading-only CPU tier hook installed' || {
+    echo "kernelbase.dll is missing the Conviction loading-tier source marker" >&2
+    exit 1
+  }
 mkdir -p "$OUT/pe"
 ( cd "$HOST_WINE/build" && tools/install -m 644 -s \
     --strip-program="tools/winebuild/winebuild --builtin --strip-cmd=i686-w64-mingw32-strip" \

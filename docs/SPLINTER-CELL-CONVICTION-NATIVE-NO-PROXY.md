@@ -14,13 +14,14 @@ the game must be tested without `dinput8=n,b`.
 | Keep audio endpoint names from nesting | `mmdevapi` preserves persisted names (Prospero-Win patch 1011; Orbis-Win archive 1036) | PS4-built `mmdevapi.dll` for both architectures |
 | Let DirectInput enumerate the title's XInput pad | PS5/PS4 Winebus HID bus (Prospero-Win patch 1013) | `winebus.sys` for both architectures and `winebus.prx` staged in both Wine's Unix directory and `sce_module` |
 | Downmix the game's 5.1 stream to the console's stereo sink | Existing `pw_audio_mix.c` path | Present in the built runtime; no game-local proxy needed |
-| Avoid the level-load worker deadlock | Existing `WINE_CPU_TOPOLOGY` support (Prospero-Win patch 1012; Orbis-Win archive 1070) | Game profile sets `WINE_CPU_TOPOLOGY=1` in `[environment]` |
+| Avoid the level-load worker deadlock without reducing gameplay workers | 32-bit `kernelbase.dll` recognizes the two known Conviction PE builds and changes the game's CPU tier to 1 while its loading-screen ticker is active, then restores the saved tier when either stop path runs | The pinned Wine host source must build the patched i386 `kernelbase.dll`; the package build forces `main.o` to recompile and checks its source marker |
 
-The CPU setting is a static fallback: it keeps the game at one reported
-processor during gameplay too. The proxy switches back to the full tier after
-the loading ticker stops. Do not claim exact behavioral parity or performance
-until the static profile is tested. If static topology makes the levels load
-but materially hurts gameplay, implement the loading-only switch separately.
+The hook is restricted to the two known standalone and Ubisoft Connect builds.
+It checks the image base, the tier-function signature, and all three ticker
+call targets before patching; unknown game builds and other titles are left
+alone. Remove `WINE_CPU_TOPOLOGY=1` from the test profile so the hook can save
+and restore the game's normal tier. The old static setting remains a fallback,
+but it keeps the game at one reported processor during gameplay too.
 
 ## Build and stage requirements
 
@@ -40,19 +41,16 @@ An older Prosperowin checkout does not produce all required PE inputs.
 
 ## Console validation
 
-Use the same known-good Conviction install and prefix. Remove
-`dinput8=n,b` from the profile and add:
-
-```ini
-[environment]
-WINE_CPU_TOPOLOGY=1
-```
-
-Then verify one run end to end: the adapter fallback marker appears, the game
+Use the same known-good Conviction install and prefix. Remove `dinput8=n,b`
+from the profile and remove `WINE_CPU_TOPOLOGY=1` if it is present. Then verify
+one run end to end: the loading-tier hook reports that it installed, logs tier
+1 on load start and restores the saved tier on load completion; the adapter
+fallback marker appears, the game
 reaches its menu on repeated starts, DirectInput lists and accepts the
 controller, Gear opens the sound packages and audio works in-game, and every
 level load completes. Record the exact package build marker and check the staged
-module hashes before attributing a successful run to these changes.
+module hashes before attributing a successful run to these changes. A launch
+without the proxy is not validated until this console run succeeds.
 
 Until that console run passes, this is an implemented native path with package
 wiring, not a verified replacement for the proxy.

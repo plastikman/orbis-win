@@ -6,7 +6,7 @@ patch series. These pins make both reproducible from public sources.
 | tree | builds | pinned HEAD |
 |---|---|---|
 | `.deps/wine-ps5/source`  | unix/PRX side: `ntdll.prx`, `win32u.prx`, `wineserver.prx`, `libvulkan.prx` | `ee7b06d32113629e28234bf6d1e1011cc8152203` |
-| `.deps/wine-host/source` | PE side: every DLL under `win/wine/lib/wine/<arch>-windows/` | `7892a817125cfc1c428b2351ca2e725756017a9d` |
+| `.deps/wine-host/source` | PE side: every DLL under `win/wine/lib/wine/<arch>-windows/` | `dd0c9ea4f245dd5984cddc9c8dd11306ab4fe185` |
 
 Both sit on the **same** upstream Wine base:
 
@@ -14,7 +14,7 @@ Both sit on the **same** upstream Wine base:
     d3dx: Check for NULL new_data in convert_dib_to_bmp()   (Andrey Gusev, 2026-09-07)
 
 That commit is in public WineHQ `wine/wine`, so a pin is just that SHA plus the
-delta bundle in this directory. The current host bundle is 466,819 bytes and
+delta bundle in this directory. The current host bundle is 471,059 bytes and
 the PS5 bundle is 626,935 bytes.
 
 ## Restore
@@ -48,9 +48,11 @@ which tree it belongs to). The bundles are what reproduce a build.
 
 ## Caveat
 
-Each bundle's port delta is one squashed commit, so it does not separate Leo's
-prospero-win fork changes from ours. It pins *what was built*, which is what was
-missing. Splitting fork-vs-ours is a separate job and does not block builds.
+The PS5 bundle's port delta is one squashed commit. The host bundle contains
+that same kind of port snapshot plus the incremental Conviction loading-tier
+hook commit. The original snapshot does not separate Leo's prospero-win fork
+changes from ours. The pins record *what was built*, which is what was missing;
+splitting fork-vs-ours is a separate job and does not block builds.
 
 ## Refreshing after tree changes
 
