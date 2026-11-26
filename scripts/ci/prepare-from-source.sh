@@ -142,9 +142,23 @@ stamped wine-runtime "$(pin_stamp "$ROOT/src/wine-trees/wine-host-HEAD.txt" \
     sh "$PW/tools/build_wine_runtime.sh" --jobs "$JOBS"
 
 build_wine_ps5() {
+    # 1038 is part of the pinned Wine source now. The PS4 PE cross-build can
+    # otherwise reuse an iphlpapi object from before the NetCtl fallback was
+    # added, even though it refreshes the copied PE output directory.
+    local iphlpapi_objects="$PW/.deps/wine-ps5/build/dlls/iphlpapi"
+    if [[ -d $iphlpapi_objects ]]; then
+        find "$iphlpapi_objects" -type f -name '*.o' -delete
+    fi
     PROSPERO_WINE_PREPATCHED=1 PW_PRX_LINK=1 \
         sh "$PW/tools/build_wine_ps5.sh" --source "$PW/.deps/wine-ps5/source" \
             --sdk "$ROOT/build/ps4-wine-sdk"
+    for arch in i386 x86_64; do
+        strings "$PW/.deps/wine-ps5/pe/$arch-windows/iphlpapi.dll" |
+            grep -Fq 'PW_ADAPTERS_INFO PS4 NetCtl fallback' || {
+                echo "iphlpapi.dll lacks the pinned PS4 NetCtl adapter fallback ($arch)" >&2
+                return 1
+            }
+    done
 }
 stamped wine-ps5 "$(pin_stamp "$ROOT/src/wine-trees/wine-ps5-HEAD.txt" \
     "$ROOT/src/prospero-win-HEAD.txt" "$PW/tools/build_wine_ps5.sh")" build_wine_ps5
