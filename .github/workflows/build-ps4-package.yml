@@ -60,15 +60,26 @@ jobs:
             sudo tee /etc/apt/sources.list.d/llvm-19.list >/dev/null
           printf 'Package: *\nPin: release o=apt.llvm.org\nPin-Priority: 1001\n' |
             sudo tee /etc/apt/preferences.d/llvm-19 >/dev/null
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential clang-19 lld-19 llvm-19 cmake ninja-build glslang-tools \
-            lftp git python3 curl pkg-config bison flex perl gcc-mingw-w64-x86-64 \
-            gcc-mingw-w64-i686 g++-mingw-w64-i686 \
-            libx11-dev libxext-dev libxrandr-dev libxi-dev libxcursor-dev \
-            libxcomposite-dev libxinerama-dev libxrender-dev libxfixes-dev \
-            libfreetype-dev libfontconfig1-dev libgnutls28-dev libvulkan-dev \
-            libasound2-dev
+          for attempt in 1 2 3; do
+            sudo apt-get update -o Acquire::http::No-Cache=true -o Acquire::Retries=3 || {
+              [[ "$attempt" -lt 3 ]] || exit 1
+              sleep 2
+              continue
+            }
+            if sudo apt-get install -y \
+              build-essential clang-19 lld-19 llvm-19 cmake ninja-build glslang-tools \
+              lftp git python3 curl pkg-config bison flex perl gcc-mingw-w64-x86-64 \
+              gcc-mingw-w64-i686 g++-mingw-w64-i686 \
+              libx11-dev libxext-dev libxrandr-dev libxi-dev libxcursor-dev \
+              libxcomposite-dev libxinerama-dev libxrender-dev libxfixes-dev \
+              libfreetype-dev libfontconfig1-dev libgnutls28-dev libvulkan-dev \
+              libasound2-dev; then
+              break
+            fi
+            [[ "$attempt" -lt 3 ]] || exit 1
+            echo "apt install failed on attempt $attempt; refreshing package indexes and retrying"
+            sleep 2
+          done
           for tool in clang clang++ lld ld.lld llvm-ar llvm-ranlib llvm-nm \
                       llvm-objcopy llvm-readelf llvm-strip; do
             sudo ln -sfn "/usr/bin/${tool}-19" "/usr/local/bin/$tool"
