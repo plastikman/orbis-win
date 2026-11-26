@@ -93,6 +93,18 @@ git config --global --add safe.directory "$CACHE/prospero-win"
 git config --global --add safe.directory "$CACHE/mesa-build/mesa-ps4"
 git config --global --add safe.directory "$CACHE/abi4/source"
 
+# The ABI-v4 cache can be seeded by a different Kubernetes pod UID. These are
+# the only generated cache directories the package job rewrites: the patched
+# kernelbase object/DLL and the relinked PS4 PRXs. Make those writable by this
+# runner instead of chowning the full 26 GB cache.
+RUNNER_OWNER="$(id -u):$(id -g)"
+for writable in \
+  "$CACHE/abi4/source/.deps/wine-host/build/dlls/kernelbase/i386-windows" \
+  "$CACHE/abi4/build/wine-ps5/prx"; do
+  [[ -d $writable ]] || { echo "missing writable ABI-v4 build directory: $writable" >&2; exit 1; }
+  sudo chown -R "$RUNNER_OWNER" "$writable"
+done
+
 echo "cache manifest:"
 cat "$CACHE/manifest.txt"
 echo "linked cached PS4 SDK, Wine, Mesa/RADV, and firmware inputs"
