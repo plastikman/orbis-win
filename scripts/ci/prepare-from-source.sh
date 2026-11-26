@@ -63,8 +63,10 @@ prepare_orbis_compat() {
         git clone -q --no-checkout https://github.com/orbis-ports/orbis-compat.git \
             "$PINNED_ORBIS_COMPAT"
     fi
-    git -C "$PINNED_ORBIS_COMPAT" fetch -q origin "$base"
-    git -C "$PINNED_ORBIS_COMPAT" checkout -q --detach FETCH_HEAD
+    # BASE.txt intentionally records the project's short commit ID. Clone the
+    # public history and resolve it locally, as the source-build workflow does;
+    # fetching an abbreviated SHA directly is not supported by GitHub.
+    git -C "$PINNED_ORBIS_COMPAT" checkout -q --detach "$base"
     git -C "$PINNED_ORBIS_COMPAT" reset --hard -q "$base"
     git -C "$PINNED_ORBIS_COMPAT" clean -fdx -q
     git -C "$PINNED_ORBIS_COMPAT" apply \
