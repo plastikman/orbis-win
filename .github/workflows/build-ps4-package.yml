@@ -133,7 +133,7 @@ jobs:
 
       # source-build refreshes the pinned Wine, PE and PS4 module outputs, then
       # packages those outputs with the still-validated ABI-v4 WoW64 pair and
-      # the known-good OpenGL provider from the baseline stage. The generic
+      # the validated OpenGL provider from the ABI-v4 cache. The generic
       # ABI-v4 cache remains available for ordinary cache-backed builds. Keep
       # the source clone out of the shared (older, mutable) prospero-win cache.
       - name: Rebuild the pinned Wine inputs for the source package
@@ -227,7 +227,7 @@ jobs:
             PW_RADV_MESA_SRC="$GITHUB_WORKSPACE/mesa-build-source-build/mesa-ps4" \
             PW_RADV_MESA_BUILD="$GITHUB_WORKSPACE/mesa-build-source-build/mesa-ps4/build-orbis" \
             WOW64NATIVE_DLL=/orbis-cache/deps/abi4/native/x86_64-windows/wow64native.dll \
-            PW_MESA_ZINK_DIR="$GITHUB_WORKSPACE/pkgout/baseline/win/mesa-zink" \
+            PW_MESA_ZINK_DIR=/orbis-cache/deps/abi4/mesa-zink \
               scripts/ci/build-abi4-package.sh
           else
             scripts/ci/build-abi4-package.sh
