@@ -108,6 +108,12 @@ jobs:
         if: ${{ inputs.build_mode != 'from-source' }}
         run: scripts/ci/prepare-runner.sh
 
+      # The source package mode runs the same Mesa build as build-from-source.yml.
+      # Mesa's pinned dependency environment is provided by nix develop nixpkgs#mesa.
+      - name: Nix (Mesa's build deps come from nix develop nixpkgs#mesa)
+        if: ${{ inputs.build_mode == 'from-source' }}
+        uses: DeterminateSystems/nix-installer-action@main
+
       # The from-source path: every input built from the pins in this repo.
       # Hours on a cold runner, minutes on a warm one (the steps are stamped).
       - name: Build every input from source
