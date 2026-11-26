@@ -128,6 +128,31 @@ PW_ROOT=$PW sh "$ROOT/scripts/radv-prx-ps4.sh"
 PW_ROOT=$PW sh "$ROOT/scripts/freetype-prx-ps4.sh"
 PW_ROOT=$PW sh "$ROOT/scripts/wineps5-prx-ps4.sh"
 
+# source-build refreshes Wine and relinks every PRX, but packages the validated
+# ABI-v4 wow64native.dll from the shared cache. Keep its Unix companion from the
+# same validated build as well; a freshly relinked PRX is not interchangeable
+# with that PE even when the source code is unchanged (the pair is hash-pinned
+# below by build-app-ps4.sh).
+if [[ -n ${WOW64NATIVE_PRX_OVERRIDE:-} ]]; then
+  cached_native_prx=$WOW64NATIVE_PRX_OVERRIDE
+  cached_native_elf=${WOW64NATIVE_SHARED_ELF_OVERRIDE:-${cached_native_prx%.prx}.shared.elf}
+  [[ -f $cached_native_prx ]] || {
+    echo "missing validated ABI-v4 wow64native PRX: $cached_native_prx" >&2; exit 1;
+  }
+  [[ -f $cached_native_elf ]] || {
+    echo "missing matching ABI-v4 wow64native shared ELF: $cached_native_elf" >&2; exit 1;
+  }
+  cached_native_hash=$(sha256sum "$cached_native_prx" | cut -d' ' -f1)
+  [[ $cached_native_hash == "$WOW64NATIVE_ABI4_PRX_SHA256" ]] || {
+    echo "cached ABI-v4 wow64native PRX has unexpected SHA-256: $cached_native_hash" >&2
+    echo "expected: $WOW64NATIVE_ABI4_PRX_SHA256" >&2
+    exit 1
+  }
+  cp "$cached_native_prx" "$PW/.deps/wine-ps5/prx/sce_module/wow64native.prx"
+  cp "$cached_native_elf" "$PW/.deps/wine-ps5/prx/wow64native.shared.elf"
+  echo "restored hash-matched ABI-v4 wow64native PE/PRX pair from validated cache"
+fi
+
 log "relocatable package: no-RELRO stub eboot + high-address app PRX"
 # ⚠ Do NOT export PW_SHARED_LIBC here. The validated eboot stub and app PRX link
 # libc statically; PW_SHARED_LIBC=1 produced a 39,840-byte stub and an 812 KB

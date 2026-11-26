@@ -227,6 +227,8 @@ jobs:
             PW_RADV_MESA_SRC="$GITHUB_WORKSPACE/mesa-build-source-build/mesa-ps4" \
             PW_RADV_MESA_BUILD="$GITHUB_WORKSPACE/mesa-build-source-build/mesa-ps4/build-orbis" \
             WOW64NATIVE_DLL=/orbis-cache/deps/abi4/native/x86_64-windows/wow64native.dll \
+            WOW64NATIVE_PRX_OVERRIDE=/orbis-cache/deps/abi4/build/wine-ps5/prx/sce_module/wow64native.prx \
+            WOW64NATIVE_SHARED_ELF_OVERRIDE=/orbis-cache/deps/abi4/build/wine-ps5/prx/wow64native.shared.elf \
             PW_MESA_ZINK_DIR=/orbis-cache/deps/abi4/mesa-zink \
               scripts/ci/build-abi4-package.sh
           else

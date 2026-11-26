@@ -51,9 +51,13 @@ build predates the pinned Prosperowin Winebus patch and has no `winebus.so`
 link input (`Build PS4 package`, run 45782989081). The `source-build` package
 path now builds the pinned Prosperowin Wine host and PS4 trees, including
 Winebus, and packages those outputs while retaining the known-good ABI-v4
-WoW64 pair and OpenGL provider from the baseline. The existing package parity
-and signature checks remain required. No package from this branch has yet
-passed those gates or been installed and console-tested.
+WoW64 pair and OpenGL provider from the baseline. The first source-build run
+found that it relinked `wow64native.prx` from the fresh source tree while taking
+`wow64native.dll` from the validated cache; the package gate correctly rejected
+that mismatched pair. The source-build path now restores both the cache's
+hash-verified PRX and its matching shared ELF before packaging. The existing
+package parity and signature checks remain required. No package from this
+branch has yet passed those gates or been installed and console-tested.
 
 ## Console validation
 
