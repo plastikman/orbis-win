@@ -40,6 +40,51 @@ pin_stamp() { cat "$@" 2>/dev/null | sha256sum | cut -c1-16; }
 stamped sdk "$(sha256sum "$ROOT/scripts/fetch-sdk.sh" | cut -c1-16)" \
     "$ROOT/scripts/fetch-sdk.sh"
 
+# ------------------------------------------------------------- orbis-compat
+# The package workflow must build the same pinned compatibility library as
+# build-from-source.yml. The PS4 toolchain wrapper and Wine PRXs need the
+# SIG_UNBLOCK=2 ABI fix; the SDK bundle's older copy silently selects the wrong
+# signal operation and disables native WoW64.
+PINNED_ORBIS_COMPAT="$WORK/orbis-compat-pin"
+prepare_orbis_compat() {
+    local base origin
+    base=$(tr -d '[:space:]' < "$ROOT/src/orbis-compat-pin/BASE.txt")
+    if [[ -d $PINNED_ORBIS_COMPAT/.git ]]; then
+        origin=$(git -C "$PINNED_ORBIS_COMPAT" remote get-url origin)
+        [[ $origin == https://github.com/orbis-ports/orbis-compat.git || \
+           $origin == git@github.com:orbis-ports/orbis-compat.git ]] || {
+            echo "unexpected origin for managed orbis-compat checkout: $origin" >&2
+            exit 1
+        }
+    elif [[ -e $PINNED_ORBIS_COMPAT ]]; then
+        echo "refusing to replace non-git path: $PINNED_ORBIS_COMPAT" >&2
+        exit 1
+    else
+        git clone -q --no-checkout https://github.com/orbis-ports/orbis-compat.git \
+            "$PINNED_ORBIS_COMPAT"
+    fi
+    git -C "$PINNED_ORBIS_COMPAT" fetch -q origin "$base"
+    git -C "$PINNED_ORBIS_COMPAT" checkout -q --detach FETCH_HEAD
+    git -C "$PINNED_ORBIS_COMPAT" reset --hard -q "$base"
+    git -C "$PINNED_ORBIS_COMPAT" clean -fdx -q
+    git -C "$PINNED_ORBIS_COMPAT" apply \
+        "$ROOT/src/orbis-compat-pin/orbis-compat-delta.patch"
+    cp -a "$ROOT/src/orbis-compat-pin/cmake/." "$PINNED_ORBIS_COMPAT/cmake/"
+    OO_PS4_TOOLCHAIN="$ROOT/sdk/orbis-sdk-v1/sdk" \
+        bash "$PINNED_ORBIS_COMPAT/build.sh"
+    grep -q 'define[[:space:]]\+SIG_UNBLOCK[[:space:]]\+2' \
+        "$PINNED_ORBIS_COMPAT/include/signal.h" || {
+            echo "pinned orbis-compat lacks the PS4 SIG_UNBLOCK value" >&2
+            exit 1
+        }
+}
+stamped orbis-compat \
+    "$(pin_stamp "$ROOT/src/orbis-compat-pin/BASE.txt" \
+        "$ROOT/src/orbis-compat-pin/orbis-compat-delta.patch" \
+        "$ROOT"/src/orbis-compat-pin/cmake/*)" \
+    prepare_orbis_compat
+export PW_ORBIS_COMPAT="$PINNED_ORBIS_COMPAT"
+
 # ------------------------------------------------------------- prospero-win
 say "prospero-win: checking pinned native-module build source"
 "$ROOT/scripts/ci/checkout-prospero-win.sh"
