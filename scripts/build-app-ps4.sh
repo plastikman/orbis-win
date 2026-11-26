@@ -93,13 +93,22 @@ PW_RELEASE_VERSION="${PW_RELEASE_VERSION:-$(tr -d '[:space:]' < "$ROOT/VERSION" 
 CFL="-std=gnu11 -O2 -fPIC -DPW_RELEASE_VERSION=\"$PW_RELEASE_VERSION\" -DPW_BUILD_ID=\"${PW_BUILD_ID:-unknown-local}\" -DPW_WINE64_WAIT_WATCHDOG=$PW_WINE64_WAIT_WATCHDOG -DPW_WINE64_SERVER_DIRECT_OFF=$PW_WINE64_SERVER_DIRECT_OFF -DPW_WINE64_HEAP_FLEXIBLE=$PW_WINE64_HEAP_FLEXIBLE $INC $PS5LOG_NET"
 
 say "compile: portable core (DBT + launcher) and the portable half of native/"
-for f in "$PW"/src/*.c "$PW"/native/wine64_main.c "$PW"/native/pw_data_mount.c \
+WINE64_MAIN_SOURCE="$PW/native/wine64_main.c"
+WINE64_MAIN_PATCH="$ROOT/src/prospero-win-patches-ps4/ps4-overlay-wine64-map-mounted-usb-drives.patch"
+if [[ -f $WINE64_MAIN_PATCH ]]; then
+  mkdir -p "$OBJ/native"
+  cp "$PW/native/wine64_main.c" "$OBJ/native/wine64_main.c"
+  patch --directory="$OBJ" --strip=1 --batch < "$WINE64_MAIN_PATCH"
+  WINE64_MAIN_SOURCE="$OBJ/native/wine64_main.c"
+fi
+for f in "$PW"/src/*.c "$PW"/native/pw_data_mount.c \
          "$PW"/native/pw_diagnostics.c "$PW"/native/pw_wine_display.c \
          "$PW"/native/pw_wine_library.c "$PW"/native/pw_wine_prefix.c \
          "$PW"/native/pw_osk_ps5.c "$PW"/native/pw_update_ps4.c "$PW"/native/ps5log/*.c; do
   [ -f "$f" ] || continue
   $CC $CFL -c "$f" -o "$OBJ/$(echo "${f#$PW/}" | tr '/' '_' | sed 's/\.c$/.o/')"
 done
+$CC $CFL -c "$WINE64_MAIN_SOURCE" -o "$OBJ/native_wine64_main.o"
 
 say "compile: upstream platform cores, PS5 vtables guarded out"
 $CC $CFL -DPW_PAD_PS5_HOST_TEST   -c "$PW/native/pw_pad_ps5.c"   -o "$OBJ/core_pad.o"
@@ -121,7 +130,8 @@ say "compile: this port's platform layer"
 # carry the translator's diagnostics, so it needs the same logger the PRX has.
 for f in "$ROOT"/src/native/pw_videoout_ps4.c "$ROOT"/src/native/pw_pad_ps4.c \
          "$ROOT"/src/native/pw_audio_ps4.c "$ROOT"/src/native/pw_platform_bind_ps4.c \
-         "$ROOT"/src/native/pw_wow_log_ps4.c "$ROOT"/src/native/pw_osk_ps4.c; do
+         "$ROOT"/src/native/pw_wow_log_ps4.c "$ROOT"/src/native/pw_osk_ps4.c \
+         "$ROOT"/src/native/pw_external_storage_ps4.c; do
   $CC $CFL -c "$f" -o "$OBJ/ps4_$(basename "$f" .c).o"
 done
 $CC $CFL -c "$ROOT/src/native/pw_netctl_ps4.c" -o "$OBJ/ps4_pw_netctl_ps4.o"

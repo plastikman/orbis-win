@@ -1,0 +1,65 @@
+--- a/native/wine64_main.c
++++ b/native/wine64_main.c
+@@ -37,6 +37,7 @@
+ #include "../src/pw_wine_launch.h"
+ #include "../src/pw_game_menu.h"
+ #include "pw_data_mount.h"
++#include "pw_external_storage_ps4.h"
+ #include "pw_audio_ps5.h"
+ #include "pw_pad_ps5.h"
+ #include "pw_hid_ps5.h"
+@@ -703,6 +704,8 @@
+ {
+     int app_id, rc = -1;
+ 
++    pw_external_storage_restore("leave-to-home");
++
+     display_quiesce(reason);
+     app_id = sceSystemServiceGetAppIdOfRunningBigApp();
+     PS5LOG_LOG("PW_WINE64 leave close app_id=0x%x", (unsigned)app_id);
+@@ -740,7 +743,9 @@
+         PS5LOG_LOG("PW_WINE64 restart to=%s cycle=%u reason=%s eboot=%s", app ? app->id : "launcher",
+                    (unsigned)cycle, reason, eboots[i]);
+         pw_diagnostics_close(reason);
++        int storage_was_enabled = pw_external_storage_restore_for_loadexec();
+         int rc = sceSystemServiceLoadExec(eboots[i], next);
++        pw_external_storage_resume_after_failed_loadexec(storage_was_enabled);
+         pw_diagnostics_resume();
+         PS5LOG_LOG("PW_WINE64 restart failed rc=0x%08x", (unsigned)rc);
+     }
+@@ -772,6 +777,7 @@
+                mount.helper_errno, mount.data_after, mount.elevated_after, mount.waited_ms,
+                mount.settled_ms, status == 0 ? library_root : "unavailable");
+     if (status != 0) return -1;
++    (void)pw_external_storage_enable_if_requested(library_root);
+     status = pw_wine_library_load(&library, library_root);
+     catalog_count = 0;
+     for (uint32_t i = 0; i < library.count; i++) {
+@@ -813,6 +819,11 @@
+ static void osk_log(const char *line)
+ {
+     PS5LOG_LOG("PW_WINE64 osk %s", line);
++}
++
++static void external_storage_log(const char *line)
++{
++    PS5LOG_LOG("PW_WINE64 %s", line);
+ }
+ 
+ /* The process's CPU time, user and system, in milliseconds: a stall that
+@@ -1101,6 +1112,7 @@
+     if (ps5log_load_config(ps5log_default_conf_paths, ps5log_default_conf_path_count,
+                            &log_config, NULL) == 0)
+         ps5log_init(&log_config, PW_TITLE_ID, PW_APP_NAME, now_ns());
++    pw_external_storage_set_log(external_storage_log);
+     pw_hid_ps5_preload(hid_log);   /* before the /data grant changes the title's credentials */
+     pw_osk_ps5_preload(osk_log);   /* the dialog's module is a system module too */
+     if (open_library() != 0) {
+@@ -1132,6 +1144,7 @@
+         snprintf(prefix, sizeof(prefix), "%s/prefixes/%s", library_root, game->app.prefix);
+     else
+         snprintf(prefix, sizeof(prefix), "%s/prefix", library_root);
++    pw_external_storage_prepare_prefix(prefix);
+     snprintf(radv_cache, sizeof(radv_cache), "%s/cache/radv", library_root);
+     if (game) {
+         int input_status = pw_wine_library_input(game, library_root, &game_input);
