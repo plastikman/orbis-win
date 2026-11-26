@@ -95,14 +95,16 @@ stamped wine-runtime "$(pin_stamp "$ROOT/src/wine-trees/wine-host-HEAD.txt" \
 
 build_wine_ps5() {
     PROSPERO_WINE_PREPATCHED=1 PW_PRX_LINK=1 \
-        sh "$PW/tools/build_wine_ps5.sh" --sdk "$ROOT/build/ps4-wine-sdk"
+        sh "$PW/tools/build_wine_ps5.sh" --source "$PW/.deps/wine-ps5/source" \
+            --sdk "$ROOT/build/ps4-wine-sdk"
 }
 stamped wine-ps5 "$(pin_stamp "$ROOT/src/wine-trees/wine-ps5-HEAD.txt" \
     "$ROOT/src/prospero-win-HEAD.txt" "$PW/tools/build_wine_ps5.sh")" build_wine_ps5
 
 build_host_wine() {
     PROSPERO_WINE_PREPATCHED=1 \
-        sh "$PW/tools/build_host_wine.sh" --work "$PW/.deps/wine-host" --jobs "$JOBS"
+        sh "$PW/tools/build_host_wine.sh" --source "$PW/.deps/wine-host/source" \
+            --work "$PW/.deps/wine-host" --jobs "$JOBS"
 }
 stamped wine-host "$(pin_stamp "$ROOT/src/wine-trees/wine-host-HEAD.txt" \
     "$ROOT/src/prospero-win-HEAD.txt" "$PW/tools/build_host_wine.sh" \

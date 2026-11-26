@@ -25,7 +25,7 @@ if [[ "$current" != "$PIN" ]]; then
         echo "expected $PIN; found $current" >&2
         exit 1
     fi
-    git -C "$PW" fetch -q origin "refs/heads/$REF"
+    git -C "$PW" fetch -q "$REMOTE" "refs/heads/$REF"
     git -C "$PW" cat-file -e "$PIN^{commit}" || {
         echo "pinned Prosperowin commit $PIN is not reachable from $REF" >&2
         exit 1

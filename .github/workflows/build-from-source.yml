@@ -128,7 +128,9 @@ jobs:
       - name: PS4 Wine (from the pinned tree)
         run: |
           PROSPERO_WINE_PREPATCHED=1 PW_PRX_LINK=1 \
-            sh prospero-win/tools/build_wine_ps5.sh --sdk "$PWD/build/ps4-wine-sdk"
+            sh prospero-win/tools/build_wine_ps5.sh \
+              --source "$PWD/prospero-win/.deps/wine-ps5/source" \
+              --sdk "$PWD/build/ps4-wine-sdk"
 
       # ⚠ THE BUNDLE'S orbis-compat HERE, ON PURPOSE, and not $PW_ORBIS_COMPAT.
       # RADV built against the pin faults at run time (see the PRX step). fetch-sdk.sh
