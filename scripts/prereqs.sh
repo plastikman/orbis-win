@@ -63,12 +63,14 @@ if (( devmissing )); then
 fi
 
 # nix is a hard requirement of the Mesa build (build-support/orbis/build.sh
-# refuses without it) and needs a group membership, which an install alone does
-# not give you.
-if command -v nix >/dev/null && ! id -nG | tr " " "\n" | grep -qx nix-users; then
-    echo "note: nix is installed but you are not in nix-users;" \
-         "the Mesa build will fail with 'daemon-socket/socket: Permission denied'."
-    echo "      sudo usermod -aG nix-users \"$USER\"   (then log out and back in)"
+# refuses without it). Check whether this process can actually reach the store;
+# Nix's GitHub Action may provide working daemon access without adding the
+# runner account to nix-users, and some runner environments leave USER unset.
+if command -v nix >/dev/null && ! nix store ping >/dev/null 2>&1; then
+    nix_user=${USER:-$(id -un)}
+    echo "note: nix is installed but its store is not reachable;" \
+         "the Mesa build may fail with a daemon-socket permission error."
+    echo "      check Nix daemon access for \"$nix_user\" and the nix-users group."
 fi
 
 say "host is ready"
