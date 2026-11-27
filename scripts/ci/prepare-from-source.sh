@@ -142,9 +142,9 @@ stamped wine-runtime "$(pin_stamp "$ROOT/src/wine-trees/wine-host-HEAD.txt" \
     sh "$PW/tools/build_wine_runtime.sh" --jobs "$JOBS"
 
 build_wine_ps5() {
-    # 1038 is part of the pinned Wine source now. The PS4 PE cross-build can
-    # otherwise reuse an iphlpapi object from before the NetCtl fallback was
-    # added, even though it refreshes the copied PE output directory.
+    # The PS4 legacy GetAdaptersInfo fallback remains an explicit overlay
+    # because Prosperowin's newer NetCtl patch only covers GetAdaptersAddresses.
+    # Drop prior objects so the PE DLL cannot silently retain pre-overlay code.
     local iphlpapi_objects="$PW/.deps/wine-ps5/build/dlls/iphlpapi"
     if [[ -d $iphlpapi_objects ]]; then
         find "$iphlpapi_objects" -type f -name '*.o' -delete
@@ -152,11 +152,12 @@ build_wine_ps5() {
     PROSPERO_WINE_PREPATCHED=1 PW_PRX_LINK=1 \
         sh "$PW/tools/build_wine_ps5.sh" --source "$PW/.deps/wine/source" \
             --sdk "$ROOT/build/ps4-wine-sdk"
+    git -C "$PW/.deps/wine-ps5/source" apply --index \
+        "$ROOT/src/wine-overlays-ps4/iphlpapi-legacy-netctl.patch"
     for arch in i386 x86_64; do
         local target="dlls/iphlpapi/$arch-windows/iphlpapi.dll"
-        # iphlpapi is not in Prosperowin's PE_MODULES list because it has no
-        # PS5-specific patch. The PS4 package does ship this patched PE DLL,
-        # though, so build and stage it explicitly from the same patched tree.
+        # iphlpapi is not in Prosperowin's PE_MODULES list, so build and stage
+        # it explicitly from the patched tree for the PS4 package.
         make -C "$PW/.deps/wine-ps5/build" -j"$JOBS" "$target" \
             >> "$PW/.deps/wine-ps5/make.log" 2>&1
         cp "$PW/.deps/wine-ps5/build/$target" \
