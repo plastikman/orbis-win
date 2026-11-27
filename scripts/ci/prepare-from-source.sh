@@ -153,6 +153,14 @@ build_wine_ps5() {
         sh "$PW/tools/build_wine_ps5.sh" --source "$PW/.deps/wine/source" \
             --sdk "$ROOT/build/ps4-wine-sdk"
     for arch in i386 x86_64; do
+        local target="dlls/iphlpapi/$arch-windows/iphlpapi.dll"
+        # iphlpapi is not in Prosperowin's PE_MODULES list because it has no
+        # PS5-specific patch. The PS4 package does ship this patched PE DLL,
+        # though, so build and stage it explicitly from the same patched tree.
+        make -C "$PW/.deps/wine-ps5/build" -j"$JOBS" "$target" \
+            >> "$PW/.deps/wine-ps5/make.log" 2>&1
+        cp "$PW/.deps/wine-ps5/build/$target" \
+            "$PW/.deps/wine-ps5/pe/$arch-windows/"
         strings "$PW/.deps/wine-ps5/pe/$arch-windows/iphlpapi.dll" |
             grep -Fq 'PW_ADAPTERS_INFO PS4 NetCtl fallback' || {
                 echo "iphlpapi.dll lacks the pinned PS4 NetCtl adapter fallback ($arch)" >&2
