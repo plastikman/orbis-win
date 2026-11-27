@@ -150,7 +150,7 @@ build_wine_ps5() {
         find "$iphlpapi_objects" -type f -name '*.o' -delete
     fi
     PROSPERO_WINE_PREPATCHED=1 PW_PRX_LINK=1 \
-        sh "$PW/tools/build_wine_ps5.sh" --source "$PW/.deps/wine-ps5/source" \
+        sh "$PW/tools/build_wine_ps5.sh" --source "$PW/.deps/wine/source" \
             --sdk "$ROOT/build/ps4-wine-sdk"
     for arch in i386 x86_64; do
         strings "$PW/.deps/wine-ps5/pe/$arch-windows/iphlpapi.dll" |
