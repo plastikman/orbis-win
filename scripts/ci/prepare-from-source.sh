@@ -226,8 +226,8 @@ stamped mesa "$(pin_stamp "$ROOT/src/mesa-trees/mesa-ps4-HEAD.txt")" build_mesa
 # Always relinked: they are cheap next to the Wine build and they are what the
 # package stages. A stale PRX is the failure this project has shipped most.
 say "PRX modules"
-sh "$ROOT/scripts/prx-ps4.sh"
-sh "$ROOT/scripts/freetype-prx-ps4.sh"
+PW_ROOT="$PW" sh "$ROOT/scripts/prx-ps4.sh"
+PW_ROOT="$PW" sh "$ROOT/scripts/freetype-prx-ps4.sh"
 # ⚠ The PRX link reads the STAGED archive (prospero-clang's OCLIB,
 # build/ps4-wine-sdk/liborbis-compat-16bit-wchar.a), NOT $PW_ORBIS_COMPAT -- that
 # only steers the executable link and the toolchain guard. So stage the bundle for
@@ -238,9 +238,9 @@ cp "$OCLIB_STAGED" "$OCLIB_STAGED.pin-backup"
 cp "$MESA_ORBIS_COMPAT/build/liborbis-compat.a" "$OCLIB_STAGED"
 PW_RADV_MESA_SRC="$MESA_ROOT/mesa-ps4" \
 PW_RADV_MESA_BUILD="$MESA_ROOT/mesa-ps4/build-orbis" \
-    sh "$ROOT/scripts/radv-prx-ps4.sh"
+    PW_ROOT="$PW" sh "$ROOT/scripts/radv-prx-ps4.sh"
 mv "$OCLIB_STAGED.pin-backup" "$OCLIB_STAGED"
-sh "$ROOT/scripts/wineps5-prx-ps4.sh"
+PW_ROOT="$PW" sh "$ROOT/scripts/wineps5-prx-ps4.sh"
 
 say "from-source inputs ready"
 ls -la "$PW/.deps/wine-ps5/prx/sce_module/"
