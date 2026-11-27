@@ -33,11 +33,14 @@ links `winebus.so` as `winebus.prx`. The package gate compares the staged
 `kernelbase.dll`, `iphlpapi.dll`, `mmdevapi.dll`, `winebus.sys`, and
 `winebus.prx` byte-for-byte with those build inputs.
 
-The source/build support for these paired modules is in
-`plastikman/prospero-win` branch `codex/issue8-native-parity` (commit
-`fd3c54f`). `src/prospero-win-HEAD.txt` pins that exact build revision, and
-`scripts/ci/checkout-prospero-win.sh` selects it for local and source CI builds.
-An older Prosperowin checkout does not produce all required PE inputs.
+The no-proxy changes originated in `plastikman/prospero-win` branch
+`codex/issue8-native-parity` (commit `fd3c54f`). The package build now pins the
+current `game-settings` glue tree (`3cca6a0`) because the earlier pin predates
+the existing PS4 guest-exit and per-controller exports. The corresponding
+Splinter Cell Wine changes remain in this repository's pinned Wine patch tree;
+`scripts/ci/checkout-prospero-win.sh` selects the glue-source revision for local
+and source CI builds. An older Prosperowin checkout does not produce all
+required PE inputs or preserve the current PS4 runtime interfaces.
 
 The cache-backed ABI-v4 package path applies
 `src/wine-patches-ps4/conviction-loading-tier-abi4.patch` to its Wine host source

@@ -124,7 +124,26 @@ mkdir -p "$OUT/pe"
 log "Unix PRXs, PS4 RADV, FreeType, wineps5"
 # prx-ps4.sh and radv-prx-ps4.sh set PW_SHARED_LIBC for the modules themselves.
 PW_ROOT=$PW sh "$ROOT/scripts/prx-ps4.sh"
-PW_ROOT=$PW sh "$ROOT/scripts/radv-prx-ps4.sh"
+# RADV must link the SDK bundle's orbis-compat archive. The compiler wrapper
+# reads the archive staged under its historical filename, so swap the bundle
+# archive in just for this link and restore the pinned archive immediately.
+(
+  set -euo pipefail
+  staged_compat="$ROOT/build/ps4-wine-sdk/liborbis-compat-16bit-wchar.a"
+  bundle_compat="$ROOT/sdk/orbis-sdk-v1/orbis-compat/build/liborbis-compat.a"
+  compat_backup="$OUT/orbis-compat-pin-backup.a"
+  [[ -f $staged_compat && -f $bundle_compat ]] || {
+    echo "missing staged or bundle orbis-compat archive for RADV" >&2; exit 1;
+  }
+  cp "$staged_compat" "$compat_backup"
+  restore_compat() { cp "$compat_backup" "$staged_compat"; rm -f "$compat_backup"; }
+  trap restore_compat EXIT
+  cp "$bundle_compat" "$staged_compat"
+  PW_ROOT=$PW \
+  PW_RADV_MESA_SRC="${PW_RADV_MESA_SRC:-$ROOT/mesa-build/mesa-ps4}" \
+  PW_RADV_MESA_BUILD="${PW_RADV_MESA_BUILD:-${PW_RADV_MESA_SRC:-$ROOT/mesa-build/mesa-ps4}/build-orbis}" \
+    sh "$ROOT/scripts/radv-prx-ps4.sh"
+)
 PW_ROOT=$PW sh "$ROOT/scripts/freetype-prx-ps4.sh"
 PW_ROOT=$PW sh "$ROOT/scripts/wineps5-prx-ps4.sh"
 

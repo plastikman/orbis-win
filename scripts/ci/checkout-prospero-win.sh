@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 REMOTE="${PW_PROSPERO_REMOTE:-https://github.com/plastikman/prospero-win.git}"
-REF="${PW_PROSPERO_REF:-codex/issue8-native-parity}"
+REF="${PW_PROSPERO_REF:-game-settings}"
 PW="${PW_PROSPERO_ROOT:-$ROOT/prospero-win}"
 PIN="$(tr -d '\r\n' < "$ROOT/src/prospero-win-HEAD.txt")"
 
