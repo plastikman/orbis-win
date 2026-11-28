@@ -160,14 +160,28 @@ build_wine_ps5() {
         dlls/winebus.sys/winebus.so >> "$PW/.deps/wine-ps5/make.log" 2>&1
     git -C "$PW/.deps/wine-ps5/source" apply --index \
         "$ROOT/src/wine-overlays-ps4/iphlpapi-legacy-netctl.patch"
+    # These PE modules are required by the PS4 package but omitted from
+    # Prosperowin's PE_MODULES list. Clear their PE objects to ensure the
+    # patched source is actually compiled, leaving winebus's Unix objects
+    # (used by the PRX link) intact.
+    for module in mmdevapi winebus.sys; do
+        for arch in i386 x86_64; do
+            local pe_objects="$PW/.deps/wine-ps5/build/dlls/$module/$arch-windows"
+            if [[ -d $pe_objects ]]; then
+                find "$pe_objects" -type f -name '*.o' -delete
+            fi
+        done
+    done
     for arch in i386 x86_64; do
-        local target="dlls/iphlpapi/$arch-windows/iphlpapi.dll"
-        # iphlpapi is not in Prosperowin's PE_MODULES list, so build and stage
-        # it explicitly from the patched tree for the PS4 package.
-        make -C "$PW/.deps/wine-ps5/build" -j"$JOBS" "$target" \
-            >> "$PW/.deps/wine-ps5/make.log" 2>&1
-        cp "$PW/.deps/wine-ps5/build/$target" \
-            "$PW/.deps/wine-ps5/pe/$arch-windows/"
+        # Build all PS4 package PE overrides from this patched Wine tree.
+        for target in "dlls/iphlpapi/$arch-windows/iphlpapi.dll" \
+                      "dlls/mmdevapi/$arch-windows/mmdevapi.dll" \
+                      "dlls/winebus.sys/$arch-windows/winebus.sys"; do
+            make -C "$PW/.deps/wine-ps5/build" -j"$JOBS" "$target" \
+                >> "$PW/.deps/wine-ps5/make.log" 2>&1
+            cp "$PW/.deps/wine-ps5/build/$target" \
+                "$PW/.deps/wine-ps5/pe/$arch-windows/"
+        done
         strings "$PW/.deps/wine-ps5/pe/$arch-windows/iphlpapi.dll" |
             grep -Fq 'PW_ADAPTERS_INFO PS4 NetCtl fallback' || {
                 echo "iphlpapi.dll lacks the pinned PS4 NetCtl adapter fallback ($arch)" >&2
