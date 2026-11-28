@@ -152,6 +152,12 @@ build_wine_ps5() {
     PROSPERO_WINE_PREPATCHED=1 PW_PRX_LINK=1 \
         sh "$PW/tools/build_wine_ps5.sh" --source "$PW/.deps/wine/source" \
             --sdk "$ROOT/build/ps4-wine-sdk"
+    # The pinned Prosperowin TARGETS list omits winebus.sys's Unix library,
+    # while the PS4 PRX stage links it from that target's object list in
+    # make.log. Build it from the same patched Wine tree and append the link
+    # command before scripts/prx-ps4.sh reads the log.
+    make -C "$PW/.deps/wine-ps5/build" -j"$JOBS" \
+        dlls/winebus.sys/winebus.so >> "$PW/.deps/wine-ps5/make.log" 2>&1
     git -C "$PW/.deps/wine-ps5/source" apply --index \
         "$ROOT/src/wine-overlays-ps4/iphlpapi-legacy-netctl.patch"
     for arch in i386 x86_64; do
@@ -170,7 +176,9 @@ build_wine_ps5() {
     done
 }
 stamped wine-ps5 "$(pin_stamp "$ROOT/src/wine-trees/wine-ps5-HEAD.txt" \
-    "$ROOT/src/prospero-win-HEAD.txt" "$PW/tools/build_wine_ps5.sh")" build_wine_ps5
+    "$ROOT/src/prospero-win-HEAD.txt" "$PW/tools/build_wine_ps5.sh" \
+    "$ROOT/scripts/ci/prepare-from-source.sh" \
+    "$ROOT/src/wine-overlays-ps4/iphlpapi-legacy-netctl.patch")" build_wine_ps5
 
 build_host_wine() {
     PROSPERO_WINE_PREPATCHED=1 \
